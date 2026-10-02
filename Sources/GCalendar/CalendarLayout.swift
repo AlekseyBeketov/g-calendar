@@ -23,15 +23,18 @@ enum TaskWorkspaceLayout {
 enum CalendarGridLayout {
     static let minimumColumnWidth = 220.0
     static let minimumWeekColumnWidth = 160.0
+    static let timeAxisWidth = 44.0
+    static let headerHeight = 56.0
+    static let pointsPerMinute = 0.8
     static let dateOnlyRegionHeight = 116.0
 
     static func columnWidth(isDayView: Bool,
                             availableWidth: Double,
                             visibleDayCount: Int = 7,
                             interColumnSpacing: Double = 10) -> Double {
-        if isDayView { return max(minimumColumnWidth, availableWidth) }
+        if isDayView { return max(minimumColumnWidth, availableWidth - timeAxisWidth - interColumnSpacing) }
         let dayCount = max(1, visibleDayCount)
-        let totalSpacing = interColumnSpacing * Double(max(0, dayCount - 1))
+        let totalSpacing = timeAxisWidth + interColumnSpacing * Double(dayCount)
         return max(minimumWeekColumnWidth, (availableWidth - totalSpacing) / Double(dayCount))
     }
 }
@@ -58,6 +61,13 @@ struct CalendarTimedPlacement: Equatable, Identifiable {
     var id: CalendarEventIdentity { identity }
 }
 
+struct CalendarHourMark: Identifiable {
+    let id: Int
+    let localHour: Int
+    let offsetMinutes: Double
+    let label: String
+}
+
 private struct TimedInterval {
     let identity: CalendarEventIdentity
     let start: Date
@@ -72,6 +82,31 @@ enum CalendarTimeGridLayout {
         let start = calendar.startOfDay(for: date)
         guard let end = calendar.date(byAdding: .day, value: 1, to: start), start < end else { return nil }
         return CalendarDayInterval(start: start, endExclusive: end)
+    }
+
+    static func hourMarks(for interval: CalendarDayInterval, timeZone: TimeZone) -> [CalendarHourMark] {
+        var dates: [Date] = []
+        var current = interval.start
+        while current < interval.endExclusive {
+            dates.append(current)
+            current = current.addingTimeInterval(60 * 60)
+        }
+        let formatter = DateFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        var counts: [String: Int] = [:]
+        for date in dates { counts[formatter.string(from: date), default: 0] += 1 }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return dates.enumerated().map { index, date in
+            let base = formatter.string(from: date)
+            let abbreviation = timeZone.abbreviation(for: date) ?? ""
+            let label = counts[base, default: 0] > 1 ? "\(base) \(abbreviation)" : base
+            return CalendarHourMark(id: index,
+                                    localHour: calendar.component(.hour, from: date),
+                                    offsetMinutes: date.timeIntervalSince(interval.start) / 60,
+                                    label: label)
+        }
     }
 
     static func allDayEvents(_ events: [CalendarEvent], on date: Date, timeZone: TimeZone) -> [CalendarEvent] {

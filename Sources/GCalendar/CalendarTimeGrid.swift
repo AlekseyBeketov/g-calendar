@@ -10,8 +10,7 @@ struct CalendarTimeGridDay: View {
     let onEdit: (CalendarEvent) -> Void
     let onToggleTask: (GoogleTask) -> Void
 
-    private let hourGutter: CGFloat = 44
-    private let pointsPerMinute: CGFloat = 0.8
+    private let pointsPerMinute = CGFloat(CalendarGridLayout.pointsPerMinute)
     private let minimumEventHeight: CGFloat = 18
 
     private var calendarByID: [String: CalendarInfo] {
@@ -35,27 +34,28 @@ struct CalendarTimeGridDay: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(formattedDay(day, template: "EEE")).font(.caption.weight(.semibold)).textCase(.uppercase).foregroundStyle(AppTheme.textSecondary)
-                Text(formattedDay(day, template: "d")).font(.title3.weight(.medium)).foregroundStyle(AppTheme.textPrimary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-
-            dateOnlyArea
-            Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
-            timeGrid
-        }
+        timeGrid
         .frame(width: columnWidth, alignment: .topLeading)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1))
+        .background(AppTheme.surface)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(formattedDay(day, template: "EEEE, d MMMM y"))
     }
 
-    private var dateOnlyArea: some View {
+    var dayHeader: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(formattedDay(day, template: "EEE")).font(.caption.weight(.semibold)).textCase(.uppercase).foregroundStyle(AppTheme.textSecondary)
+            Text(formattedDay(day, template: "d")).font(.title3.weight(.medium)).foregroundStyle(AppTheme.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .frame(width: columnWidth, height: CGFloat(CalendarGridLayout.headerHeight), alignment: .center)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(formattedDay(day, template: "EEEE, d MMMM y"))
+    }
+
+    var dateOnlyArea: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 5) {
                 if !allDayEvents.isEmpty {
@@ -93,6 +93,7 @@ struct CalendarTimeGridDay: View {
         .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity)
         .frame(height: CGFloat(CalendarGridLayout.dateOnlyRegionHeight), alignment: .topLeading)
+        .frame(width: columnWidth)
         .background(AppTheme.canvas.opacity(0.72))
     }
 
@@ -132,21 +133,15 @@ struct CalendarTimeGridDay: View {
                 let height = CGFloat(dayInterval.durationMinutes) * pointsPerMinute
                 GeometryReader { geometry in
                     ZStack(alignment: .topLeading) {
-                        ForEach(hourMarks(for: dayInterval)) { mark in
+                        ForEach(CalendarTimeGridLayout.hourMarks(for: dayInterval, timeZone: timeZone)) { mark in
                             Rectangle()
                                 .fill(AppTheme.outline.opacity(0.30))
                                 .frame(height: 1)
-                                .offset(x: hourGutter, y: CGFloat(mark.offsetMinutes) * pointsPerMinute)
-                            Text(mark.label)
-                                .font(.system(.caption2, design: .rounded).monospacedDigit())
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .frame(width: hourGutter - 5, alignment: .trailing)
-                                .offset(y: CGFloat(mark.offsetMinutes) * pointsPerMinute - 7)
-                                .accessibilityHidden(true)
+                                .offset(y: CGFloat(mark.offsetMinutes) * pointsPerMinute)
                         }
                         ForEach(placements) { placement in
                             if let event = eventsByIdentity[placement.identity] {
-                                let availableWidth = max(0, geometry.size.width - hourGutter - 4)
+                                let availableWidth = max(0, geometry.size.width - 4)
                                 let laneWidth = availableWidth / CGFloat(max(placement.laneCount, 1))
                                 let calendar = calendarByID[event.calendarID]
                                 let color = Color(hex: calendar?.colorHex) ?? AppTheme.event
@@ -159,7 +154,7 @@ struct CalendarTimeGridDay: View {
                                         RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 2)
                                     }
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
-                                    .offset(x: hourGutter + CGFloat(placement.laneIndex) * laneWidth,
+                                    .offset(x: CGFloat(placement.laneIndex) * laneWidth,
                                             y: CGFloat(placement.startOffsetMinutes) * pointsPerMinute)
                                     .zIndex(Double(placement.laneIndex + 1))
                                     .accessibilityValue("\(Int(placement.startOffsetMinutes)) минут от начала дня, длительность \(Int(placement.durationMinutes)) минут, полоса \(placement.laneIndex + 1) из \(placement.laneCount)")
@@ -175,26 +170,6 @@ struct CalendarTimeGridDay: View {
         .padding(.bottom, 8)
     }
 
-    private func hourMarks(for interval: CalendarDayInterval) -> [CalendarHourMark] {
-        var dates: [Date] = []
-        var current = interval.start
-        while current < interval.endExclusive {
-            dates.append(current)
-            current = current.addingTimeInterval(60 * 60)
-        }
-        let formatter = DateFormatter()
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "HH:mm"
-        var counts: [String: Int] = [:]
-        for date in dates { counts[formatter.string(from: date), default: 0] += 1 }
-        return dates.enumerated().map { index, date in
-            let base = formatter.string(from: date)
-            let label = counts[base, default: 0] > 1 ? "\(base) \(timeZone.abbreviation(for: date) ?? "")" : base
-            return CalendarHourMark(id: index,
-                                    offsetMinutes: date.timeIntervalSince(interval.start) / 60,
-                                    label: label)
-        }
-    }
 
     private func formattedDay(_ date: Date, template: String) -> String {
         let formatter = DateFormatter()
@@ -204,6 +179,31 @@ struct CalendarTimeGridDay: View {
         return formatter.string(from: date)
     }
 
+}
+
+struct CalendarHourAxis: View {
+    let day: Date
+    let timeZone: TimeZone
+    let height: CGFloat
+
+    var body: some View {
+        Group {
+            if let interval = CalendarTimeGridLayout.dayInterval(containing: day, timeZone: timeZone) {
+                ZStack(alignment: .topLeading) {
+                    ForEach(CalendarTimeGridLayout.hourMarks(for: interval, timeZone: timeZone)) { mark in
+                        Text(mark.label)
+                            .font(.system(.caption2, design: .rounded).monospacedDigit())
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .frame(width: CGFloat(CalendarGridLayout.timeAxisWidth) - 5, alignment: .trailing)
+                            .offset(y: CGFloat(mark.offsetMinutes) * CGFloat(CalendarGridLayout.pointsPerMinute) - 7)
+                            .id(mark.localHour == 8 ? "calendar-hour-8" : "calendar-hour-\(mark.id)")
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(width: CGFloat(CalendarGridLayout.timeAxisWidth), height: height, alignment: .topLeading)
+            }
+        }
+    }
 }
 
 struct CalendarUndatedTaskRegion: View {
@@ -245,10 +245,4 @@ struct CalendarUndatedTaskRegion: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Задачи без срока, \(tasks.count)")
     }
-}
-
-private struct CalendarHourMark: Identifiable {
-    let id: Int
-    let offsetMinutes: Double
-    let label: String
 }

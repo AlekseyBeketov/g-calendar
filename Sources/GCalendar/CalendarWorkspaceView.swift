@@ -51,30 +51,53 @@ struct CalendarWorkspaceView: View {
                             .padding(.horizontal, 18)
                     }
                     GeometryReader { geometry in
+                        let availableWidth = Double(geometry.size.width - 36)
+                        let timeAxisWidth = CGFloat(CalendarGridLayout.timeAxisWidth)
                         let columnWidth = CGFloat(CalendarGridLayout.columnWidth(
                             isDayView: model.calendarMode == .day,
-                            availableWidth: Double(geometry.size.width - 36),
+                            availableWidth: availableWidth,
                             visibleDayCount: visibleDays.count
                         ))
-                        ScrollView(.vertical) {
-                            ScrollView(.horizontal) {
+                        let headerHeight = CGFloat(CalendarGridLayout.headerHeight)
+                        let dateOnlyHeight = CGFloat(CalendarGridLayout.dateOnlyRegionHeight)
+                        let timedHeight = max(0, geometry.size.height - headerHeight - dateOnlyHeight - 1)
+                        let axisDayMinutes = visibleDays.compactMap { CalendarTimeGridLayout.dayInterval(containing: $0, timeZone: model.selectedTimeZone)?.durationMinutes }.max() ?? 1_440
+                        let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute) + 8
+                        ScrollView(.horizontal) {
+                            VStack(spacing: 0) {
                                 HStack(alignment: .top, spacing: 10) {
+                                    Color.clear.frame(width: timeAxisWidth, height: headerHeight)
                                     ForEach(visibleDays, id: \.self) { day in
-                                        CalendarTimeGridDay(day: day,
-                                                          events: model.events(on: day),
-                                                          tasks: model.tasks(on: day),
-                                                          calendars: model.snapshot.calendars,
-                                                          timeZone: model.selectedTimeZone,
-                                                          columnWidth: columnWidth,
-                                                          onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
-                                                          onToggleTask: toggleTask)
+                                        dayColumn(day, width: columnWidth).dayHeader
                                     }
                                 }
-                                .padding(.horizontal, 18)
-                                .padding(.bottom, 14)
+                                HStack(alignment: .top, spacing: 10) {
+                                    Color.clear.frame(width: timeAxisWidth, height: dateOnlyHeight)
+                                    ForEach(visibleDays, id: \.self) { day in
+                                        dayColumn(day, width: columnWidth).dateOnlyArea
+                                    }
+                                }
+                                Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
+                                ScrollViewReader { proxy in
+                                    ScrollView(.vertical) {
+                                        HStack(alignment: .top, spacing: 10) {
+                                            CalendarHourAxis(day: visibleDays.first ?? model.currentRange().start,
+                                                             timeZone: model.selectedTimeZone,
+                                                             height: axisContentHeight)
+                                            ForEach(visibleDays, id: \.self) { day in
+                                                dayColumn(day, width: columnWidth)
+                                            }
+                                        }
+                                        .padding(.bottom, 14)
+                                    }
+                                    .onAppear { proxy.scrollTo("calendar-hour-8", anchor: .top) }
+                                }
+                                .frame(height: timedHeight, alignment: .top)
                             }
-                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 18)
+                            .frame(height: geometry.size.height, alignment: .top)
                         }
+                        .scrollIndicators(.hidden)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -94,6 +117,17 @@ struct CalendarWorkspaceView: View {
             local.showingEventEditor = true
         }
         .accessibilityIdentifier("calendar-workspace")
+    }
+
+    private func dayColumn(_ day: Date, width: CGFloat) -> CalendarTimeGridDay {
+        CalendarTimeGridDay(day: day,
+                           events: model.events(on: day),
+                           tasks: model.tasks(on: day),
+                           calendars: model.snapshot.calendars,
+                           timeZone: model.selectedTimeZone,
+                           columnWidth: width,
+                           onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
+                           onToggleTask: toggleTask)
     }
 
     private var visibleDays: [Date] {

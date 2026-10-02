@@ -656,15 +656,15 @@ struct InvariantTests {
         try check(TaskWorkspaceLayout.usesSingleColumn(availableWidth: windowWidth),
                   "920-point window must also use a single task column when the sidebar is collapsed")
         try check(!TaskWorkspaceLayout.usesSingleColumn(availableWidth: 1_020), "wide task workspace should retain available columns at its threshold")
-        try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 640) == 640,
-                  "day grid must use the available detail width")
+        try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 640) == 586,
+                  "day grid, shared time axis, and spacing must use the available detail width")
         try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 120) == CalendarGridLayout.minimumColumnWidth,
                   "day grid must retain its minimum readable width in a narrow viewport")
         let wideWeekColumnWidth = CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 1_400)
         try check(wideWeekColumnWidth > CalendarGridLayout.minimumWeekColumnWidth && wideWeekColumnWidth < 220,
                   "wide week columns must expand toward the available width without exceeding it")
-        try check(wideWeekColumnWidth * 7 + 60 <= 1_400,
-                  "seven adaptive day columns and their spacing must fit a wide viewport")
+        try check(wideWeekColumnWidth * 7 + CalendarGridLayout.timeAxisWidth + 70 <= 1_400,
+                  "seven adaptive day columns, shared axis and spacing must fit a wide viewport")
         try check(CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 800) == CalendarGridLayout.minimumWeekColumnWidth,
                   "week columns must preserve a readable minimum and allow horizontal navigation on narrow windows")
         try check(CalendarGridLayout.dateOnlyRegionHeight == 116,
@@ -810,6 +810,19 @@ struct InvariantTests {
                   "spring DST grid must use the actual 23-hour local day")
         try check(CalendarTimeGridLayout.dayInterval(containing: fallDay, timeZone: zone)?.durationMinutes == 25 * 60,
                   "fall DST grid must use the actual 25-hour local day")
+        let springMarks = CalendarTimeGridLayout.hourMarks(
+            for: CalendarTimeGridLayout.dayInterval(containing: springDay, timeZone: zone)!,
+            timeZone: zone
+        )
+        let fallMarks = CalendarTimeGridLayout.hourMarks(
+            for: CalendarTimeGridLayout.dayInterval(containing: fallDay, timeZone: zone)!,
+            timeZone: zone
+        )
+        try check(springMarks.count == 23 && !springMarks.contains(where: { $0.localHour == 2 }),
+                  "spring shared axis must omit the nonexistent local hour")
+        try check(fallMarks.filter { $0.localHour == 1 }.count == 2 &&
+                  Set(fallMarks.filter { $0.localHour == 1 }.map(\.label)).count == 2,
+                  "fall shared axis must distinguish both repeated local hours")
     }
 
     static func syntheticTimedEvent(id: String, calendarID: String, start: String, end: String) -> CalendarEvent {
