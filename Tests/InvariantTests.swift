@@ -179,6 +179,7 @@ struct InvariantTests {
         run("explicit-empty-notes-clears", testExplicitEmptyNotes)
         run("pagination-and-model-mapping", testPaginationAndTypedMapping)
         run("process-errors-malformed-json-timeout", testErrorsAndTimeout)
+        run("gws-launcher-finds-node-with-gui-path", testGWSLauncherFindsNodeWithGUIPath)
         run("cache-preserved-after-failed-page", testCachePreservedAfterLaterPageFailure)
         run("date-only-all-day-exclusive-end-dst", testDateOnlyAllDayAndDST)
         run("calendar-task-only-date-is-not-empty", testCalendarTaskOnlyDateIsNotEmpty)
@@ -377,6 +378,28 @@ struct InvariantTests {
             if case .timedOut("tasks.tasks.list") = failure { try check(true, "timeout typed error") }
             else { throw TestFailure(description: "timeout did not produce typed error") }
         }
+    }
+
+    static func testGWSLauncherFindsNodeWithGUIPath() throws {
+        let root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("g-calendar-gui-path-test-\(UUID().uuidString)", isDirectory: true)
+        let localBin = root.appendingPathComponent(".local/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: localBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let node = localBin.appendingPathComponent("node")
+        let launcher = root.appendingPathComponent("gws")
+        try "#!/bin/sh\nprintf 'synthetic-node-found\\n'\n".write(to: node, atomically: true, encoding: .utf8)
+        try "#!/usr/bin/env node\nprocess.stdout.write('synthetic-node-found\\n')\n".write(to: launcher, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: node.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
+
+        let invocation = ProcessInvocation(executableURL: launcher, arguments: [], operation: .calendarList,
+                                           timeout: 2, outputLimit: 1024)
+        let result = try FoundationProcessRunner(environment: ["PATH": "/usr/bin:/bin"], homeDirectory: root).run(invocation)
+        try check(result.exitCode == 0, "GUI-launched gws must find node from the standard per-user bin directory; exit=\(result.exitCode)")
+        try check(String(decoding: result.stdout, as: UTF8.self).contains("synthetic-node-found"),
+                  "the resolved node executable did not run the synthetic gws launcher")
     }
 
     static func testCachePreservedAfterLaterPageFailure() throws {

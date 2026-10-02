@@ -233,6 +233,14 @@ enum MutationAuthorization: Equatable {
 final class FoundationProcessRunner: GWSProcessRunning, @unchecked Sendable {
     private let pollInterval: TimeInterval = 0.01
     private let terminationGrace: TimeInterval = 0.25
+    private let environment: [String: String]
+    private let homeDirectory: URL
+
+    init(environment: [String: String] = ProcessInfo.processInfo.environment,
+         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        self.environment = environment
+        self.homeDirectory = homeDirectory
+    }
 
     func run(_ invocation: ProcessInvocation) throws -> ProcessResult {
         guard invocation.executableURL.isFileURL, invocation.executableURL.path.hasPrefix("/"),
@@ -242,6 +250,7 @@ final class FoundationProcessRunner: GWSProcessRunning, @unchecked Sendable {
         process.executableURL = invocation.executableURL
         process.arguments = invocation.arguments
         process.currentDirectoryURL = URL(fileURLWithPath: "/")
+        process.environment = GWSProcessEnvironment.withStandardExecutablePaths(in: environment, homeDirectory: homeDirectory)
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         let output = BoundedCapture(limit: invocation.outputLimit)
@@ -273,6 +282,22 @@ final class FoundationProcessRunner: GWSProcessRunning, @unchecked Sendable {
         if timedOut { throw GWSFailure.timedOut(invocation.operation.rawValue) }
         guard !output.exceededLimit, !error.exceededLimit else { throw GWSFailure.outputTooLarge(invocation.operation.rawValue) }
         return ProcessResult(exitCode: process.terminationStatus, stdout: output.data, stderr: error.data)
+    }
+}
+
+enum GWSProcessEnvironment {
+    static func withStandardExecutablePaths(in environment: [String: String], homeDirectory: URL) -> [String: String] {
+        var updated = environment
+        let currentPaths = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        let standardPaths = [
+            homeDirectory.appendingPathComponent(".local/bin").path,
+            "/opt/homebrew/bin",
+            "/usr/local/bin"
+        ]
+        updated["PATH"] = (currentPaths + standardPaths).reduce(into: [String]()) { paths, path in
+            if !path.isEmpty && !paths.contains(path) { paths.append(path) }
+        }.joined(separator: ":")
+        return updated
     }
 }
 
