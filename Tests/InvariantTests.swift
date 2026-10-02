@@ -186,6 +186,7 @@ struct InvariantTests {
         run("calendar-undated-tasks-once-and-search-scope", testCalendarUndatedTasks)
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
         run("calendar-time-grid-all-day-overlap-identity", testCalendarTimeGridLayout)
+        run("calendar-time-grid-stress-profile", testCalendarTimeGridStress)
         run("task-layout-breakpoint-and-event-accessibility-time", testResponsiveAndAccessibilityText)
         run("refresh-coordinator-keeps-latest-range", testRefreshCoordinatorLatestRange)
         run("calendar-range-coverage-and-cache-migration", testCalendarRangeCoverageAndMigration)
@@ -850,6 +851,27 @@ struct InvariantTests {
         try check(fallMarks.filter { $0.localHour == 1 }.count == 2 &&
                   Set(fallMarks.filter { $0.localHour == 1 }.map(\.label)).count == 2,
                   "fall shared axis must distinguish both repeated local hours")
+    }
+
+    static func testCalendarTimeGridStress() throws {
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let date = DateOnly(rawValue: "2026-06-01")!
+        let day = date.startOfDay(in: zone)!
+        let eventCount = 1_024
+        let events = (0..<eventCount).map { index in
+            syntheticTimedEvent(id: "stress-event-\(index)", calendarID: "stress-calendar",
+                                start: "2026-06-01T09:00:00Z", end: "2026-06-01T10:00:00Z")
+        }
+
+        let startedAt = Date.timeIntervalSinceReferenceDate
+        let placements = CalendarTimeGridLayout.timedPlacements(events, on: day, timeZone: zone)
+        let elapsedMilliseconds = (Date.timeIntervalSinceReferenceDate - startedAt) * 1_000
+
+        try check(placements.count == eventCount && Set(placements.map(\.identity)).count == eventCount,
+                  "stress overlap layout must retain each distinct event exactly once")
+        try check(Set(placements.map(\.laneIndex)).count == eventCount && placements.allSatisfy({ $0.laneCount == eventCount }),
+                  "fully overlapping stress events must receive separate lanes without obscuring one another")
+        print(String(format: "PERF calendar_overlap events=%d elapsed_ms=%.2f", eventCount, elapsedMilliseconds))
     }
 
     static func syntheticTimedEvent(id: String, calendarID: String, start: String, end: String) -> CalendarEvent {
