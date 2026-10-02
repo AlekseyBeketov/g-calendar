@@ -50,21 +50,24 @@ struct CalendarWorkspaceView: View {
                             isDayView: model.calendarMode == .day,
                             availableWidth: Double(geometry.size.width - 36)
                         ))
-                        ScrollView(.horizontal) {
-                            HStack(alignment: .top, spacing: 10) {
-                                ForEach(visibleDays, id: \.self) { day in
-                                    CalendarTimeGridDay(day: day,
-                                                      events: model.events(on: day),
-                                                      tasks: model.tasks(on: day),
-                                                      calendars: model.snapshot.calendars,
-                                                      timeZone: model.selectedTimeZone,
-                                                      columnWidth: columnWidth,
-                                                      onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
-                                                      onToggleTask: toggleTask)
+                        ScrollView(.vertical) {
+                            ScrollView(.horizontal) {
+                                HStack(alignment: .top, spacing: 10) {
+                                    ForEach(visibleDays, id: \.self) { day in
+                                        CalendarTimeGridDay(day: day,
+                                                          events: model.events(on: day),
+                                                          tasks: model.tasks(on: day),
+                                                          calendars: model.snapshot.calendars,
+                                                          timeZone: model.selectedTimeZone,
+                                                          columnWidth: columnWidth,
+                                                          onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
+                                                          onToggleTask: toggleTask)
+                                    }
                                 }
+                                .padding(.horizontal, 18)
+                                .padding(.bottom, 14)
                             }
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 14)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

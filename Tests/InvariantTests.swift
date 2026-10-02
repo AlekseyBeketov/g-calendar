@@ -659,6 +659,8 @@ struct InvariantTests {
                   "day grid must retain its minimum readable width in a narrow viewport")
         try check(CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 1_400) == CalendarGridLayout.minimumColumnWidth,
                   "week grid must retain the configured per-day width")
+        try check(CalendarGridLayout.dateOnlyRegionHeight == 116,
+                  "date-only regions must have a shared bounded height across calendar days")
         let event = syntheticTimedEvent(id: "synthetic-accessibility-event", calendarID: "synthetic-calendar",
                                         start: "2026-10-02T09:00:00-04:00", end: "2026-10-02T10:00:00-04:00")
         try check(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: TimeZone(secondsFromGMT: 0)!) == "09:00–10:00",

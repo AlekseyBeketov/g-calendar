@@ -56,39 +56,43 @@ struct CalendarTimeGridDay: View {
     }
 
     private var dateOnlyArea: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if !allDayEvents.isEmpty {
-                Label("Весь день", systemImage: "sun.max.fill")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.textSecondary)
-                ForEach(allDayEvents, id: \.identity) { event in
-                    eventButton(event, compact: true)
-                }
-            }
-            if !tasks.isEmpty {
-                Label("Задачи · срок без времени", systemImage: "checklist")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.task)
-                ForEach(tasks) { task in
-                    Button { onToggleTask(task) } label: {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(task.completed ? AppTheme.textSecondary : AppTheme.task)
-                            Text(task.title).font(.caption).foregroundStyle(AppTheme.textPrimary).lineLimit(2).strikethrough(task.completed)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                        .contentShape(Rectangle())
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 5) {
+                if !allDayEvents.isEmpty {
+                    Label("Весь день", systemImage: "sun.max.fill")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.textSecondary)
+                    ForEach(allDayEvents, id: \.identity) { event in
+                        eventButton(event, compact: true)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Задача: \(task.title), срок \(task.due?.description ?? "без срока"), \(task.completed ? "выполнена" : "не выполнена")")
+                }
+                if !tasks.isEmpty {
+                    Label("Задачи · срок без времени", systemImage: "checklist")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.task)
+                    ForEach(tasks) { task in
+                        Button { onToggleTask(task) } label: {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(task.completed ? AppTheme.textSecondary : AppTheme.task)
+                                Text(task.title).font(.caption).foregroundStyle(AppTheme.textPrimary).lineLimit(2).strikethrough(task.completed)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Задача: \(task.title), срок \(task.due?.description ?? "без срока"), \(task.completed ? "выполнена" : "не выполнена")")
+                    }
+                }
+                if allDayEvents.isEmpty && tasks.isEmpty {
+                    Text("Нет событий на весь день или задач с датой")
+                        .font(.caption2).foregroundStyle(AppTheme.textSecondary)
                 }
             }
-            if allDayEvents.isEmpty && tasks.isEmpty {
-                Text("Нет событий на весь день или задач с датой")
-                    .font(.caption2).foregroundStyle(AppTheme.textSecondary)
-            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity)
+        .frame(height: CGFloat(CalendarGridLayout.dateOnlyRegionHeight), alignment: .topLeading)
         .background(AppTheme.canvas.opacity(0.72))
     }
 

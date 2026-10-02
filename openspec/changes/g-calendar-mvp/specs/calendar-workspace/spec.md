@@ -46,7 +46,7 @@ The system MUST keep event changes as local drafts until the user saves. Delete 
 - **THEN** event mutation actions are disabled and the app explains that recurring-event editing is not supported in this build
 
 ### Requirement: Week and day views spatially represent time and overlap
-The calendar MUST provide an actual time grid for timed events, with placement and duration based on the selected calendar timezone. Events with overlapping intervals MUST remain simultaneously visible through a deterministic lane/column layout; all-day events occupy a separate date region, and date-only Tasks remain visually distinct from timed events.
+The calendar MUST provide an actual time grid for timed events, with placement and duration based on the selected calendar timezone. Events with overlapping intervals MUST remain simultaneously visible through a deterministic lane/column layout; all-day events occupy a separate date region, and date-only Tasks remain visually distinct from timed events. The timed region MUST scroll vertically as one shared viewport so every day remains aligned; date-only regions MUST use a consistent bounded height so content in one day cannot offset another day's time axis.
 
 #### Scenario: Display timed event position and duration
 - **WHEN** a user views a timed event in week/day mode
@@ -59,6 +59,14 @@ The calendar MUST provide an actual time grid for timed events, with placement a
 #### Scenario: Keep all-day items separate
 - **WHEN** a date includes all-day events and Tasks with due dates
 - **THEN** they appear in a clearly identified all-day/date-only area separate from timed blocks
+
+#### Scenario: Scroll a week of timed events
+- **WHEN** the user scrolls the timed calendar vertically
+- **THEN** all visible days move together in one viewport and their hour marks remain aligned
+
+#### Scenario: Bound date-only content
+- **WHEN** one day has more all-day events or due-date Tasks than another
+- **THEN** each day's date-only region keeps the same bounded height and excess content remains reachable within that region
 
 ### Requirement: Calendar selection and visibility are independent
 The system MUST allow users to select a calendar context and independently show/hide calendars in the visible workspace, while preserving each event's calendar identity and read-only restrictions.

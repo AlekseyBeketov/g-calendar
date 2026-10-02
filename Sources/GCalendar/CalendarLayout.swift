@@ -22,6 +22,7 @@ enum TaskWorkspaceLayout {
 
 enum CalendarGridLayout {
     static let minimumColumnWidth = 220.0
+    static let dateOnlyRegionHeight = 116.0
 
     static func columnWidth(isDayView: Bool, availableWidth: Double) -> Double {
         guard isDayView else { return minimumColumnWidth }
