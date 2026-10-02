@@ -39,6 +39,7 @@ final class WorkspaceViewModel: ObservableObject {
     private let demoAdapter: DemoWorkspaceAdapter?
     private var ledgerAcceptanceSession: SyntheticLedgerAcceptanceSession? = nil
     private let notificationStatusProvider: NotificationStatusProviding?
+    private var refreshCoordinator = LatestWinsRefreshCoordinator<DateRange>()
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
@@ -119,6 +120,7 @@ final class WorkspaceViewModel: ObservableObject {
 
     var selectedCalendar: CalendarInfo? { snapshot.calendars.first(where: { $0.id == selectedCalendarID }) }
     var selectedTaskList: TaskList? { snapshot.taskLists.first(where: { $0.id == selectedTaskListID }) }
+    var calendarRangeIsCovered: Bool { snapshot.calendarCoverage?.covers(currentRange()) ?? false }
     var eventsInVisibleRange: [CalendarEvent] {
         let range = currentRange()
         let dates: [Date]
@@ -166,22 +168,34 @@ final class WorkspaceViewModel: ObservableObject {
             return
         }
         guard launchMode == .normal else { return }
-        guard syncState != .syncing else { return }
+        guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
+        guard let request = refreshCoordinator.request(currentRange()) else { return }
+        startNormalRefresh(request, runner: runner)
+    }
+
+    private func startNormalRefresh(_ request: RefreshTicket<DateRange>, runner: GWSProcessRunning) {
         syncState = .syncing
         statusMessage = "Синхронизация…"
         let path = gwsPath
         let cache = snapshotStore
-        let range = currentRange()
-        guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let outcome: Result<GWSCompletedFullSync, Error>
             do {
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).refreshCompletedFullSync(range: range))
+                outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).refreshCompletedFullSync(range: request.key))
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                switch self.refreshCoordinator.finish(request) {
+                case .ignored:
+                    return
+                case .superseded(let latestRequest):
+                    self.startNormalRefresh(latestRequest, runner: runner)
+                    return
+                case .accepted:
+                    break
+                }
                 switch outcome {
                 case .success(let completedFullSync):
                     let refreshed = completedFullSync.snapshot
@@ -201,6 +215,9 @@ final class WorkspaceViewModel: ObservableObject {
                     self.statusMessage = "Обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
                     Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedFullSync) }
                     self.reconcileEventReminders()
+                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true {
+                        self.refresh()
+                    }
                 case .failure(let error):
                     self.syncState = self.snapshot.fetchedAt == .distantPast ? .setupRequired : .stale
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Синхронизация не выполнена. Сохранённые данные не изменены."

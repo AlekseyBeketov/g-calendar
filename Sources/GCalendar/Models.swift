@@ -201,19 +201,50 @@ struct GoogleTask: Codable, Equatable, Identifiable {
     }
 }
 
+struct CalendarRangeCoverage: Codable, Equatable {
+    let start: Date
+    let endExclusive: Date
+    let timeZoneID: String
+
+    init(range: DateRange) {
+        start = range.start
+        endExclusive = range.endExclusive
+        timeZoneID = range.timeZone.identifier
+    }
+
+    func covers(_ range: DateRange) -> Bool {
+        timeZoneID == range.timeZone.identifier && start <= range.start && endExclusive >= range.endExclusive
+    }
+}
+
 struct WorkspaceSnapshot: Codable, Equatable {
     var calendars: [CalendarInfo]
     var events: [CalendarEvent]
     var taskLists: [TaskList]
     var tasks: [GoogleTask]
     var fetchedAt: Date
+    var calendarCoverage: CalendarRangeCoverage? = nil
 
     static let empty = WorkspaceSnapshot(calendars: [], events: [], taskLists: [], tasks: [], fetchedAt: .distantPast)
+}
+
+enum CalendarContentState: Equatable {
+    case hasContent
+    case emptyRange
+    case unknownRange
+    case noResults
 }
 
 enum CalendarContentAvailability {
     static func isEmpty(events: [CalendarEvent], tasks: [GoogleTask]) -> Bool {
         events.isEmpty && tasks.isEmpty
+    }
+
+    static func state(events: [CalendarEvent], tasks: [GoogleTask], rangeCovered: Bool, hasSearch: Bool) -> CalendarContentState {
+        guard isEmpty(events: events, tasks: tasks) else { return .hasContent }
+        guard rangeCovered else { return .unknownRange }
+        if hasSearch { return .noResults }
+        return .emptyRange
     }
 }
 

@@ -187,6 +187,9 @@ struct InvariantTests {
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
         run("calendar-time-grid-all-day-overlap-identity", testCalendarTimeGridLayout)
         run("task-layout-breakpoint-and-event-accessibility-time", testResponsiveAndAccessibilityText)
+        run("refresh-coordinator-keeps-latest-range", testRefreshCoordinatorLatestRange)
+        run("calendar-range-coverage-and-cache-migration", testCalendarRangeCoverageAndMigration)
+        run("calendar-content-distinguishes-unknown-range", testCalendarContentState)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
@@ -493,7 +496,7 @@ struct InvariantTests {
                   "isolated modes constructed a live Google process runner")
         try check(snapshot.calendars.map(\.id) == ["demo-calendar"] && snapshot.events.first?.id == "demo-event" &&
                   snapshot.tasks.contains(where: { $0.id == "demo-task-undated" }) && snapshot.tasks.count >= 50 &&
-                  snapshot.tasks.allSatisfy({ $0.id.hasPrefix("demo-task-") }),
+                  snapshot.tasks.allSatisfy({ $0.id.hasPrefix("demo-task-") }) && snapshot.calendarCoverage != nil,
                   "demo adapter must expose deterministic synthetic fixtures including enough rows to exercise scrolling")
         let factory = GWSCommandFactory(executableURL: executable)
         let eventBody: [String: Any] = [
@@ -665,6 +668,87 @@ struct InvariantTests {
                                         start: "2026-10-02T09:00:00-04:00", end: "2026-10-02T10:00:00-04:00")
         try check(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: TimeZone(secondsFromGMT: 0)!) == "09:00–10:00",
                   "event accessibility time must use the event calendar time zone, not system time zone")
+    }
+
+    static func testRefreshCoordinatorLatestRange() throws {
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let day = 86_400.0
+        let rangeA = try DateRange(start: start, endExclusive: start.addingTimeInterval(day), timeZone: zone)
+        let rangeB = try DateRange(start: start.addingTimeInterval(day), endExclusive: start.addingTimeInterval(2 * day), timeZone: zone)
+        let rangeC = try DateRange(start: start.addingTimeInterval(2 * day), endExclusive: start.addingTimeInterval(3 * day), timeZone: zone)
+
+        var coordinator = LatestWinsRefreshCoordinator<DateRange>()
+        let requestA = coordinator.request(rangeA)!
+        _ = coordinator.request(rangeB)
+        _ = coordinator.request(rangeC)
+        let requestC: RefreshTicket<DateRange>
+        switch coordinator.finish(requestA) {
+        case .superseded(let latest): requestC = latest
+        case .accepted: throw TestFailure(description: "A→B→C refresh accepted stale range A instead of queuing C")
+        case .ignored: throw TestFailure(description: "active range A was unexpectedly ignored")
+        }
+        try check(requestC.key == rangeC, "refresh coordinator must coalesce navigation to the latest range")
+        if case .ignored = coordinator.finish(requestA) { try check(true, "stale completion ignored") }
+        else { throw TestFailure(description: "duplicate completion for stale request A was accepted") }
+        if case .accepted = coordinator.finish(requestC) { try check(true, "latest range accepted") }
+        else { throw TestFailure(description: "latest range completion was not accepted") }
+
+        var returnedToActiveRange = LatestWinsRefreshCoordinator<DateRange>()
+        let activeA = returnedToActiveRange.request(rangeA)!
+        _ = returnedToActiveRange.request(rangeB)
+        _ = returnedToActiveRange.request(rangeA)
+        if case .accepted = returnedToActiveRange.finish(activeA) { try check(true, "return to active range cancels obsolete pending navigation") }
+        else { throw TestFailure(description: "returning to active range queued an unnecessary refresh") }
+    }
+
+    static func testCalendarRangeCoverageAndMigration() throws {
+        let zone = TimeZone(identifier: "America/New_York")!
+        let start = DateOnly(rawValue: "2026-10-05")!.startOfDay(in: zone)!
+        let end = DateOnly(rawValue: "2026-10-12")!.startOfDay(in: zone)!
+        let loadedRange = try DateRange(start: start, endExclusive: end, timeZone: zone)
+        let coverage = CalendarRangeCoverage(range: loadedRange)
+        let containedRange = try DateRange(start: start.addingTimeInterval(86_400),
+                                           endExclusive: end.addingTimeInterval(-86_400), timeZone: zone)
+        let adjacentRange = try DateRange(start: end, endExclusive: end.addingTimeInterval(86_400), timeZone: zone)
+        let sameInstantsDifferentZone = try DateRange(start: start, endExclusive: end, timeZone: TimeZone(secondsFromGMT: 0)!)
+        try check(coverage.covers(loadedRange) && coverage.covers(containedRange),
+                  "calendar coverage must include its exact range and contained day ranges")
+        try check(!coverage.covers(adjacentRange) && !coverage.covers(sameInstantsDifferentZone),
+                  "calendar coverage must reject adjacent dates and mismatched time zones")
+
+        var snapshot = WorkspaceSnapshot(calendars: [], events: [], taskLists: [], tasks: [], fetchedAt: start)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encodedObject = try JSONSerialization.jsonObject(with: encoder.encode(snapshot)) as! [String: Any]
+        var legacyObject = encodedObject
+        legacyObject.removeValue(forKey: "calendarCoverage")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let migrated = try decoder.decode(WorkspaceSnapshot.self, from: JSONSerialization.data(withJSONObject: legacyObject))
+        try check(migrated.calendarCoverage == nil,
+                  "legacy snapshots without range coverage must decode as unknown, not empty coverage")
+
+        snapshot.calendarCoverage = coverage
+        let roundTrip = try decoder.decode(WorkspaceSnapshot.self, from: encoder.encode(snapshot))
+        try check(roundTrip.calendarCoverage == coverage,
+                  "calendar range coverage must survive a snapshot cache round trip")
+    }
+
+    static func testCalendarContentState() throws {
+        let unknown = CalendarContentAvailability.state(events: [], tasks: [], rangeCovered: false, hasSearch: false)
+        let empty = CalendarContentAvailability.state(events: [], tasks: [], rangeCovered: true, hasSearch: false)
+        let incompleteSearch = CalendarContentAvailability.state(events: [], tasks: [], rangeCovered: false, hasSearch: true)
+        let noResults = CalendarContentAvailability.state(events: [], tasks: [], rangeCovered: true, hasSearch: true)
+        let task = GoogleTask(id: "synthetic-content-state-task", taskListID: "synthetic-list", title: "Synthetic task",
+                              notes: nil, due: nil, completed: false, deleted: false, updated: nil)
+        let content = CalendarContentAvailability.state(events: [], tasks: [task], rangeCovered: false, hasSearch: false)
+        try check(unknown == .unknownRange, "unknown event coverage must not be labeled as a verified empty calendar")
+        try check(empty == .emptyRange, "a covered range with no events/tasks must be identified as truly empty")
+        try check(incompleteSearch == .unknownRange,
+                  "a no-match query over an uncovered range must not be presented as a definitive search result")
+        try check(noResults == .noResults, "search no-match state must stay distinct from a verified empty range")
+        try check(content == .hasContent, "known tasks must remain visible while event-range coverage is incomplete")
     }
 
     static func testNotificationTriggerPrecision() throws {
@@ -1013,9 +1097,12 @@ struct InvariantTests {
         }
         let start = DateOnly(rawValue: "2026-10-01")!.startOfDay(in: TimeZone(secondsFromGMT: 0)!)!
         let end = DateOnly(rawValue: "2026-10-08")!.startOfDay(in: TimeZone(secondsFromGMT: 0)!)!
+        let requestedRange = try DateRange(start: start, endExclusive: end)
         let completedSync = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner),
                                                     cache: MemorySnapshotStore())
-            .refreshCompletedFullSync(range: DateRange(start: start, endExclusive: end))
+            .refreshCompletedFullSync(range: requestedRange)
+        try check(completedSync.snapshot.calendarCoverage?.covers(requestedRange) == true,
+                  "completed full sync must record the exact calendar range and time zone it fetched")
         try await coordinator.reconcile(afterSuccessfulFullSync: completedSync, now: Date())
         try check(scheduler.cancellations.contains(identifier), "successful complete sync did not cancel removed task notification")
         try check(store.metadata(for: taskID).reminderAt == nil, "successful complete sync did not remove stale local reminder metadata")

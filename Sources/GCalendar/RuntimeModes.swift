@@ -215,6 +215,7 @@ final class DemoWorkspaceAdapter {
 
     private static func syntheticSnapshot(now: Date, timeZone: TimeZone) -> WorkspaceSnapshot {
         var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 2
         calendar.timeZone = timeZone
         let today = calendar.startOfDay(for: now)
         let start = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: today) ?? now.addingTimeInterval(900)
@@ -244,11 +245,16 @@ final class DemoWorkspaceAdapter {
                               title: "Демо: пункт списка \(index)", notes: nil, due: due,
                               completed: index.isMultiple(of: 7), deleted: false, updated: nil)
         }
-        return WorkspaceSnapshot(calendars: [CalendarInfo(id: calendarID, title: "Демо-календарь", accessRole: "writer",
-                                                           timeZoneID: timeZone.identifier, colorHex: "#4F6BED")],
-                                 events: [event],
-                                 taskLists: [TaskList(id: listID, title: "Демо-список", updated: nil)],
-                                 tasks: [datedTask, timelessTask] + overflowTasks,
-                                 fetchedAt: now)
+        var snapshot = WorkspaceSnapshot(calendars: [CalendarInfo(id: calendarID, title: "Демо-календарь", accessRole: "writer",
+                                                                    timeZoneID: timeZone.identifier, colorHex: "#4F6BED")],
+                                         events: [event],
+                                         taskLists: [TaskList(id: listID, title: "Демо-список", updated: nil)],
+                                         tasks: [datedTask, timelessTask] + overflowTasks,
+                                         fetchedAt: now)
+        if let interval = calendar.dateInterval(of: .weekOfYear, for: today),
+           let range = try? DateRange(start: interval.start, endExclusive: interval.end, timeZone: timeZone) {
+            snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
+        }
+        return snapshot
     }
 }

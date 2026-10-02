@@ -11,6 +11,7 @@ swiftc -parse-as-library -swift-version 5 -target arm64-apple-macosx13.0 \
   -framework UserNotifications \
   "$ROOT/Sources/GCalendar/Models.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
+  "$ROOT/Sources/GCalendar/RefreshCoordinator.swift" \
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \

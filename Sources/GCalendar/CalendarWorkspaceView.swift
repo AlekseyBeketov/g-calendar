@@ -31,16 +31,21 @@ struct CalendarWorkspaceView: View {
 
             if model.snapshot.calendars.isEmpty {
                 WorkspaceEmptyState(title: "Календари не загружены", symbol: "calendar", description: "Проверьте путь к gws и выполните синхронизацию.") { }
-            } else if CalendarContentAvailability.isEmpty(events: model.eventsInVisibleRange,
-                                                            tasks: visibleDays.flatMap(model.tasks(on:)) + model.undatedTasks) {
-                WorkspaceEmptyState(title: model.searchText.isEmpty ? "Событий и задач нет" : "Ничего не найдено",
+            } else if calendarContentState != .hasContent {
+                WorkspaceEmptyState(title: calendarEmptyStateTitle,
                                     symbol: "calendar.badge.clock",
-                                    description: model.searchText.isEmpty ? "На этот период нет событий и задач с датой." : "Измените запрос или очистите поиск.",
-                                    actionTitle: model.searchText.isEmpty ? nil : "Очистить поиск") {
-                    model.searchText = ""
+                                    description: calendarEmptyStateDescription,
+                                    actionTitle: calendarEmptyStateAction) {
+                    if model.searchText.isEmpty { model.refresh() }
+                    else { model.searchText = "" }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
+                    if !model.calendarRangeIsCovered {
+                        Label("События для этого диапазона не подтверждены сохранённым снимком.", systemImage: "clock.badge.questionmark")
+                            .font(.caption).foregroundStyle(AppTheme.textSecondary)
+                            .padding(.horizontal, 18)
+                    }
                     if !model.undatedTasks.isEmpty {
                         CalendarUndatedTaskRegion(tasks: model.undatedTasks, onToggleTask: toggleTask)
                             .padding(.horizontal, 18)
@@ -96,6 +101,39 @@ struct CalendarWorkspaceView: View {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = model.selectedTimeZone
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: range.start) }
+    }
+
+    private var calendarContentState: CalendarContentState {
+        CalendarContentAvailability.state(events: model.eventsInVisibleRange,
+                                         tasks: visibleDays.flatMap(model.tasks(on:)) + model.undatedTasks,
+                                         rangeCovered: model.calendarRangeIsCovered,
+                                         hasSearch: !model.searchText.isEmpty)
+    }
+
+    private var calendarEmptyStateTitle: String {
+        switch calendarContentState {
+        case .hasContent: return ""
+        case .emptyRange: return "Событий и задач нет"
+        case .unknownRange: return "Диапазон ещё не загружен"
+        case .noResults: return "Ничего не найдено"
+        }
+    }
+
+    private var calendarEmptyStateDescription: String {
+        switch calendarContentState {
+        case .hasContent: return ""
+        case .emptyRange: return "На этот период нет событий и задач с датой."
+        case .unknownRange: return "Кэш не подтверждает данные для выбранных дат. Синхронизируйте диапазон, чтобы не принять неполные данные за пустой календарь."
+        case .noResults: return "Измените запрос или очистите поиск."
+        }
+    }
+
+    private var calendarEmptyStateAction: String? {
+        switch calendarContentState {
+        case .hasContent, .emptyRange: return nil
+        case .unknownRange: return "Синхронизировать"
+        case .noResults: return "Очистить поиск"
+        }
     }
 
     private var periodTitle: String {
