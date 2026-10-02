@@ -20,6 +20,15 @@ enum TaskWorkspaceLayout {
     }
 }
 
+enum CalendarGridLayout {
+    static let minimumColumnWidth = 220.0
+
+    static func columnWidth(isDayView: Bool, availableWidth: Double) -> Double {
+        guard isDayView else { return minimumColumnWidth }
+        return max(minimumColumnWidth, availableWidth)
+    }
+}
+
 enum CalendarEventAccessibilityText {
     static func timeDescription(for event: CalendarEvent, fallbackTimeZone: TimeZone) -> String {
         guard !event.isAllDay, let start = event.start.instant, let end = event.end.instant else { return "весь день" }

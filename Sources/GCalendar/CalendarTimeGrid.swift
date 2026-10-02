@@ -6,6 +6,7 @@ struct CalendarTimeGridDay: View {
     let tasks: [GoogleTask]
     let calendars: [CalendarInfo]
     let timeZone: TimeZone
+    let columnWidth: CGFloat
     let onEdit: (CalendarEvent) -> Void
     let onToggleTask: (GoogleTask) -> Void
 
@@ -47,7 +48,7 @@ struct CalendarTimeGridDay: View {
             Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
             timeGrid
         }
-        .frame(width: 220, alignment: .topLeading)
+        .frame(width: columnWidth, alignment: .topLeading)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1))
         .accessibilityElement(children: .contain)

@@ -653,6 +653,12 @@ struct InvariantTests {
         try check(TaskWorkspaceLayout.usesSingleColumn(availableWidth: windowWidth),
                   "920-point window must also use a single task column when the sidebar is collapsed")
         try check(!TaskWorkspaceLayout.usesSingleColumn(availableWidth: 1_020), "wide task workspace should retain available columns at its threshold")
+        try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 640) == 640,
+                  "day grid must use the available detail width")
+        try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 160) == CalendarGridLayout.minimumColumnWidth,
+                  "day grid must retain its minimum readable width in a narrow viewport")
+        try check(CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 1_400) == CalendarGridLayout.minimumColumnWidth,
+                  "week grid must retain the configured per-day width")
         let event = syntheticTimedEvent(id: "synthetic-accessibility-event", calendarID: "synthetic-calendar",
                                         start: "2026-10-02T09:00:00-04:00", end: "2026-10-02T10:00:00-04:00")
         try check(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: TimeZone(secondsFromGMT: 0)!) == "09:00–10:00",

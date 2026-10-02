@@ -45,22 +45,29 @@ struct CalendarWorkspaceView: View {
                         CalendarUndatedTaskRegion(tasks: model.undatedTasks, onToggleTask: toggleTask)
                             .padding(.horizontal, 18)
                     }
-                    ScrollView(.horizontal) {
-                        HStack(alignment: .top, spacing: 10) {
-                            ForEach(visibleDays, id: \.self) { day in
-                                CalendarTimeGridDay(day: day,
-                                                  events: model.events(on: day),
-                                                  tasks: model.tasks(on: day),
-                                                  calendars: model.snapshot.calendars,
-                                                  timeZone: model.selectedTimeZone,
-                                                  onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
-                                                  onToggleTask: toggleTask)
-                                    .frame(width: model.calendarMode == .day ? 560 : 220)
+                    GeometryReader { geometry in
+                        let columnWidth = CGFloat(CalendarGridLayout.columnWidth(
+                            isDayView: model.calendarMode == .day,
+                            availableWidth: Double(geometry.size.width - 36)
+                        ))
+                        ScrollView(.horizontal) {
+                            HStack(alignment: .top, spacing: 10) {
+                                ForEach(visibleDays, id: \.self) { day in
+                                    CalendarTimeGridDay(day: day,
+                                                      events: model.events(on: day),
+                                                      tasks: model.tasks(on: day),
+                                                      calendars: model.snapshot.calendars,
+                                                      timeZone: model.selectedTimeZone,
+                                                      columnWidth: columnWidth,
+                                                      onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
+                                                      onToggleTask: toggleTask)
+                                }
                             }
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 14)
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.bottom, 14)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             Spacer(minLength: 0)
