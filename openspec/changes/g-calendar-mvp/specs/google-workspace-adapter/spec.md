@@ -20,6 +20,8 @@ The system MUST traverse every page before committing a refreshed snapshot. Proc
 
 Calendar snapshots MUST record the date range and timezone for which event data was fetched. A legacy or non-covering snapshot MUST NOT be treated as proof that the selected calendar range is empty. When several range requests overlap, only the active request or the latest coalesced range may be published to the UI; navigation to an intermediate range may be coalesced, but the final requested range MUST NOT be lost.
 
+Navigating to an uncovered calendar range MUST refresh calendars and events without refetching Tasks lists or Tasks. The range refresh MUST preserve the last complete cached task data and its independent freshness timestamp; explicit full sync remains responsible for refreshing both data domains. Calendar and task freshness MUST be tracked separately so refreshing one domain cannot imply that the other was refreshed.
+
 #### Scenario: Successful multi-page refresh
 - **WHEN** a list operation returns multiple pages
 - **THEN** each page is decoded and every object is included in the committed snapshot
@@ -39,6 +41,10 @@ Calendar snapshots MUST record the date range and timezone for which event data 
 #### Scenario: Read a legacy cache without range metadata
 - **WHEN** a saved snapshot predates calendar coverage metadata
 - **THEN** its event range is considered unknown until a successful range query records coverage
+
+#### Scenario: Refresh a new calendar range without re-fetching Tasks
+- **WHEN** the user navigates outside the covered calendar range
+- **THEN** the adapter fetches calendars and events only, preserves cached task lists/tasks, and leaves Tasks freshness unchanged
 
 ### Requirement: Mutation requests originate only from explicit user UI actions
 The system MUST NOT issue Google mutation commands during startup, refresh, cache load, demo mode or fixture automation. Supported mutations MUST be initiated only from the matching explicit UI action; destructive actions require confirmation. Automated integration tests MUST use a clearly-marked fake runner and MUST NOT contact real Google write endpoints. The separately approved live acceptance create/read-back is a distinct operation, never an automatic startup or test-suite action.

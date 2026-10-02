@@ -11,6 +11,16 @@ enum RefreshFinish<Key: Equatable> {
     case ignored
 }
 
+enum WorkspaceRefreshScope: Equatable {
+    case full
+    case calendarRange
+}
+
+struct WorkspaceRefreshQuery: Equatable {
+    let range: DateRange
+    let scope: WorkspaceRefreshScope
+}
+
 struct LatestWinsRefreshCoordinator<Key: Equatable> {
     private(set) var active: RefreshTicket<Key>?
     private var pending: Key?

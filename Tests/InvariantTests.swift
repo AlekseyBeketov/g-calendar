@@ -190,6 +190,7 @@ struct InvariantTests {
         run("refresh-coordinator-keeps-latest-range", testRefreshCoordinatorLatestRange)
         run("calendar-range-coverage-and-cache-migration", testCalendarRangeCoverageAndMigration)
         run("calendar-content-distinguishes-unknown-range", testCalendarContentState)
+        run("calendar-range-refresh-skips-task-api", testCalendarRangeRefreshSkipsTaskAPI)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
@@ -705,6 +706,16 @@ struct InvariantTests {
         _ = returnedToActiveRange.request(rangeA)
         if case .accepted = returnedToActiveRange.finish(activeA) { try check(true, "return to active range cancels obsolete pending navigation") }
         else { throw TestFailure(description: "returning to active range queued an unnecessary refresh") }
+
+        var scopedCoordinator = LatestWinsRefreshCoordinator<WorkspaceRefreshQuery>()
+        let fullA = scopedCoordinator.request(WorkspaceRefreshQuery(range: rangeA, scope: .full))!
+        _ = scopedCoordinator.request(WorkspaceRefreshQuery(range: rangeB, scope: .calendarRange))
+        _ = scopedCoordinator.request(WorkspaceRefreshQuery(range: rangeC, scope: .calendarRange))
+        guard case .superseded(let latest) = scopedCoordinator.finish(fullA) else {
+            throw TestFailure(description: "full sync did not yield to the latest calendar-range query")
+        }
+        try check(latest.key.range == rangeC && latest.key.scope == .calendarRange,
+                  "latest-wins must preserve both final range and resource scope")
     }
 
     static func testCalendarRangeCoverageAndMigration() throws {
@@ -1206,5 +1217,65 @@ struct InvariantTests {
         }
         try check(store.metadata(for: taskID).reminderAt == reminderDate, "failed partial sync cleared local reminder metadata")
         try check(scheduler.cancellations.isEmpty, "failed partial sync canceled an existing notification")
+    }
+
+    static func testCalendarRangeRefreshSkipsTaskAPI() throws {
+        let calendarJSON = Data(#"{"items":[{"id":"synthetic-calendar","summary":"Synthetic Calendar","accessRole":"owner","timeZone":"UTC"}]}"#.utf8)
+        let taskListsJSON = Data(#"{"items":[{"id":"synthetic-list","title":"Synthetic Tasks"}]}"#.utf8)
+        let tasksJSON = Data(#"{"items":[{"id":"synthetic-task","title":"Cached task","status":"needsAction"}]}"#.utf8)
+        let emptyJSON = Data(#"{"items":[]}"#.utf8)
+        let handler: FakeProcessRunner.Handler = { invocation in
+            switch invocation.operation {
+            case .calendarList: return response(calendarJSON)
+            case .eventsList: return response(emptyJSON)
+            case .taskListsList: return response(taskListsJSON)
+            case .tasksList: return response(tasksJSON)
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let start = DateOnly(rawValue: "2026-10-05")!.startOfDay(in: zone)!
+        let end = DateOnly(rawValue: "2026-10-12")!.startOfDay(in: zone)!
+        let range = try DateRange(start: start, endExclusive: end, timeZone: zone)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let baselineRunner = FakeProcessRunner(handler: handler)
+        let baseline = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: baselineRunner),
+                                               cache: MemorySnapshotStore())
+            .refreshCompletedFullSync(range: range, now: now)
+        try check(baselineRunner.invocations.map(\.operation) == [.calendarList, .eventsList, .taskListsList, .tasksList],
+                  "full-sync baseline for one calendar and task list must make four process calls")
+
+        let rangeRunner = FakeProcessRunner(handler: handler)
+        let rangeResult = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: rangeRunner),
+                                                  cache: MemorySnapshotStore(baseline.snapshot))
+            .refreshCalendarRange(range: range, now: now.addingTimeInterval(60))
+        try check(rangeRunner.invocations.map(\.operation) == [.calendarList, .eventsList],
+                  "calendar range refresh must not fetch task lists or tasks")
+        try check(rangeResult.tasks == baseline.snapshot.tasks && rangeResult.taskLists == baseline.snapshot.taskLists,
+                  "calendar-only refresh must preserve cached task resources")
+        try check(rangeResult.tasksFetchedAt == baseline.snapshot.fetchedAt && rangeResult.calendarFetchedAt == now.addingTimeInterval(60),
+                  "calendar and Tasks freshness must remain independently visible")
+        try check(rangeResult.calendarCoverage?.covers(range) == true,
+                  "calendar-only refresh must record coverage only after loading succeeds")
+
+        let failedRangeStore = MemorySnapshotStore(baseline.snapshot)
+        let failedRangeRunner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .calendarList: return response(calendarJSON)
+            case .eventsList: return response(Data(), code: 49, stderr: "synthetic event range failure")
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        do {
+            _ = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: failedRangeRunner),
+                                        cache: failedRangeStore)
+                .refreshCalendarRange(range: range, now: now.addingTimeInterval(120))
+            throw TestFailure(description: "failed calendar range unexpectedly committed a partial snapshot")
+        } catch let failure as GWSFailure {
+            if case .processFailed(_, 49, _) = failure { try check(true, "calendar range event failure surfaced") }
+            else { throw TestFailure(description: "calendar range failure returned an unexpected error") }
+        }
+        try check(failedRangeStore.load() == baseline.snapshot,
+                  "failed calendar range refresh must preserve the last complete cache snapshot")
     }
 }

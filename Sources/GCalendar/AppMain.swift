@@ -2,6 +2,11 @@ import AppKit
 import Foundation
 import SwiftUI
 
+private enum NormalRefreshPayload {
+    case full(GWSCompletedFullSync)
+    case calendarRange(WorkspaceSnapshot)
+}
+
 @MainActor
 final class WorkspaceViewModel: ObservableObject {
     enum Section: String, CaseIterable { case calendar = "Календарь", tasks = "Задачи" }
@@ -39,7 +44,7 @@ final class WorkspaceViewModel: ObservableObject {
     private let demoAdapter: DemoWorkspaceAdapter?
     private var ledgerAcceptanceSession: SyntheticLedgerAcceptanceSession? = nil
     private let notificationStatusProvider: NotificationStatusProviding?
-    private var refreshCoordinator = LatestWinsRefreshCoordinator<DateRange>()
+    private var refreshCoordinator = LatestWinsRefreshCoordinator<WorkspaceRefreshQuery>()
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
@@ -168,22 +173,49 @@ final class WorkspaceViewModel: ObservableObject {
             return
         }
         guard launchMode == .normal else { return }
+        requestNormalRefresh(scope: .full)
+    }
+
+    func refreshCalendarRangeIfNeeded() {
+        guard launchMode == .normal else { refresh(); return }
         guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
-        guard let request = refreshCoordinator.request(currentRange()) else { return }
+        let range = currentRange()
+        if let active = refreshCoordinator.active,
+           active.key.scope == .full, active.key.range == range {
+            _ = refreshCoordinator.request(active.key)
+            return
+        }
+        if refreshCoordinator.active == nil, snapshot.calendarCoverage?.covers(range) == true { return }
+        guard snapshot.fetchedAt != .distantPast else { refresh(); return }
+        let query = WorkspaceRefreshQuery(range: range, scope: .calendarRange)
+        guard let request = refreshCoordinator.request(query) else { return }
         startNormalRefresh(request, runner: runner)
     }
 
-    private func startNormalRefresh(_ request: RefreshTicket<DateRange>, runner: GWSProcessRunning) {
+    private func requestNormalRefresh(scope: WorkspaceRefreshScope) {
+        guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
+        let query = WorkspaceRefreshQuery(range: currentRange(), scope: scope)
+        guard let request = refreshCoordinator.request(query) else { return }
+        startNormalRefresh(request, runner: runner)
+    }
+
+    private func startNormalRefresh(_ request: RefreshTicket<WorkspaceRefreshQuery>, runner: GWSProcessRunning) {
         syncState = .syncing
-        statusMessage = "Синхронизация…"
+        statusMessage = request.key.scope == .full ? "Полная синхронизация…" : "Обновление календарного диапазона…"
         let path = gwsPath
         let cache = snapshotStore
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let outcome: Result<GWSCompletedFullSync, Error>
+            let outcome: Result<NormalRefreshPayload, Error>
             do {
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).refreshCompletedFullSync(range: request.key))
+                let service = GWSWorkspaceService(reader: reader, cache: cache)
+                switch request.key.scope {
+                case .full:
+                    outcome = .success(.full(try service.refreshCompletedFullSync(range: request.key.range)))
+                case .calendarRange:
+                    outcome = .success(.calendarRange(try service.refreshCalendarRange(range: request.key.range)))
+                }
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -191,39 +223,53 @@ final class WorkspaceViewModel: ObservableObject {
                 case .ignored:
                     return
                 case .superseded(let latestRequest):
+                    if latestRequest.key.scope == .calendarRange,
+                       case .success(.full(let completedSync)) = outcome {
+                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedSync) }
+                        self.reconcileEventReminders()
+                    }
                     self.startNormalRefresh(latestRequest, runner: runner)
                     return
                 case .accepted:
                     break
                 }
                 switch outcome {
-                case .success(let completedFullSync):
+                case .success(.full(let completedFullSync)):
                     let refreshed = completedFullSync.snapshot
-                    let oldCalendarIDs = Set(self.snapshot.calendars.map(\.id))
-                    let refreshedCalendarIDs = Set(refreshed.calendars.map(\.id))
-                    self.snapshot = refreshed
-                    if let visible = self.visibleCalendarIDs {
-                        self.visibleCalendarIDs = visible.intersection(refreshedCalendarIDs).union(refreshedCalendarIDs.subtracting(oldCalendarIDs))
-                    } else {
-                        self.visibleCalendarIDs = refreshedCalendarIDs
-                    }
-                    if !refreshedCalendarIDs.contains(self.selectedCalendarID ?? "") {
-                        self.selectedCalendarID = refreshed.calendars.first?.id
-                    }
-                    self.selectedTaskListID = self.selectedTaskListID ?? refreshed.taskLists.first?.id
+                    self.installRefreshedSnapshot(refreshed)
                     self.syncState = .updated
-                    self.statusMessage = "Обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
+                    self.statusMessage = "Полностью обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
                     Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedFullSync) }
                     self.reconcileEventReminders()
-                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true {
-                        self.refresh()
-                    }
+                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
+                case .success(.calendarRange(let refreshed)):
+                    self.installRefreshedSnapshot(refreshed)
+                    self.syncState = .updated
+                    let calendarDate = (refreshed.calendarFetchedAt ?? refreshed.fetchedAt).formatted(date: .omitted, time: .shortened)
+                    let taskDate = refreshed.tasksFetchedAt?.formatted(date: .abbreviated, time: .shortened) ?? "не загружались"
+                    self.statusMessage = "Календарь обновлён · \(calendarDate) · задачи из кэша от \(taskDate)"
+                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
                 case .failure(let error):
                     self.syncState = self.snapshot.fetchedAt == .distantPast ? .setupRequired : .stale
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Синхронизация не выполнена. Сохранённые данные не изменены."
                 }
             }
         }
+    }
+
+    private func installRefreshedSnapshot(_ refreshed: WorkspaceSnapshot) {
+        let oldCalendarIDs = Set(snapshot.calendars.map(\.id))
+        let refreshedCalendarIDs = Set(refreshed.calendars.map(\.id))
+        snapshot = refreshed
+        if let visible = visibleCalendarIDs {
+            visibleCalendarIDs = visible.intersection(refreshedCalendarIDs).union(refreshedCalendarIDs.subtracting(oldCalendarIDs))
+        } else {
+            visibleCalendarIDs = refreshedCalendarIDs
+        }
+        if !refreshedCalendarIDs.contains(selectedCalendarID ?? "") {
+            selectedCalendarID = refreshed.calendars.first?.id
+        }
+        selectedTaskListID = selectedTaskListID ?? refreshed.taskLists.first?.id
     }
 
     private func refreshSyntheticAcceptance() {
@@ -419,10 +465,13 @@ final class WorkspaceViewModel: ObservableObject {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = selectedTimeZone
         let component: Calendar.Component = calendarMode == .week ? .weekOfYear : .day
-        if let date = calendar.date(byAdding: component, value: amount, to: activeDate) { activeDate = date; refresh() }
+        if let date = calendar.date(byAdding: component, value: amount, to: activeDate) {
+            activeDate = date
+            refreshCalendarRangeIfNeeded()
+        }
     }
 
-    func goToToday() { activeDate = Date(); refresh() }
+    func goToToday() { activeDate = Date(); refreshCalendarRangeIfNeeded() }
 
     func currentRange() -> DateRange {
         var calendar = Calendar(identifier: .gregorian)

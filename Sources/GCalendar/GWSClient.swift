@@ -471,7 +471,26 @@ struct GWSWorkspaceService {
         let tasks = try lists.flatMap { try reader.tasks(taskListID: $0.id) }
         var snapshot = WorkspaceSnapshot(calendars: calendars, events: events, taskLists: lists, tasks: tasks, fetchedAt: now)
         snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
+        snapshot.calendarFetchedAt = now
+        snapshot.tasksFetchedAt = now
         try cache.commit(snapshot)
         return GWSCompletedFullSync(snapshot: snapshot)
+    }
+
+    func refreshCalendarRange(range: DateRange, now: Date = Date()) throws -> WorkspaceSnapshot {
+        let calendars = try reader.calendars()
+        let events = try calendars.flatMap { try reader.events(calendarID: $0.id, range: range) }
+        var snapshot = cache.load() ?? .empty
+        let previousSnapshotDate = snapshot.fetchedAt
+        snapshot.calendars = calendars
+        snapshot.events = events
+        snapshot.fetchedAt = now
+        snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
+        snapshot.calendarFetchedAt = now
+        if snapshot.tasksFetchedAt == nil, previousSnapshotDate != .distantPast {
+            snapshot.tasksFetchedAt = previousSnapshotDate
+        }
+        try cache.commit(snapshot)
+        return snapshot
     }
 }

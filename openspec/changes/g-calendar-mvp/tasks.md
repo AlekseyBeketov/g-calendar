@@ -30,6 +30,7 @@
 - [x] 3.11 Coalesce in-flight calendar range requests to the latest query, reject superseded UI results, and persist backward-compatible calendar range/timezone coverage in cache.
 - [x] 3.12 Allocate week columns from available detail width with a readable minimum; keep narrow-window week navigation explicit and reversible.
 - [x] 3.13 Share a single hour axis, pin day/date-only rows above the timed viewport, and anchor the initial scroll to 08:00.
+- [x] 3.14 Refresh uncovered calendar ranges without reading Tasks API resources; preserve cached Tasks and report independent per-domain freshness.
 
 ## 4. Local Reminders and Notifications
 

@@ -110,7 +110,8 @@ struct CalendarWorkspaceView: View {
             EventEditorView(event: local.selectedEvent, calendar: model.selectedCalendar)
                 .environmentObject(model)
         }
-        .onChange(of: model.calendarMode) { _ in model.refresh() }
+        .onChange(of: model.calendarMode) { _ in model.refreshCalendarRangeIfNeeded() }
+        .onChange(of: model.selectedCalendarID) { _ in model.refreshCalendarRangeIfNeeded() }
         .onChange(of: model.newItemRequestID) { _ in
             guard model.section == .calendar, model.selectedCalendar?.isWritable == true else { return }
             local.selectedEvent = nil

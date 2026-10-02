@@ -224,6 +224,8 @@ struct WorkspaceSnapshot: Codable, Equatable {
     var tasks: [GoogleTask]
     var fetchedAt: Date
     var calendarCoverage: CalendarRangeCoverage? = nil
+    var calendarFetchedAt: Date? = nil
+    var tasksFetchedAt: Date? = nil
 
     static let empty = WorkspaceSnapshot(calendars: [], events: [], taskLists: [], tasks: [], fetchedAt: .distantPast)
 }
