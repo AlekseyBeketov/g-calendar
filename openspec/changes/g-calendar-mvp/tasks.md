@@ -23,10 +23,10 @@
 - [ ] 3.3 Build task list/column view with Today/Upcoming/Overdue/search and complete/uncomplete controls.
 - [ ] 3.4 Implement event/task draft create/edit/delete flows with cancel/save separation and confirmation for destructive actions; never issue live writes in agent tests.
 - [x] 3.5 Validate timezone, daylight-saving boundaries, event overlap and all-day exclusive end behavior with deterministic fixtures.
-- [ ] 3.6 Replace the event list with a week/day time grid, overlap lanes, all-day region, date-only Tasks region, independent calendar visibility toggles, and explicit read-only/recurrence safeguards.
+- [x] 3.6 Replace the event list with a week/day time grid, overlap lanes, all-day region, date-only Tasks region, independent calendar visibility toggles, and explicit read-only/recurrence safeguards.
 - [ ] 3.7 Add responsive task-column fallback, actionable search clear/no-match, selected accessibility states, and inline mutation-failure feedback that preserves drafts.
 - [ ] 3.8 Add explicit synthetic-only demo/verification launch mode with separate storage and fixture adapter; prove it cannot read user cache or invoke gws.
-- [ ] 3.9 Define and implement an undated-task policy: show tasks without due date once in a separate, accessible timeless calendar region; do not assign a date or duplicate across week columns; include them in empty-state and filter/search behavior.
+- [x] 3.9 Define and implement an undated-task policy: show tasks without due date once in a separate, accessible timeless calendar region; do not assign a date or duplicate across week columns; include them in empty-state and filter/search behavior.
 - [x] 3.10 Give the timed calendar one bounded, shared vertical scroll viewport and keep each day's date-only region at a consistent bounded height; verify long all-day/task rows remain reachable.
 - [x] 3.11 Coalesce in-flight calendar range requests to the latest query, reject superseded UI results, and persist backward-compatible calendar range/timezone coverage in cache.
 - [x] 3.12 Allocate week columns from available detail width with a readable minimum; keep narrow-window week navigation explicit and reversible.
