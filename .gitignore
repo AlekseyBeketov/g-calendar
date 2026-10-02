@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+DerivedData/
+.codegraph/
+.hermes/
+dist/
+.DS_Store
+:-

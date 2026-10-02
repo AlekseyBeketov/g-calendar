@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-01
+goal: Ship a locally runnable macOS app with Google read-only integration,
+  trustworthy local workflows, and native notifications
