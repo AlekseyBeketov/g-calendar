@@ -716,6 +716,22 @@ struct InvariantTests {
         }
         try check(latest.key.range == rangeC && latest.key.scope == .calendarRange,
                   "latest-wins must preserve both final range and resource scope")
+        try check(WorkspaceRefreshScope.afterVerifiedMutation(.eventPatch) == .calendarRange,
+                  "verified event mutations must select calendar-only refresh")
+        try check(WorkspaceRefreshScope.afterVerifiedMutation(.taskPatch) == .tasks,
+                  "verified Tasks mutations must select Tasks-only refresh")
+        try check(WorkspaceRefreshScope.afterVerifiedMutation(.calendarList) == nil,
+                  "non-mutation operations must not select a mutation refresh scope")
+
+        var forcedSameRange = LatestWinsRefreshCoordinator<WorkspaceRefreshQuery>()
+        let activeRange = forcedSameRange.request(WorkspaceRefreshQuery(range: rangeA, scope: .calendarRange))!
+        let postMutationRead = WorkspaceRefreshQuery(range: rangeA, scope: .calendarRange, requestID: 1)
+        _ = forcedSameRange.request(postMutationRead)
+        guard case .superseded(let forced) = forcedSameRange.finish(activeRange) else {
+            throw TestFailure(description: "a post-mutation read-back refresh was dropped behind an in-flight same-range query")
+        }
+        try check(forced.key == postMutationRead,
+                  "forced refresh identity must preserve a same-range mutation refresh request")
     }
 
     static func testCalendarRangeCoverageAndMigration() throws {
@@ -1135,6 +1151,18 @@ struct InvariantTests {
         try await coordinator.reconcile(afterSuccessfulFullSync: completedSync, now: Date())
         try check(scheduler.cancellations.contains(identifier), "successful complete sync did not cancel removed task notification")
         try check(store.metadata(for: taskID).reminderAt == nil, "successful complete sync did not remove stale local reminder metadata")
+
+        let taskOnlyID = "synthetic-task-only-deleted"
+        let taskOnlyIdentifier = ReminderIdentity.identifier(taskID: taskOnlyID)
+        try store.set(LocalTaskMetadata(reminderAt: reminderDate, favorite: true), for: taskOnlyID)
+        try await scheduler.schedule(ReminderRequest(identifier: taskOnlyIdentifier, taskID: taskOnlyID,
+                                                     title: "Synthetic task-only reminder", fireDate: reminderDate))
+        let completedTasksSync = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner),
+                                                         cache: MemorySnapshotStore(completedSync.snapshot))
+            .refreshTasks()
+        try await coordinator.reconcile(afterSuccessfulTasksSync: completedTasksSync, now: Date())
+        try check(scheduler.cancellations.contains(taskOnlyIdentifier), "successful complete Tasks refresh did not cancel removed task notification")
+        try check(store.metadata(for: taskOnlyID).reminderAt == nil, "successful complete Tasks refresh did not remove stale reminder metadata")
     }
 
     static func testLifecycleReconciliation() async throws {
@@ -1257,6 +1285,50 @@ struct InvariantTests {
                   "calendar and Tasks freshness must remain independently visible")
         try check(rangeResult.calendarCoverage?.covers(range) == true,
                   "calendar-only refresh must record coverage only after loading succeeds")
+
+        let updatedTaskListsJSON = Data(#"{"items":[{"id":"synthetic-list","title":"Updated Synthetic Tasks"}]}"#.utf8)
+        let updatedTasksJSON = Data(#"{"items":[{"id":"synthetic-task","title":"Updated task","status":"needsAction"}]}"#.utf8)
+        let taskRunner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .taskListsList: return response(updatedTaskListsJSON)
+            case .tasksList: return response(updatedTasksJSON)
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        let taskSync = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: taskRunner),
+                                                cache: MemorySnapshotStore(rangeResult))
+            .refreshTasks(now: now.addingTimeInterval(90))
+        let taskResult = taskSync.snapshot
+        try check(taskRunner.invocations.map(\.operation) == [.taskListsList, .tasksList],
+                  "Tasks-domain refresh must not fetch calendar resources")
+        try check(taskResult.taskLists.first?.title == "Updated Synthetic Tasks" && taskResult.tasks.first?.title == "Updated task",
+                  "Tasks-domain refresh must publish the fully refreshed task resources")
+        try check(taskResult.calendars == rangeResult.calendars && taskResult.events == rangeResult.events &&
+                  taskResult.calendarCoverage == rangeResult.calendarCoverage &&
+                  taskResult.calendarFetchedAt == rangeResult.calendarFetchedAt,
+                  "Tasks-domain refresh must preserve calendar data, coverage, and freshness")
+        try check(taskResult.tasksFetchedAt == now.addingTimeInterval(90),
+                  "Tasks-domain refresh must advance only Tasks freshness")
+
+        let failedTaskStore = MemorySnapshotStore(rangeResult)
+        let failedTaskRunner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .taskListsList: return response(updatedTaskListsJSON)
+            case .tasksList: return response(Data(), code: 50, stderr: "synthetic Tasks list failure")
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        do {
+            _ = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: failedTaskRunner),
+                                        cache: failedTaskStore)
+                .refreshTasks(now: now.addingTimeInterval(180))
+            throw TestFailure(description: "failed Tasks refresh unexpectedly committed a partial snapshot")
+        } catch let failure as GWSFailure {
+            if case .processFailed(_, 50, _) = failure { try check(true, "Tasks refresh failure surfaced") }
+            else { throw TestFailure(description: "Tasks refresh failure returned an unexpected error") }
+        }
+        try check(failedTaskStore.load() == rangeResult,
+                  "failed Tasks refresh must preserve the last complete cache snapshot")
 
         let failedRangeStore = MemorySnapshotStore(baseline.snapshot)
         let failedRangeRunner = FakeProcessRunner { invocation in

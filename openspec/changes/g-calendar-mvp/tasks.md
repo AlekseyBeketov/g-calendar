@@ -14,6 +14,7 @@
 - [ ] 2.5 Implement explicit UI-triggered mutation command paths for supported event/task/task-list operations; automated tests assert argument construction and confirmation boundaries only with fixtures.
 - [x] 2.6 Run privacy-safe live read-only gws smoke for calendar/task-list metadata and counts only; record sanitized output/exit codes, never titles, email or identifiers.
 - [ ] 2.7 Add typed exact-resource GET/read-back for event/task mutations and a narrow actual-app workflow that creates one synthetic event/task with unique run marker/private ID ledger; do not live edit, complete, uncomplete or delete until separately approved.
+- [x] 2.8 Refresh the Tasks domain independently after verified task mutations; preserve calendar data and coverage without cross-domain reads.
 
 ## 3. Calendar and Task Workflows
 

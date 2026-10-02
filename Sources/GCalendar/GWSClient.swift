@@ -456,6 +456,14 @@ struct GWSCompletedFullSync {
     }
 }
 
+struct GWSCompletedTasksSync {
+    let snapshot: WorkspaceSnapshot
+
+    fileprivate init(snapshot: WorkspaceSnapshot) {
+        self.snapshot = snapshot
+    }
+}
+
 struct GWSWorkspaceService {
     let reader: GWSReadClient
     let cache: SnapshotStoring
@@ -492,5 +500,17 @@ struct GWSWorkspaceService {
         }
         try cache.commit(snapshot)
         return snapshot
+    }
+
+    func refreshTasks(now: Date = Date()) throws -> GWSCompletedTasksSync {
+        let lists = try reader.taskLists()
+        let tasks = try lists.flatMap { try reader.tasks(taskListID: $0.id) }
+        var snapshot = cache.load() ?? .empty
+        snapshot.taskLists = lists
+        snapshot.tasks = tasks
+        snapshot.fetchedAt = now
+        snapshot.tasksFetchedAt = now
+        try cache.commit(snapshot)
+        return GWSCompletedTasksSync(snapshot: snapshot)
     }
 }

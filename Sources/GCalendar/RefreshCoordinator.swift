@@ -14,11 +14,27 @@ enum RefreshFinish<Key: Equatable> {
 enum WorkspaceRefreshScope: Equatable {
     case full
     case calendarRange
+    case tasks
+
+    static func afterVerifiedMutation(_ operation: GWSOperation) -> WorkspaceRefreshScope? {
+        switch operation {
+        case .eventInsert, .eventPatch, .eventDelete: return .calendarRange
+        case .taskListInsert, .taskListPatch, .taskListDelete, .taskInsert, .taskPatch, .taskDelete: return .tasks
+        default: return nil
+        }
+    }
 }
 
 struct WorkspaceRefreshQuery: Equatable {
     let range: DateRange
     let scope: WorkspaceRefreshScope
+    let requestID: Int?
+
+    init(range: DateRange, scope: WorkspaceRefreshScope, requestID: Int? = nil) {
+        self.range = range
+        self.scope = scope
+        self.requestID = requestID
+    }
 }
 
 struct LatestWinsRefreshCoordinator<Key: Equatable> {

@@ -212,9 +212,17 @@ struct ReminderCoordinator {
     }
 
     func reconcile(afterSuccessfulFullSync fullSync: GWSCompletedFullSync, now: Date = Date()) async throws {
+        try await reconcile(completedTasks: fullSync.snapshot.tasks, now: now)
+    }
+
+    func reconcile(afterSuccessfulTasksSync tasksSync: GWSCompletedTasksSync, now: Date = Date()) async throws {
+        try await reconcile(completedTasks: tasksSync.snapshot.tasks, now: now)
+    }
+
+    private func reconcile(completedTasks: [GoogleTask], now: Date) async throws {
         let reminderTaskIDs = store.reminderTaskIDs()
         guard !reminderTaskIDs.isEmpty else { return }
-        let tasksByID = Dictionary(fullSync.snapshot.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let tasksByID = Dictionary(completedTasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let permission = await scheduler.permission()
         let maySchedule = defaults.bool(forKey: enabledKey) && permission == .authorized
 

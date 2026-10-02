@@ -22,6 +22,8 @@ Calendar snapshots MUST record the date range and timezone for which event data 
 
 Navigating to an uncovered calendar range MUST refresh calendars and events without refetching Tasks lists or Tasks. The range refresh MUST preserve the last complete cached task data and its independent freshness timestamp; explicit full sync remains responsible for refreshing both data domains. Calendar and task freshness MUST be tracked separately so refreshing one domain cannot imply that the other was refreshed.
 
+Refreshing Tasks after a verified task mutation MUST fetch task lists and their tasks without refetching calendars or events. It MUST preserve calendar data, range coverage, and calendar freshness from the cached snapshot while updating Tasks freshness only after the complete paginated Tasks read succeeds.
+
 #### Scenario: Successful multi-page refresh
 - **WHEN** a list operation returns multiple pages
 - **THEN** each page is decoded and every object is included in the committed snapshot
@@ -45,6 +47,10 @@ Navigating to an uncovered calendar range MUST refresh calendars and events with
 #### Scenario: Refresh a new calendar range without re-fetching Tasks
 - **WHEN** the user navigates outside the covered calendar range
 - **THEN** the adapter fetches calendars and events only, preserves cached task lists/tasks, and leaves Tasks freshness unchanged
+
+#### Scenario: Refresh Tasks without re-fetching the calendar
+- **WHEN** an exact task or task-list mutation has been verified
+- **THEN** the adapter refreshes task lists/tasks only, preserves calendar events and range coverage, and leaves calendar freshness unchanged
 
 ### Requirement: Mutation requests originate only from explicit user UI actions
 The system MUST NOT issue Google mutation commands during startup, refresh, cache load, demo mode or fixture automation. Supported mutations MUST be initiated only from the matching explicit UI action; destructive actions require confirmation. Automated integration tests MUST use a clearly-marked fake runner and MUST NOT contact real Google write endpoints. The separately approved live acceptance create/read-back is a distinct operation, never an automatic startup or test-suite action.

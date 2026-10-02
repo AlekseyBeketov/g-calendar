@@ -5,6 +5,7 @@ import SwiftUI
 private enum NormalRefreshPayload {
     case full(GWSCompletedFullSync)
     case calendarRange(WorkspaceSnapshot)
+    case tasks(GWSCompletedTasksSync)
 }
 
 @MainActor
@@ -45,6 +46,7 @@ final class WorkspaceViewModel: ObservableObject {
     private var ledgerAcceptanceSession: SyntheticLedgerAcceptanceSession? = nil
     private let notificationStatusProvider: NotificationStatusProviding?
     private var refreshCoordinator = LatestWinsRefreshCoordinator<WorkspaceRefreshQuery>()
+    private var refreshRequestSequence = 0
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
@@ -176,32 +178,41 @@ final class WorkspaceViewModel: ObservableObject {
         requestNormalRefresh(scope: .full)
     }
 
-    func refreshCalendarRangeIfNeeded() {
+    func refreshCalendarRangeIfNeeded(force: Bool = false) {
         guard launchMode == .normal else { refresh(); return }
         guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
         let range = currentRange()
-        if let active = refreshCoordinator.active,
+        if !force, let active = refreshCoordinator.active,
            active.key.scope == .full, active.key.range == range {
             _ = refreshCoordinator.request(active.key)
             return
         }
-        if refreshCoordinator.active == nil, snapshot.calendarCoverage?.covers(range) == true { return }
+        if !force, refreshCoordinator.active == nil, snapshot.calendarCoverage?.covers(range) == true { return }
         guard snapshot.fetchedAt != .distantPast else { refresh(); return }
-        let query = WorkspaceRefreshQuery(range: range, scope: .calendarRange)
+        let query = makeRefreshQuery(range: range, scope: .calendarRange, force: force)
         guard let request = refreshCoordinator.request(query) else { return }
         startNormalRefresh(request, runner: runner)
     }
 
-    private func requestNormalRefresh(scope: WorkspaceRefreshScope) {
+    private func requestNormalRefresh(scope: WorkspaceRefreshScope, force: Bool = false) {
         guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
-        let query = WorkspaceRefreshQuery(range: currentRange(), scope: scope)
+        let query = makeRefreshQuery(range: currentRange(), scope: scope, force: force)
         guard let request = refreshCoordinator.request(query) else { return }
         startNormalRefresh(request, runner: runner)
+    }
+
+    private func makeRefreshQuery(range: DateRange, scope: WorkspaceRefreshScope, force: Bool) -> WorkspaceRefreshQuery {
+        if force { refreshRequestSequence += 1 }
+        return WorkspaceRefreshQuery(range: range, scope: scope, requestID: force ? refreshRequestSequence : nil)
     }
 
     private func startNormalRefresh(_ request: RefreshTicket<WorkspaceRefreshQuery>, runner: GWSProcessRunning) {
         syncState = .syncing
-        statusMessage = request.key.scope == .full ? "Полная синхронизация…" : "Обновление календарного диапазона…"
+        switch request.key.scope {
+        case .full: statusMessage = "Полная синхронизация…"
+        case .calendarRange: statusMessage = "Обновление календарного диапазона…"
+        case .tasks: statusMessage = "Обновление задач…"
+        }
         let path = gwsPath
         let cache = snapshotStore
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -215,6 +226,8 @@ final class WorkspaceViewModel: ObservableObject {
                     outcome = .success(.full(try service.refreshCompletedFullSync(range: request.key.range)))
                 case .calendarRange:
                     outcome = .success(.calendarRange(try service.refreshCalendarRange(range: request.key.range)))
+                case .tasks:
+                    outcome = .success(.tasks(try service.refreshTasks()))
                 }
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
@@ -227,6 +240,10 @@ final class WorkspaceViewModel: ObservableObject {
                        case .success(.full(let completedSync)) = outcome {
                         Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedSync) }
                         self.reconcileEventReminders()
+                    }
+                    if latestRequest.key.scope == .calendarRange,
+                       case .success(.tasks(let completedSync)) = outcome {
+                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedSync) }
                     }
                     self.startNormalRefresh(latestRequest, runner: runner)
                     return
@@ -248,6 +265,15 @@ final class WorkspaceViewModel: ObservableObject {
                     let calendarDate = (refreshed.calendarFetchedAt ?? refreshed.fetchedAt).formatted(date: .omitted, time: .shortened)
                     let taskDate = refreshed.tasksFetchedAt?.formatted(date: .abbreviated, time: .shortened) ?? "не загружались"
                     self.statusMessage = "Календарь обновлён · \(calendarDate) · задачи из кэша от \(taskDate)"
+                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
+                case .success(.tasks(let completedTasksSync)):
+                    let refreshed = completedTasksSync.snapshot
+                    self.installRefreshedSnapshot(refreshed)
+                    self.syncState = .updated
+                    let tasksDate = (refreshed.tasksFetchedAt ?? refreshed.fetchedAt).formatted(date: .omitted, time: .shortened)
+                    let calendarDate = refreshed.calendarFetchedAt?.formatted(date: .omitted, time: .shortened) ?? "не загружен"
+                    self.statusMessage = "Задачи обновлены · \(tasksDate) · календарь из кэша от \(calendarDate)"
+                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedTasksSync) }
                     if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
                 case .failure(let error):
                     self.syncState = self.snapshot.fetchedAt == .distantPast ? .setupRequired : .stale
@@ -374,7 +400,7 @@ final class WorkspaceViewModel: ObservableObject {
                         }
                     }
                     onSuccess?()
-                    if thenRefresh { self.refresh() }
+                    if thenRefresh { self.refreshAfterMutation(invocation.operation) }
                 case .success:
                     let message = "Запрос принят, но точное чтение не подтвердило результат. Форма оставлена открытой."
                     self.statusMessage = message
@@ -385,6 +411,20 @@ final class WorkspaceViewModel: ObservableObject {
                     onFailure?(message)
                 }
             }
+        }
+    }
+
+    private func refreshAfterMutation(_ operation: GWSOperation) {
+        guard launchMode == .normal else { refresh(); return }
+        guard let scope = WorkspaceRefreshScope.afterVerifiedMutation(operation) else { refresh(); return }
+        switch scope {
+        case .calendarRange:
+            reconcileEventReminders()
+            refreshCalendarRangeIfNeeded(force: true)
+        case .tasks:
+            requestNormalRefresh(scope: scope, force: true)
+        case .full:
+            refresh()
         }
     }
 
