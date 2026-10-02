@@ -658,10 +658,15 @@ struct InvariantTests {
         try check(!TaskWorkspaceLayout.usesSingleColumn(availableWidth: 1_020), "wide task workspace should retain available columns at its threshold")
         try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 640) == 640,
                   "day grid must use the available detail width")
-        try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 160) == CalendarGridLayout.minimumColumnWidth,
+        try check(CalendarGridLayout.columnWidth(isDayView: true, availableWidth: 120) == CalendarGridLayout.minimumColumnWidth,
                   "day grid must retain its minimum readable width in a narrow viewport")
-        try check(CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 1_400) == CalendarGridLayout.minimumColumnWidth,
-                  "week grid must retain the configured per-day width")
+        let wideWeekColumnWidth = CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 1_400)
+        try check(wideWeekColumnWidth > CalendarGridLayout.minimumWeekColumnWidth && wideWeekColumnWidth < 220,
+                  "wide week columns must expand toward the available width without exceeding it")
+        try check(wideWeekColumnWidth * 7 + 60 <= 1_400,
+                  "seven adaptive day columns and their spacing must fit a wide viewport")
+        try check(CalendarGridLayout.columnWidth(isDayView: false, availableWidth: 800) == CalendarGridLayout.minimumWeekColumnWidth,
+                  "week columns must preserve a readable minimum and allow horizontal navigation on narrow windows")
         try check(CalendarGridLayout.dateOnlyRegionHeight == 116,
                   "date-only regions must have a shared bounded height across calendar days")
         let event = syntheticTimedEvent(id: "synthetic-accessibility-event", calendarID: "synthetic-calendar",

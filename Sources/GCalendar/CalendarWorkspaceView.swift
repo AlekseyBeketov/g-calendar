@@ -53,7 +53,8 @@ struct CalendarWorkspaceView: View {
                     GeometryReader { geometry in
                         let columnWidth = CGFloat(CalendarGridLayout.columnWidth(
                             isDayView: model.calendarMode == .day,
-                            availableWidth: Double(geometry.size.width - 36)
+                            availableWidth: Double(geometry.size.width - 36),
+                            visibleDayCount: visibleDays.count
                         ))
                         ScrollView(.vertical) {
                             ScrollView(.horizontal) {

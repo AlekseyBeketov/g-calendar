@@ -28,6 +28,7 @@
 - [ ] 3.9 Define and implement an undated-task policy: show tasks without due date once in a separate, accessible timeless calendar region; do not assign a date or duplicate across week columns; include them in empty-state and filter/search behavior.
 - [ ] 3.10 Give the timed calendar one bounded, shared vertical scroll viewport and keep each day's date-only region at a consistent bounded height; verify long all-day/task rows remain reachable.
 - [x] 3.11 Coalesce in-flight calendar range requests to the latest query, reject superseded UI results, and persist backward-compatible calendar range/timezone coverage in cache.
+- [x] 3.12 Allocate week columns from available detail width with a readable minimum; keep narrow-window week navigation explicit and reversible.
 
 ## 4. Local Reminders and Notifications
 

@@ -22,11 +22,17 @@ enum TaskWorkspaceLayout {
 
 enum CalendarGridLayout {
     static let minimumColumnWidth = 220.0
+    static let minimumWeekColumnWidth = 160.0
     static let dateOnlyRegionHeight = 116.0
 
-    static func columnWidth(isDayView: Bool, availableWidth: Double) -> Double {
-        guard isDayView else { return minimumColumnWidth }
-        return max(minimumColumnWidth, availableWidth)
+    static func columnWidth(isDayView: Bool,
+                            availableWidth: Double,
+                            visibleDayCount: Int = 7,
+                            interColumnSpacing: Double = 10) -> Double {
+        if isDayView { return max(minimumColumnWidth, availableWidth) }
+        let dayCount = max(1, visibleDayCount)
+        let totalSpacing = interColumnSpacing * Double(max(0, dayCount - 1))
+        return max(minimumWeekColumnWidth, (availableWidth - totalSpacing) / Double(dayCount))
     }
 }
 

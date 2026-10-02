@@ -46,7 +46,7 @@ The system MUST keep event changes as local drafts until the user saves. Delete 
 - **THEN** event mutation actions are disabled and the app explains that recurring-event editing is not supported in this build
 
 ### Requirement: Week and day views spatially represent time and overlap
-The calendar MUST provide an actual time grid for timed events, with placement and duration based on the selected calendar timezone. Events with overlapping intervals MUST remain simultaneously visible through a deterministic lane/column layout; all-day events occupy a separate date region, and date-only Tasks remain visually distinct from timed events. The timed region MUST scroll vertically as one shared viewport so every day remains aligned; date-only regions MUST use a consistent bounded height so content in one day cannot offset another day's time axis.
+The calendar MUST provide an actual time grid for timed events, with placement and duration based on the selected calendar timezone. Events with overlapping intervals MUST remain simultaneously visible through a deterministic lane/column layout; all-day events occupy a separate date region, and date-only Tasks remain visually distinct from timed events. The timed region MUST scroll vertically as one shared viewport so every day remains aligned; date-only regions MUST use a consistent bounded height so content in one day cannot offset another day's time axis. Day mode MUST use the available detail width; week columns MUST expand to use the available width when the configured readable minimum permits, and otherwise retain an explicit horizontal week viewport without silently changing the selected mode.
 
 #### Scenario: Display timed event position and duration
 - **WHEN** a user views a timed event in week/day mode
@@ -67,6 +67,14 @@ The calendar MUST provide an actual time grid for timed events, with placement a
 #### Scenario: Bound date-only content
 - **WHEN** one day has more all-day events or due-date Tasks than another
 - **THEN** each day's date-only region keeps the same bounded height and excess content remains reachable within that region
+
+#### Scenario: Allocate week columns to a wide detail viewport
+- **WHEN** the week view has enough detail width for all seven readable columns
+- **THEN** the columns expand evenly to fit the viewport without unnecessary horizontal scrolling
+
+#### Scenario: Preserve week navigation in a narrow detail viewport
+- **WHEN** the week view cannot fit seven columns at their readable minimum width
+- **THEN** the selected week mode remains explicit and the user can horizontally navigate all seven days
 
 ### Requirement: Calendar selection and visibility are independent
 The system MUST allow users to select a calendar context and independently show/hide calendars in the visible workspace, while preserving each event's calendar identity and read-only restrictions.
