@@ -53,7 +53,7 @@ enum GWSFailure: Error, Equatable, LocalizedError {
     }
 }
 
-enum GWSOperation: String, Equatable {
+enum GWSOperation: String, Equatable, Codable {
     case calendarList = "calendar.calendarList.list"
     case calendarGet = "calendar.calendarList.get"
     case eventsList = "calendar.events.list"
@@ -124,13 +124,29 @@ struct GWSCommandFactory {
     func eventInsert(calendar: CalendarInfo, body: [String: Any], authorization: MutationAuthorization) throws -> ProcessInvocation {
         guard authorization == .userSave, calendar.isWritable else { throw GWSFailure.forbiddenOperation }
         try ensureNoAttendees(body)
-        return try mutation(.eventInsert, command: ["calendar", "events", "insert"], params: ["calendarId": calendar.id, "sendUpdates": "none"], body: body)
+        return try mutation(.eventInsert, command: ["calendar", "events", "insert"], params: ["calendarId": calendar.id, "sendUpdates": "none"], body: eventBodyAtSecondPrecision(body))
     }
 
     func eventPatch(event: CalendarEvent, calendar: CalendarInfo, body: [String: Any], authorization: MutationAuthorization) throws -> ProcessInvocation {
         guard authorization == .userSave, calendar.isWritable, !event.recurring, event.calendarID == calendar.id else { throw GWSFailure.forbiddenOperation }
         try ensureNoAttendees(body)
-        return try mutation(.eventPatch, command: ["calendar", "events", "patch"], params: ["calendarId": calendar.id, "eventId": event.id], body: body)
+        return try mutation(.eventPatch, command: ["calendar", "events", "patch"], params: ["calendarId": calendar.id, "eventId": event.id], body: eventBodyAtSecondPrecision(body))
+    }
+
+    // Google Calendar stores event instants at second precision. Canonicalize the
+    // submitted draft before journaling; exact read-back remains strict.
+    private func eventBodyAtSecondPrecision(_ body: [String: Any]) throws -> [String: Any] {
+        var result = body
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for key in ["start", "end"] {
+            guard var value = body[key] as? [String: Any], let timestamp = value["dateTime"] as? String else { continue }
+            guard let instant = ISO8601.parse(timestamp) else { throw GWSFailure.invalidInput("event_time") }
+            value["dateTime"] = formatter.string(from: instant)
+            result[key] = value
+        }
+        return result
     }
 
     func eventDelete(event: CalendarEvent, calendar: CalendarInfo, authorization: MutationAuthorization) throws -> ProcessInvocation {
@@ -366,7 +382,13 @@ struct GWSReadClient: ExactCalendarEventReading {
     }
 
     func event(identity: CalendarEventIdentity) throws -> CalendarEvent? {
-        do { return try readEvent(calendarID: identity.calendarID, eventID: identity.eventID) }
+        do {
+            let object = try exactObject(factory.readEvent(calendarID: identity.calendarID, eventID: identity.eventID))
+            guard object["id"] as? String == identity.eventID else { throw GWSFailure.invalidResponse("event_identity") }
+            // Deleted events are only guaranteed to retain their ID, not times/title.
+            if object["status"] as? String == "cancelled" { return nil }
+            return try CalendarEvent.decode(object, calendarID: identity.calendarID)
+        }
         catch GWSFailure.resourceNotFound { return nil }
     }
 
@@ -400,7 +422,13 @@ struct GWSReadClient: ExactCalendarEventReading {
     }
 
     func task(taskListID: String, taskID: String) throws -> GoogleTask? {
-        do { return try readTask(taskListID: taskListID, taskID: taskID) }
+        do {
+            let object = try exactObject(factory.readTask(taskListID: taskListID, taskID: taskID))
+            guard object["id"] as? String == taskID else { throw GWSFailure.invalidResponse("task_identity") }
+            // An exact GET can return a deletion tombstone instead of 404.
+            if object["deleted"] as? Bool == true { return nil }
+            return try GoogleTask.decode(object, taskListID: taskListID)
+        }
         catch GWSFailure.resourceNotFound { return nil }
     }
 
@@ -408,13 +436,27 @@ struct GWSReadClient: ExactCalendarEventReading {
         let result = try runner.run(invocation)
         guard result.exitCode == 0 else {
             let category = Self.safeCategory(result.stderr)
-            if category == "not_found" { throw GWSFailure.resourceNotFound }
+            if Self.isMissingResource(result) { throw GWSFailure.resourceNotFound }
             throw GWSFailure.processFailed(invocation.operation.rawValue, result.exitCode, category)
         }
         guard let json = try? JSONSerialization.jsonObject(with: result.stdout), let object = json as? [String: Any] else {
             throw GWSFailure.invalidResponse("json_" + invocation.operation.rawValue)
         }
         return object
+    }
+
+    private static func isMissingResource(_ result: ProcessResult) -> Bool {
+        for data in [result.stdout, result.stderr] where !data.isEmpty {
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = object["error"] as? [String: Any] {
+                if let code = error["code"] as? Int, code == 404 || code == 410 { return true }
+                continue // Never infer a 404 from an unrelated identifier/message.
+            }
+            let message = String(data: data.prefix(16_384), encoding: .utf8) ?? ""
+            let pattern = #"(?i)\b(?:404\s+not\s+found|410\s+gone|http\s+(?:404|410))\b"#
+            if message.range(of: pattern, options: .regularExpression) != nil { return true }
+        }
+        return false
     }
 
     private func collect<T>(operation: GWSOperation, makeInvocation: (String?) throws -> ProcessInvocation, decode: ([[String: Any]]) throws -> [T]) throws -> [T] {

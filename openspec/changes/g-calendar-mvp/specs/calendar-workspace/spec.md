@@ -1,5 +1,21 @@
 ## ADDED Requirements
 
+### Requirement: Date-only space is compact when empty and aligned when populated
+The calendar SHALL use one content-aware, bounded date-only height shared by the displayed day columns. When all displayed days have no date-only content, it SHALL use a compact empty presentation rather than a full repeated empty region for every day. Populated overflow SHALL remain reachable without disrupting the shared time axis or pinned headers.
+
+#### Scenario: Display a week without date-only content
+- **WHEN** every visible day has no all-day event or dated task
+- **THEN** the date-only region uses a compact shared empty presentation and leaves usable space for the timed grid
+
+#### Scenario: Display unequal amounts of date-only content
+- **WHEN** one day contains many all-day events or dated tasks and other days have fewer
+- **THEN** every column keeps the same bounded date-only height, its overflow is reachable and corresponding hour lines remain aligned
+
+#### Scenario: Preserve initial and manual scroll intent
+- **WHEN** the timed grid first opens, the user scrolls manually and an unrelated state update follows
+- **THEN** the initial working-hour anchor is applied at the appropriate initial transition and the unrelated update does not reset manual scroll
+- **AND** the hour axis is unclipped and all seven days remain reachable at supported widths
+
 ### Requirement: Week-first calendar displays events with correct date semantics
 The system MUST provide week and day views that represent timed and all-day events using their calendar timezone and all-day end-date semantics. A month view MAY follow after week/day acceptance.
 
@@ -101,3 +117,14 @@ The calendar workspace MUST display tasks without a Google due date in a separat
 #### Scenario: Avoid duplicating undated tasks across days
 - **WHEN** the user views a week containing an undated task
 - **THEN** that task appears once in the week-level undated region, not in each day's date-only row
+
+### Requirement: The timeless task region can be collapsed
+The week-level undated region MUST be compact and collapsible. Its collapsed state MUST expose the task count and an accessible expand/collapse action. Collapsing the region changes only presentation; it MUST NOT mutate, hide from search, or re-date tasks.
+
+#### Scenario: Collapse undated tasks
+- **WHEN** the user collapses the timeless region
+- **THEN** the calendar grid gains the released space and the region retains an accessible count and expand action
+
+#### Scenario: Expand undated tasks
+- **WHEN** the user expands the timeless region
+- **THEN** each scoped undated task and its supported completion action is shown once

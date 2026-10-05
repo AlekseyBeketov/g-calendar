@@ -9,12 +9,18 @@ struct GWSMutationService {
             throw GWSFailure.processFailed(invocation.operation.rawValue, result.exitCode, "command_failure")
         }
 
+        return try verifyAccepted(invocation, response: result.stdout, reader: reader)
+    }
+
+    // This path never invokes the write runner. It is also used for recovery after restart.
+    func verifyAccepted(_ invocation: ProcessInvocation, response: Data, reader: GWSReadClient?) throws -> GWSMutationResult {
+
         let params = dictionaryArgument(named: "--params", in: invocation) ?? [:]
         let body = dictionaryArgument(named: "--json", in: invocation) ?? [:]
         switch invocation.operation {
         case .eventInsert:
             guard let reader, let calendarID = params["calendarId"] as? String,
-                  let resourceID = resourceID(from: result.stdout) else { throw GWSFailure.mutationNotVerified }
+                  let resourceID = resourceID(from: response) else { throw GWSFailure.mutationNotVerified }
             guard let event = try reader.event(identity: CalendarEventIdentity(calendarID: calendarID, eventID: resourceID)),
                   event.id == resourceID, event.calendarID == calendarID else {
                 throw GWSFailure.mutationNotVerified
@@ -30,7 +36,7 @@ struct GWSMutationService {
             try verify(event: event, against: body)
             return .eventVerified(event)
         case .taskListInsert:
-            guard let reader, let resourceID = resourceID(from: result.stdout),
+            guard let reader, let resourceID = resourceID(from: response),
                   let taskList = try reader.taskList(id: resourceID), taskList.id == resourceID else {
                 throw GWSFailure.mutationNotVerified
             }
@@ -49,7 +55,7 @@ struct GWSMutationService {
             return .resourceDeleted
         case .taskInsert:
             guard let reader, let taskListID = params["tasklist"] as? String,
-                  let resourceID = resourceID(from: result.stdout) else { throw GWSFailure.mutationNotVerified }
+                  let resourceID = resourceID(from: response) else { throw GWSFailure.mutationNotVerified }
             guard let task = try reader.task(taskListID: taskListID, taskID: resourceID),
                   task.id == resourceID, task.taskListID == taskListID else { throw GWSFailure.mutationNotVerified }
             try verify(task: task, against: body)
@@ -112,7 +118,7 @@ struct GWSMutationService {
 
     private func verify(task: GoogleTask, against body: [String: Any]) throws {
         if let title = body["title"] as? String, task.title != title { throw GWSFailure.mutationNotVerified }
-        if let notes = body["notes"] as? String, task.notes != notes { throw GWSFailure.mutationNotVerified }
+        if let notes = body["notes"] as? String, (task.notes ?? "") != notes { throw GWSFailure.mutationNotVerified }
         if let due = body["due"] as? String, task.due != DateOnly(rawValue: String(due.prefix(10))) { throw GWSFailure.mutationNotVerified }
         if body["due"] is NSNull, task.due != nil { throw GWSFailure.mutationNotVerified }
         if let status = body["status"] as? String, task.completed != (status == "completed") { throw GWSFailure.mutationNotVerified }

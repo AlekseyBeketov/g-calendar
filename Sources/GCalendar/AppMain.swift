@@ -12,8 +12,8 @@ private enum NormalRefreshPayload {
 final class WorkspaceViewModel: ObservableObject {
     enum Section: String, CaseIterable { case calendar = "Календарь", tasks = "Задачи" }
     enum CalendarMode: String, CaseIterable { case week = "Неделя", day = "День" }
-    enum TaskFilter: String, CaseIterable { case all = "Все", today = "Сегодня", upcoming = "Предстоящие", overdue = "Просроченные" }
-    enum SyncState { case idle, syncing, updated, stale, setupRequired }
+    typealias TaskFilter = TaskWorkspaceFilter
+    typealias SyncState = WorkspaceSyncState
     enum Appearance: String, CaseIterable, Identifiable { case system = "Система", light = "Светлая", dark = "Тёмная"; var id: String { rawValue } }
 
     @Published var snapshot: WorkspaceSnapshot
@@ -24,12 +24,15 @@ final class WorkspaceViewModel: ObservableObject {
     @Published var visibleCalendarIDs: Set<String>?
     @Published var selectedTaskListID: String?
     @Published var activeDate = Date()
+    @Published private(set) var localToday = DateOnly(date: Date())
     @Published var searchText = ""
     @Published var syncState: SyncState = .idle
     @Published var statusMessage = ""
     @Published var gwsPath: String
     @Published var appearance: Appearance
     @Published var mutationInFlight = false
+    @Published private(set) var pendingMutation: PendingMutation?
+    @Published private(set) var mutationRecoveryProblem: String?
     @Published var notificationPermission: ReminderPermission = .notDetermined
     @Published var notificationRuntimeStatus: NotificationRuntimeStatus?
     @Published var searchFocusRequestID = 0
@@ -41,6 +44,7 @@ final class WorkspaceViewModel: ObservableObject {
     let eventReminderCoordinator: EventReminderCoordinator
     private let snapshotStore: SnapshotStoring
     private let runner: GWSProcessRunning?
+    private let mutationJournal: MutationJournal
     private let defaults: UserDefaults
     private let demoAdapter: DemoWorkspaceAdapter?
     private var ledgerAcceptanceSession: SyntheticLedgerAcceptanceSession? = nil
@@ -50,6 +54,11 @@ final class WorkspaceViewModel: ObservableObject {
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
+        let journalURL = mode == .normal ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("g-calendar/pending-verification.json") : nil
+        mutationJournal = MutationJournal(fileURL: journalURL)
+        pendingMutation = mutationJournal.pending
+        mutationRecoveryProblem = mutationJournal.isBlocked && mutationJournal.pending == nil ? MutationRecoveryFailure.corruptJournal.errorDescription : nil
         let defaults = suppliedDefaults ?? (mode == .normal
             ? .standard
             : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
@@ -101,7 +110,7 @@ final class WorkspaceViewModel: ObservableObject {
             let memorySnapshot = MemorySnapshotStore(initial)
             let metadata = MemoryLocalMetadataStore()
             let eventMetadata = MemoryLocalEventReminderStore()
-            let scheduler: ReminderScheduling = suppliedScheduler ?? (mode == .demo ? NoopReminderScheduler() : UserNotificationScheduler())
+            let scheduler: ReminderScheduling = suppliedScheduler ?? ([.notificationStatus, .notificationTest].contains(mode) ? UserNotificationScheduler() : NoopReminderScheduler())
             snapshotStore = memorySnapshot
             snapshot = initial
             if mode == .demo {
@@ -124,6 +133,9 @@ final class WorkspaceViewModel: ObservableObject {
     var preferredColorScheme: ColorScheme? {
         switch appearance { case .system: return nil; case .light: return .light; case .dark: return .dark }
     }
+
+    var presentationDefaults: UserDefaults { defaults }
+    var mutationsBlocked: Bool { mutationInFlight || mutationJournal.isBlocked }
 
     var selectedCalendar: CalendarInfo? { snapshot.calendars.first(where: { $0.id == selectedCalendarID }) }
     var selectedTaskList: TaskList? { snapshot.taskLists.first(where: { $0.id == selectedTaskListID }) }
@@ -168,6 +180,21 @@ final class WorkspaceViewModel: ObservableObject {
             snapshot = demoAdapter.snapshot()
             syncState = .updated
             statusMessage = "ДЕМО · показаны только синтетические fixtures; сеть, кэш пользователя и уведомления отключены."
+            switch DemoScenario.parse(arguments: ProcessInfo.processInfo.arguments) {
+            case .ready: break
+            case .loading: snapshot = .empty; syncState = .syncing; statusMessage = "ДЕМО · загрузка…"
+            case .setup: snapshot = .empty; syncState = .setupRequired; statusMessage = "ДЕМО · укажите путь к gws в настройках."
+            case .offline: syncState = .offline; statusMessage = "ДЕМО · нет связи с Google; сохранённые данные доступны."
+            case .stale: syncState = .stale; statusMessage = "ДЕМО · данные требуют обновления."
+            case .failed: syncState = .failed; statusMessage = "ДЕМО · ответ не удалось прочитать; сохранённые данные доступны."
+            case .empty: snapshot = .empty; snapshot.fetchedAt = Date(); statusMessage = "ДЕМО · синхронизация завершена, данных нет."
+            case .recovery:
+                if !mutationJournal.isBlocked, let invocation = try? GWSCommandFactory(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
+                    .taskInsert(taskListID: "demo-task-list", title: "Демо: сохранённый черновик", notes: "Длинные синтетические заметки для проверки отступов и восстановления. \(String(repeating: "Содержимое черновика. ", count: 60))", due: nil, authorization: .userSave) {
+                    try? mutationJournal.begin(invocation)
+                    pendingMutation = mutationJournal.pending
+                }
+            }
             return
         }
         if launchMode == .ledgerAcceptance {
@@ -276,7 +303,7 @@ final class WorkspaceViewModel: ObservableObject {
                     Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedTasksSync) }
                     if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
                 case .failure(let error):
-                    self.syncState = self.snapshot.fetchedAt == .distantPast ? .setupRequired : .stale
+                    self.syncState = .afterFailure(error as? GWSFailure)
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Синхронизация не выполнена. Сохранённые данные не изменены."
                 }
             }
@@ -295,7 +322,7 @@ final class WorkspaceViewModel: ObservableObject {
         if !refreshedCalendarIDs.contains(selectedCalendarID ?? "") {
             selectedCalendarID = refreshed.calendars.first?.id
         }
-        selectedTaskListID = selectedTaskListID ?? refreshed.taskLists.first?.id
+        selectedTaskListID = TaskWorkspaceLayout.validSelectedListID(selectedTaskListID, lists: refreshed.taskLists)
     }
 
     private func refreshSyntheticAcceptance() {
@@ -343,6 +370,7 @@ final class WorkspaceViewModel: ObservableObject {
     func performMutation(_ invocation: ProcessInvocation, thenRefresh: Bool = true,
                          onSuccess: (() -> Void)? = nil, onFailure: ((String) -> Void)? = nil) {
         if launchMode == .demo {
+            guard !mutationJournal.isBlocked else { onFailure?(MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка."); return }
             do {
                 try demoAdapter?.perform(invocation)
                 if let demoAdapter {
@@ -369,6 +397,10 @@ final class WorkspaceViewModel: ObservableObject {
             return
         }
         guard !mutationInFlight else { return }
+        guard !mutationJournal.isBlocked else {
+            onFailure?(MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка изменения.")
+            return
+        }
         mutationInFlight = true
         statusMessage = "Сохранение…"
         let path = gwsPath
@@ -378,11 +410,12 @@ final class WorkspaceViewModel: ObservableObject {
                 guard let self, let runner = self.runner else { throw GWSFailure.forbiddenOperation }
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                outcome = .success(try GWSMutationService(runner: runner).perform(invocation, reader: reader))
+                outcome = .success(try RecoverableMutationService(runner: runner, journal: self.mutationJournal).perform(invocation, reader: reader))
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.mutationInFlight = false
+                self.pendingMutation = self.mutationJournal.pending
                 switch outcome {
                 case .success(let result) where result.isReadBackVerified:
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
@@ -414,6 +447,49 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
+    func recheckPendingMutation(onSuccess: (() -> Void)? = nil) {
+        guard !mutationInFlight, pendingMutation?.resourceID != nil, let runner else { return }
+        mutationInFlight = true
+        statusMessage = "Проверяем сохранение…"
+        let path = gwsPath
+        let journal = mutationJournal
+        let pendingOperation = pendingMutation?.operation
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result: Result<GWSMutationResult, Error>
+            do {
+                let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
+                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
+                result = .success(try RecoverableMutationService(runner: runner, journal: journal).recheck(reader: reader))
+            } catch { result = .failure(error) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.mutationInFlight = false
+                self.pendingMutation = journal.pending
+                switch result {
+                case .success(let verified):
+                    self.statusMessage = "Изменение подтверждено точным чтением Google."
+                    if case .taskVerified(let task) = verified { Task { await self.reminderCoordinator.reconcile(tasks: [task]) } }
+                    onSuccess?()
+                    // A domain refresh reconciles deletion reminders using complete, confirmed data.
+                    if let pendingOperation { self.refreshAfterMutation(pendingOperation) }
+                case .failure(let error):
+                    self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Проверка пока не завершена."
+                }
+            }
+        }
+    }
+
+    func acknowledgeManuallyReconciledMutation() {
+        guard !mutationInFlight else { return }
+        do {
+            try mutationJournal.releaseAfterManualReview()
+            pendingMutation = nil
+            mutationRecoveryProblem = nil
+            statusMessage = "Проверка вручную отмечена пользователем. Автоматическое подтверждение Google не заявляется."
+            refresh()
+        } catch { mutationRecoveryProblem = "Не удалось обновить журнал проверки. Запись остаётся заблокированной." }
+    }
+
     private func refreshAfterMutation(_ operation: GWSOperation) {
         guard launchMode == .normal else { refresh(); return }
         guard let scope = WorkspaceRefreshScope.afterVerifiedMutation(operation) else { refresh(); return }
@@ -438,6 +514,67 @@ final class WorkspaceViewModel: ObservableObject {
         print("G_CALENDAR_NOTIFICATION_STATUS bundle_identifier=\(bundleIdentifier) \(status.safeSummary)")
         fflush(stdout)
         NSApp.terminate(nil)
+    }
+
+    func runNotificationTestAndExit() async {
+        guard launchMode == .notificationTest, let scheduler = reminderCoordinator.scheduler as? UserNotificationScheduler else { return }
+        do {
+            let request = try await NotificationAcceptance.scheduleOneTest(using: scheduler)
+            var delivered = false
+            for _ in 0..<8 {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                if await scheduler.wasDelivered(identifier: request.identifier) { delivered = true; break }
+            }
+            if !delivered { await scheduler.cancel(identifier: request.identifier) }
+            print("G_CALENDAR_NOTIFICATION_TEST bundle_identifier=\(Bundle.main.bundleIdentifier ?? "unknown") scheduled=1 own_notification_delivered=\(delivered) visible_banner=needs_human_verification")
+            fflush(stdout)
+            Darwin.exit(delivered ? 0 : 1)
+        } catch {
+            print("G_CALENDAR_NOTIFICATION_TEST status=blocked authorization_or_scheduler_failure=true permission_requested=false")
+            fflush(stdout)
+            Darwin.exit(1)
+        }
+    }
+
+    func runSyntheticAcceptanceAndExit() async {
+        guard launchMode == .syntheticAcceptance else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--acceptance-dir"), arguments.indices.contains(index + 1) else {
+            print("G_CALENDAR_LIVE status=blocked reason=fresh_private_directory_required")
+            fflush(stdout)
+            Darwin.exit(2)
+        }
+        let directory = URL(fileURLWithPath: arguments[index + 1])
+        let finishExistingCleanup = arguments.contains("--finish-existing-cleanup")
+        let code = await Task.detached(priority: .userInitiated) { () -> Int32 in
+            do {
+                let executable = try GWSExecutableResolver().resolve(configuredPath: nil)
+                let run = try SyntheticAcceptanceRun(directory: directory, factory: GWSCommandFactory(executableURL: executable), runner: FoundationProcessRunner(), finishExistingCleanup: finishExistingCleanup)
+                let steps = try finishExistingCleanup ? run.finishExistingCleanup() : run.run()
+                let samples = run.stepMilliseconds.sorted()
+                let median = samples.isEmpty ? 0 : samples[samples.count / 2]
+                let maximum = samples.last ?? 0
+                print(String(format: "G_CALENDAR_LIVE status=passed verified_steps=%d current_run_objects=3 deleted=3 mutation_plus_exact_get_p50_ms=%.1f max_ms=%.1f", steps, median, maximum))
+                return 0
+            } catch {
+                // IDs/drafts remain exclusively in the private journal/ledger, never stdout.
+                let reason: String
+                switch error {
+                case GWSFailure.invalidResponse: reason = "invalid_response"
+                case GWSFailure.mutationNotVerified: reason = "read_back_mismatch"
+                case GWSFailure.resourceNotFound: reason = "not_found"
+                case GWSFailure.forbiddenOperation: reason = "scope_guard"
+                case GWSFailure.processFailed: reason = "process_failed"
+                case GWSFailure.timedOut: reason = "timeout"
+                case MutationRecoveryFailure.pendingVerification: reason = "pending_verification"
+                default: reason = "other"
+                }
+                print("G_CALENDAR_LIVE status=failed reason=\(reason) private_ledger_retained=true automatic_retry=false")
+                return 1
+            }
+        }.value
+        fflush(stdout)
+        Darwin.exit(code)
     }
 
     func refreshNotificationStatus() async {
@@ -511,7 +648,12 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    func goToToday() { activeDate = Date(); refreshCalendarRangeIfNeeded() }
+    func updateLocalDate(now: Date = Date()) {
+        let today = DateOnly(date: now)
+        if today != localToday { localToday = today }
+    }
+
+    func goToToday() { updateLocalDate(); activeDate = Date(); refreshCalendarRangeIfNeeded() }
 
     func currentRange() -> DateRange {
         var calendar = Calendar(identifier: .gregorian)
@@ -567,26 +709,12 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     var visibleTasks: [GoogleTask] {
-        let today = DateOnly(date: Date())
-        return snapshot.tasks.filter { task in
-            guard !task.deleted, selectedTaskListID == nil || task.taskListID == selectedTaskListID else { return false }
-            guard searchText.isEmpty || task.title.localizedCaseInsensitiveContains(searchText) else { return false }
-            switch taskFilter {
-            case .all: return true
-            case .today: return task.due == today && !task.completed
-            case .upcoming: return (task.due == nil || task.due! >= today) && !task.completed
-            case .overdue: return task.due.map { $0 < today } == true && !task.completed
-            }
-        }
+        TaskWorkspaceLayout.filteredTasks(snapshot.tasks, filter: taskFilter, selectedTaskListID: selectedTaskListID,
+                                          searchText: searchText, today: localToday)
     }
 
     func taskGroups() -> [(String, [GoogleTask])] {
-        let today = DateOnly(date: Date())
-        let active = visibleTasks.filter { !$0.completed }
-        return [("Просрочено", active.filter { $0.due.map { $0 < today } == true }),
-                ("Сегодня", active.filter { $0.due == today }),
-                ("Предстоящие", active.filter { $0.due.map { $0 > today } == true || $0.due == nil }),
-                ("Готово", visibleTasks.filter(\.completed))]
+        TaskWorkspaceLayout.groups(visibleTasks, today: localToday)
     }
 }
 
@@ -611,10 +739,13 @@ struct GCalendarApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                .defaultAppStorage(model.presentationDefaults)
                 .frame(minWidth: 760, minHeight: 560)
                 .preferredColorScheme(model.preferredColorScheme)
                 .task {
                     if launchMode == .notificationStatus { await model.queryNotificationStatusAndExit() }
+                    else if launchMode == .notificationTest { await model.runNotificationTestAndExit() }
+                    else if launchMode == .syntheticAcceptance { await model.runSyntheticAcceptanceAndExit() }
                     else {
                         model.refresh()
                         if launchMode == .demo {
@@ -633,6 +764,14 @@ struct GCalendarApp: App {
                 Button("Сегодня") { model.goToToday() }.keyboardShortcut("t", modifiers: .command)
                 Button("Новое событие или задача") { model.requestNewItem() }.keyboardShortcut("n", modifiers: .command)
                 Button("Синхронизировать") { model.refresh() }.keyboardShortcut("r", modifiers: .command)
+                    .disabled(model.syncState == .syncing || model.mutationInFlight)
+            }
+            CommandMenu("Навигация") {
+                Button("Календарь") { model.setSection(.calendar) }.keyboardShortcut("1", modifiers: .command)
+                Button("Задачи") { model.setSection(.tasks) }.keyboardShortcut("2", modifiers: .command)
+                Divider()
+                Button("Предыдущий период") { model.moveDate(-1) }.keyboardShortcut("[", modifiers: .command)
+                Button("Следующий период") { model.moveDate(1) }.keyboardShortcut("]", modifiers: .command)
             }
         }
     }

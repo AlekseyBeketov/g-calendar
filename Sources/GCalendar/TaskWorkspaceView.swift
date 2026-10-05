@@ -3,25 +3,33 @@ import SwiftUI
 struct TaskWorkspaceView: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     @StateObject private var local = ViewLocalState()
+    @AppStorage("taskWorkspacePresentation") private var presentationRawValue = TaskWorkspacePresentation.defaultMode.rawValue
 
     var body: some View {
-        VStack(spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.selectedTaskList?.title ?? "Задачи").font(.title2.weight(.semibold)).foregroundStyle(AppTheme.textPrimary)
-                    Text("Срок Google Tasks — дата без времени. Напоминания хранятся только на этом устройстве.")
-                        .font(.caption).foregroundStyle(AppTheme.textSecondary)
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { listSelector; Spacer(minLength: 16); workspaceActions }
+                    VStack(alignment: .leading, spacing: 12) { listSelector; workspaceActions }
                 }
-                Spacer()
-                Picker("Фильтр задач", selection: $model.taskFilter) {
-                    ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in Text(filter.rawValue).tag(filter) }
-                }
-                .pickerStyle(.menu)
-                Button { local.showTaskLists = true } label: { Label("Списки", systemImage: "list.bullet") }
-                Button { local.showingNewTask = true } label: { Label("Задача", systemImage: "plus") }
-                    .disabled(model.selectedTaskListID == nil || model.mutationInFlight)
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in
+                            Button { model.taskFilter = filter } label: {
+                                Text(filter.rawValue).font(.callout.weight(.medium))
+                                    .padding(.horizontal, 12).frame(height: 32)
+                                    .background(model.taskFilter == filter ? AppTheme.selection : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+                                    .contentShape(.interaction, Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(model.taskFilter == filter ? AppTheme.accent : AppTheme.textSecondary)
+                            .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
+                        }
+                    }
+                }.scrollIndicators(.hidden)
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
 
             if model.snapshot.taskLists.isEmpty {
                 WorkspaceEmptyState(title: "Списков задач нет", symbol: "checklist", description: "Создайте список, чтобы добавлять задачи.", actionTitle: "Управлять списками") {
@@ -36,27 +44,31 @@ struct TaskWorkspaceView: View {
                 }
             } else if model.taskFilter == .all {
                 GeometryReader { geometry in
-                    if TaskWorkspaceLayout.usesSingleColumn(availableWidth: Double(geometry.size.width)) {
+                    if !TaskWorkspaceLayout.usesColumnBoard(presentation: presentation, availableWidth: Double(geometry.size.width)) {
                         ScrollViewReader { proxy in
                             ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 18) {
-                                    ForEach(model.taskGroups(), id: \.0) { title, tasks in
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            HStack {
-                                                Text(title).font(.headline)
-                                                Spacer()
-                                                Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
-                                            }
-                                            if tasks.isEmpty {
-                                                Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 4)
-                                            } else {
-                                                ForEach(tasks) { TaskRowView(task: $0) }
+                                LazyVStack(alignment: .leading, spacing: 16) {
+                                    ForEach(model.taskGroups().filter { !$0.1.isEmpty }, id: \.0) { title, tasks in
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Button {
+                                                if local.collapsedGroups.contains(title) { local.collapsedGroups.remove(title) }
+                                                else { local.collapsedGroups.insert(title) }
+                                            } label: {
+                                                HStack(spacing: 8) {
+                                                    Image(systemName: local.collapsedGroups.contains(title) ? "chevron.right" : "chevron.down").font(.caption)
+                                                    Text(title).font(.callout.weight(.semibold))
+                                                    Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
+                                                    Spacer()
+                                                }.frame(minHeight: 32).contentShape(.interaction, Rectangle())
+                                            }.buttonStyle(.plain).accessibilityLabel("\(title), \(tasks.count), \(local.collapsedGroups.contains(title) ? "свёрнуто" : "развёрнуто")")
+                                            if !local.collapsedGroups.contains(title) {
+                                                LazyVStack(spacing: 0) { ForEach(tasks) { TaskRowView(task: $0) } }
                                             }
                                         }
                                     }
                                     .id(TaskWorkspaceLayout.topScrollAnchorID)
                                 }
-                                .padding(.horizontal, 18)
+                                .padding(.horizontal, 24)
                                 .padding(.vertical, 8)
                             }
                             .scrollIndicators(.visible)
@@ -65,13 +77,13 @@ struct TaskWorkspaceView: View {
                     } else {
                         ScrollViewReader { proxy in
                             ScrollView([.horizontal, .vertical]) {
-                                HStack(alignment: .top, spacing: 14) {
+                                HStack(alignment: .top, spacing: 16) {
                                     ForEach(model.taskGroups(), id: \.0) { title, tasks in
                                         TaskColumn(title: title, tasks: tasks)
-                                            .frame(minWidth: 230, idealWidth: max(230, geometry.size.width / 4 - 14), maxWidth: 360)
+                                            .frame(minWidth: 230, idealWidth: max(230, geometry.size.width / 5 - 16), maxWidth: 360)
                                     }
                                 }
-                                .padding(.horizontal, 18)
+                                .padding(.horizontal, 24)
                                 .padding(.vertical, 4)
                                 .id(TaskWorkspaceLayout.topScrollAnchorID)
                             }
@@ -83,10 +95,10 @@ struct TaskWorkspaceView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 7) {
+                        LazyVStack(spacing: 0) {
                             ForEach(model.visibleTasks) { task in TaskRowView(task: task) }
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, 24)
                         .padding(.vertical, 6)
                         .id(TaskWorkspaceLayout.topScrollAnchorID)
                     }
@@ -105,6 +117,43 @@ struct TaskWorkspaceView: View {
             local.showingNewTask = true
         }
         .accessibilityIdentifier("task-workspace")
+    }
+
+    private var listSelector: some View {
+        Menu {
+            ForEach(model.snapshot.taskLists) { list in
+                Button { model.selectedTaskListID = list.id } label: {
+                    if model.selectedTaskListID == list.id { Label(list.title, systemImage: "checkmark") }
+                    else { Text(list.title) }
+                }
+            }
+            Divider()
+            Button("Управлять списками…") { local.showTaskLists = true }
+        } label: {
+            Text(model.selectedTaskList?.title ?? "Задачи").font(.title2.weight(.semibold)).lineLimit(1)
+        }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "не выбран")")
+    }
+
+    private var workspaceActions: some View {
+        HStack(spacing: 12) {
+            if model.taskFilter == .all {
+                Picker("Представление задач", selection: $presentationRawValue) {
+                    ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
+                        Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue)
+                    }
+                }.labelsHidden().pickerStyle(.menu).frame(width: 112)
+                .accessibilityIdentifier("task-presentation-picker")
+                .help("Список по умолчанию. Колонки доступны в широком окне.")
+            }
+            Button { local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }
+                .buttonStyle(.borderedProminent).disabled(model.selectedTaskListID == nil || model.mutationsBlocked)
+                .help("Создать задачу · ⌘N")
+        }
+    }
+
+    private var presentation: TaskWorkspacePresentation {
+        TaskWorkspacePresentation(rawValue: presentationRawValue) ?? .defaultMode
     }
 
     private var tasksInSelectedList: [GoogleTask] {
@@ -156,67 +205,108 @@ private struct TaskRowView: View {
     @StateObject private var local = ViewLocalState()
 
     private var metadata: LocalTaskMetadata { model.metadataStore.metadata(for: task.id) }
-    private var isOverdue: Bool { task.due.map { $0 < DateOnly(date: Date()) && !task.completed } ?? false }
+    private var isOverdue: Bool { TaskWorkspaceLayout.isOverdue(task, today: model.localToday) }
+
+
+    private var listTitle: String { model.snapshot.taskLists.first { $0.id == task.taskListID }?.title ?? "Список" }
+    private var dueColor: Color {
+        if task.completed || task.due == nil { return AppTheme.textSecondary }
+        if isOverdue { return AppTheme.overdue }
+        return task.due == model.localToday ? AppTheme.warning : AppTheme.accent
+    }
+    private var dueText: String {
+        guard let due = task.due, let date = due.startOfDay(in: .current) else { return "Без срока" }
+        return date.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "ru_RU")))
+    }
+
+    private var metadataAccessibilityValue: String {
+        var descriptions: [String] = []
+        if task.notes?.isEmpty == false { descriptions.append("Есть заметки") }
+        if metadata.favorite { descriptions.append("Локальное избранное") }
+        if let reminder = metadata.reminderAt {
+            descriptions.append("Локальное напоминание: \(reminder.formatted(date: .abbreviated, time: .shortened))")
+        }
+        return descriptions.joined(separator: "; ")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(spacing: 0) {
                 Button(action: toggleCompletion) {
                     Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 17)).foregroundStyle(task.completed ? AppTheme.textSecondary : AppTheme.task)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                        .font(.system(size: 16)).foregroundStyle(task.completed ? AppTheme.success : AppTheme.textSecondary)
+                        .frame(width: 44, height: 44).contentShape(.interaction, Rectangle())
+                }.buttonStyle(.plain).disabled(model.mutationsBlocked)
                 .help(task.completed ? "Вернуть задачу в работу" : "Завершить задачу")
                 .accessibilityLabel(task.completed ? "Снять отметку выполнения: \(task.title)" : "Завершить задачу: \(task.title)")
                 Button { local.showEditor = true } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(task.title).font(.callout).foregroundStyle(AppTheme.textPrimary).strikethrough(task.completed).lineLimit(3)
-                        HStack(spacing: 7) {
-                            Text(task.due?.description ?? "Без срока").font(.caption).foregroundStyle(isOverdue ? AppTheme.overdue : AppTheme.textSecondary)
-                            if isOverdue {
-                                Label("Просрочено", systemImage: "exclamationmark.circle.fill")
-                                    .font(.caption2).foregroundStyle(AppTheme.overdue)
-                            }
-                            if let reminder = metadata.reminderAt {
-                                Label(reminder.formatted(date: .omitted, time: .shortened), systemImage: "bell")
-                                    .font(.caption2).foregroundStyle(AppTheme.textSecondary).help("Локальное напоминание")
-                            }
-                            if metadata.favorite { Image(systemName: "star.fill").font(.caption2).foregroundStyle(AppTheme.warning).accessibilityLabel("Избранное на этом устройстве") }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Открыть задачу: \(task.title), список \(model.snapshot.taskLists.first(where: { $0.id == task.taskListID })?.title ?? "неизвестен"), срок \(task.due?.description ?? "без срока"), \(task.completed ? "выполнена" : "не выполнена")")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 16) { taskTitle.frame(minWidth: 160, maxWidth: .infinity, alignment: .leading); taskMetadata }
+                        VStack(alignment: .leading, spacing: 6) { taskTitle; taskMetadata }
+                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(.interaction, Rectangle())
+                }.buttonStyle(.plain)
+                .accessibilityLabel("Открыть задачу: \(task.title), список \(listTitle), срок \(dueText), \(isOverdue ? "просрочена, " : "")\(task.completed ? "выполнена" : "не выполнена")")
+                .accessibilityValue(metadataAccessibilityValue)
                 Menu {
                     Button("Редактировать…", systemImage: "pencil") { local.showEditor = true }
                     Button("Локальное напоминание…", systemImage: "bell") { local.showReminderEditor = true }
                     Button(metadata.favorite ? "Убрать из избранного" : "В избранное", systemImage: "star") { toggleFavorite() }
                     Divider()
-                    Button("Удалить…", systemImage: "trash", role: .destructive) { local.showingDeleteConfirmation = true }
-                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle()) }
-                .menuStyle(.borderlessButton)
+                    Button("Удалить…", systemImage: "trash", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked)
+                } label: { Image(systemName: "ellipsis").frame(width: 36, height: 44).contentShape(Rectangle()) }
+                .menuStyle(.borderlessButton).fixedSize()
+                .accessibilityLabel("Действия задачи: \(task.title)")
                 .help("Действия задачи")
             }
             if let message = local.localMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(AppTheme.overdue)
-                    .accessibilityAddTraits(.updatesFrequently)
+                Label(message, systemImage: "exclamationmark.triangle.fill").font(.caption)
+                    .foregroundStyle(AppTheme.overdue).fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 44).padding(.bottom, 8).accessibilityAddTraits(.updatesFrequently)
             }
         }
-        .padding(10)
-        .background(AppTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(AppTheme.outline.opacity(0.38), lineWidth: 1))
+        .padding(.horizontal, 4)
+        .background(local.isHovered || local.showEditor ? AppTheme.selection.opacity(0.65) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .leading) {
+            if local.showEditor { RoundedRectangle(cornerRadius: 2).fill(AppTheme.accent).frame(width: 3).padding(.vertical, 6) }
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(AppTheme.outline.opacity(0.12)).frame(height: 1) }
+        .onHover { local.isHovered = $0 }
         .sheet(isPresented: $local.showEditor) { TaskEditorView(task: task, taskListID: task.taskListID).environmentObject(model) }
         .sheet(isPresented: $local.showReminderEditor) { ReminderEditorView(task: task).environmentObject(model) }
         .confirmationDialog("Удалить задачу?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить задачу", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
         } message: { Text("Подтвердите удаление задачи из Google Tasks.") }
-        .disabled(model.mutationInFlight)
+    }
+
+    private var taskTitle: some View {
+        HStack(spacing: 6) {
+            Text(task.title).font(.callout).foregroundStyle(AppTheme.textPrimary).strikethrough(task.completed).lineLimit(2)
+            if task.notes?.isEmpty == false { Image(systemName: "text.alignleft").font(.caption2).foregroundStyle(AppTheme.textSecondary).help("Есть заметки") }
+            if metadata.favorite { Image(systemName: "star.fill").font(.caption2).foregroundStyle(AppTheme.warning).accessibilityLabel("Локальное избранное") }
+            if let reminder = metadata.reminderAt {
+                Image(systemName: "bell").font(.caption2).foregroundStyle(AppTheme.textSecondary)
+                    .help("Локальное напоминание: \(reminder.formatted(date: .abbreviated, time: .shortened))")
+            }
+        }
+    }
+
+    private var taskMetadata: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 5) {
+                if isOverdue {
+                    Image(systemName: "exclamationmark.circle.fill").font(.caption2).foregroundStyle(dueColor)
+                        .accessibilityLabel("Просрочено")
+                } else if task.due != nil { Circle().fill(dueColor).frame(width: 5, height: 5) }
+                Text(dueText).font(.caption).foregroundStyle(dueColor)
+            }.frame(width: 82, alignment: .leading)
+            .help(isOverdue ? "Просрочено" : "Срок задачи — дата без времени")
+            Text(listTitle).font(.caption2).foregroundStyle(AppTheme.accent).lineLimit(1)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .frame(maxWidth: 150, alignment: .leading)
+                .background(AppTheme.selection.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+        }.fixedSize(horizontal: true, vertical: false)
     }
 
     private func toggleCompletion() {
@@ -233,7 +323,7 @@ private struct TaskRowView: View {
 
     private func toggleFavorite() {
         let old = metadata
-        do { try model.metadataStore.set(LocalTaskMetadata(reminderAt: old.reminderAt, favorite: !old.favorite), for: task.id) }
+        do { try model.metadataStore.set(LocalTaskMetadata(reminderAt: old.reminderAt, favorite: !old.favorite), for: task.id); model.objectWillChange.send() }
         catch { local.localMessage = "Локальное избранное не сохранено." }
     }
 

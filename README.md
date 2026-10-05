@@ -1,6 +1,6 @@
 # g-calendar
 
-Нативное macOS-приложение для Google Calendar и Google Tasks: компактный Material-inspired интерфейс календаря и задач, локальный кэш и системные напоминания. Текущий результат — локальная MVP-сборка для проверки, не публичный релиз.
+Нативное macOS-приложение для Google Calendar и Google Tasks: интерфейс Pixel Paper, локальный кэш и системные напоминания. Текущий результат — локальная MVP-сборка для проверки, не публичный релиз.
 
 ## Сборка и запуск
 
@@ -28,7 +28,7 @@ open dist/g-calendar.app
 - Google Tasks `due` — дата без времени. Локальное время напоминания — отдельное расширение g-calendar, обратно в Tasks/Calendar оно не синхронизируется.
 - Durable offline write queue нет: при ошибке данные из кэша остаются доступны, но это не обещание отложенной записи.
 - Повторяющиеся события не редактируются без выбора scope.
-- Реальная видимая доставка баннера и pixel/VoiceOver QA требуют human verification/разрешения. Synthetic Google write/read-back acceptance разрешён владельцем, но ещё не выполнен; см. [docs/verification.md](docs/verification.md) и [docs/PRODUCT_COMPLETION.md](docs/PRODUCT_COMPLETION.md).
+- Реальная доставка баннера и полная визуальная/VoiceOver приёмка ещё требуют проверки. Synthetic Google lifecycle выполняется на собственных тестовых объектах; результаты и открытая работа — [docs/verification.md](docs/verification.md).
 - В репозитории пока нет `LICENSE`; open-source лицензия и условия публичного распространения не выбраны. Не считать локальную сборку опубликованным релизом.
 
 ## Разработка

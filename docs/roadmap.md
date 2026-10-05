@@ -1,10 +1,15 @@
 # Roadmap
 
+## Current planning checkpoint — 2026-10-05
+
+Owner approved Pixel Paper as the base with compact Color Atlas task-row metadata. The current [design contract](../design/DESIGN.md) and [execution plan](plans/2026-10-05-final-product-completion.md) replace the exploration variants and earlier quality plans. Implementation is active, with fixture tests and synthetic computer-use acceptance authorized, including final code/visual modal spacing audit. OpenSpec tasks 2.7, 5–8 remain driven by current evidence.
+
 ## MVP — Local native client
 - Native macOS SwiftUI application with consistent Material-inspired visual direction.
 - Week/day calendar and task-focused list/columns; date selectors, Today/Overdue/Search.
 - Real read-only Google sync through configured `gws`, explicit cache freshness/error states.
-- Calendar and task CRUD controls, including complete/uncomplete, validated with local fixtures. The owner separately authorized a narrowly scoped synthetic live write/read-back smoke through the actual app workflow; production/personal mutations and test-object deletion remain prohibited unless separately approved.
+- Calendar and task CRUD controls, including complete/uncomplete, validated with local fixtures. The owner separately authorized a narrowly scoped synthetic live lifecycle for event/task objects created by this run through the actual app workflow, with exact GET before and after each mutation; production/personal mutations remain prohibited.
+- Product-quality completion: Material-inspired semantic tokens, list-first Tasks with explicit columns, consistent date-only filters, a collapsible undated region, and measurable performance evidence.
 - Local-only task reminder time and UserNotifications permission/schedule/cancel/reschedule flow.
 - Reproducible source build and bundle script, tests, read-only smoke report, privacy-safe screenshots/verification.
 

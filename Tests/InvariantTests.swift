@@ -177,6 +177,8 @@ struct InvariantTests {
         run("file-metadata-date-round-trip", testFileMetadataRoundTrip)
         run("completion-patch-only-status", testCompletionPatchOnlyStatus)
         run("explicit-empty-notes-clears", testExplicitEmptyNotes)
+        run("recoverable-write-journal-exact-recheck", testRecoverableWrites)
+        run("native-synthetic-lifecycle-ledger-scope", testSyntheticLifecycle)
         run("pagination-and-model-mapping", testPaginationAndTypedMapping)
         run("process-errors-malformed-json-timeout", testErrorsAndTimeout)
         run("gws-launcher-finds-node-with-gui-path", testGWSLauncherFindsNodeWithGUIPath)
@@ -184,6 +186,9 @@ struct InvariantTests {
         run("date-only-all-day-exclusive-end-dst", testDateOnlyAllDayAndDST)
         run("calendar-task-only-date-is-not-empty", testCalendarTaskOnlyDateIsNotEmpty)
         run("calendar-undated-tasks-once-and-search-scope", testCalendarUndatedTasks)
+        run("task-date-filters-and-groups", testTaskFilters)
+        run("sync-failure-recovery-category", testSyncFailureState)
+        run("local-task-projection-performance-baseline", testTaskProjectionBaseline)
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
         run("calendar-time-grid-all-day-overlap-identity", testCalendarTimeGridLayout)
         run("calendar-time-grid-stress-profile", testCalendarTimeGridStress)
@@ -475,10 +480,118 @@ struct InvariantTests {
                   "timeless task region must respect no-match search state")
     }
 
+    static func testTaskFilters() throws {
+        let today = DateOnly(rawValue: "2026-10-02")!
+        func task(_ id: String, due: String?, completed: Bool = false, deleted: Bool = false, list: String = "synthetic-list") -> GoogleTask {
+            GoogleTask(id: id, taskListID: list, title: "Synthetic \(id)", notes: nil,
+                       due: due.flatMap(DateOnly.init(rawValue:)), completed: completed, deleted: deleted, updated: nil)
+        }
+        let lists = [TaskList(id: "synthetic-a", title: "Synthetic A", updated: nil),
+                     TaskList(id: "synthetic-b", title: "Synthetic B", updated: nil)]
+        try check(TaskWorkspaceLayout.validSelectedListID("synthetic-b", lists: lists) == "synthetic-b", "refresh must retain an existing selected list")
+        try check(TaskWorkspaceLayout.validSelectedListID("synthetic-removed", lists: lists) == "synthetic-a", "refresh must replace a remotely removed list context")
+        try check(TaskWorkspaceLayout.validSelectedListID(nil, lists: lists) == "synthetic-a", "refresh must choose a list when no context exists")
+        try check(TaskWorkspaceLayout.validSelectedListID("synthetic-a", lists: []) == nil, "an empty refreshed collection must clear stale list context")
+        try check(TaskWorkspaceLayout.isOverdue(task("past-status", due: "2026-10-01"), today: today), "past active task needs an explicit overdue status")
+        try check(!TaskWorkspaceLayout.isOverdue(task("today-status", due: "2026-10-02"), today: today), "today must not be styled as overdue")
+        try check(!TaskWorkspaceLayout.isOverdue(task("completed-status", due: "2026-10-01", completed: true), today: today), "completed task must not announce overdue")
+        try check(!TaskWorkspaceLayout.isOverdue(task("deleted-status", due: "2026-10-01", deleted: true), today: today), "deleted task must not announce overdue")
+        let tasks = [task("past", due: "2026-10-01"), task("today", due: "2026-10-02"),
+                     task("future", due: "2026-10-03"), task("undated", due: nil),
+                     task("completed", due: "2026-10-03", completed: true),
+                     task("deleted", due: "2026-10-03", deleted: true),
+                     task("other-list", due: "2026-10-03", list: "synthetic-other")]
+        func filtered(_ filter: TaskWorkspaceFilter) -> [GoogleTask] {
+            TaskWorkspaceLayout.filteredTasks(tasks, filter: filter, selectedTaskListID: "synthetic-list", searchText: "", today: today)
+        }
+        try check(filtered(.today).map(\.id) == ["today"], "Today must include only active tasks due today")
+        try check(filtered(.upcoming).map(\.id) == ["future"], "Upcoming must exclude today, undated, completed, deleted and other lists")
+        try check(filtered(.overdue).map(\.id) == ["past"], "Overdue must include only active past dates")
+        try check(filtered(.withoutDue).map(\.id) == ["undated"], "Without due must be a separate active-task filter")
+        let all = filtered(.all)
+        try check(Set(all.map(\.id)) == ["past", "today", "future", "undated", "completed"], "All must retain completed tasks and enforce list/deletion scope")
+        let groups = TaskWorkspaceLayout.groups(all, today: today)
+        try check(groups.map { $0.1.map(\.id) } == [["past"], ["today"], ["future"], ["undated"], ["completed"]],
+                  "each scoped task must occur in exactly one matching due/completion group")
+        let searched = TaskWorkspaceLayout.filteredTasks(tasks, filter: .all, selectedTaskListID: "synthetic-list",
+                                                        searchText: "FUTURE", today: today)
+        try check(searched.map(\.id) == ["future"], "task filters must preserve case-insensitive search scope")
+        try check(TaskWorkspacePresentation.defaultMode == .list, "task presentation must start as a list")
+        try check(!TaskWorkspaceLayout.usesColumnBoard(presentation: .list, availableWidth: 1_600), "width must not opt a list into columns")
+        try check(!TaskWorkspaceLayout.usesColumnBoard(presentation: .columns, availableWidth: 760), "explicit columns need a readable narrow fallback")
+        try check(TaskWorkspaceLayout.usesColumnBoard(presentation: .columns, availableWidth: 1_600), "explicit columns must remain available on wide windows")
+        let unordered = [task("later", due: "2026-10-07"), task("same-a", due: "2026-10-03"),
+                         task("same-b", due: "2026-10-03"), task("undated-b", due: nil), task("undated-a", due: nil)]
+        let ordered = TaskWorkspaceLayout.filteredTasks(unordered, filter: .upcoming, selectedTaskListID: "synthetic-list", searchText: "", today: today)
+        try check(ordered.map(\.id) == ["same-a", "same-b", "later"], "dated views must sort by due and retain source order for equal dates")
+        try check(TaskWorkspaceLayout.groups(unordered, today: today)[3].1.map(\.id) == ["undated-b", "undated-a"], "undated manual order must not change")
+    }
+
+    static func testSyncFailureState() throws {
+        try check(WorkspaceSyncState.afterFailure(.executableUnavailable) == .setupRequired, "missing executable must offer setup")
+        try check(WorkspaceSyncState.afterFailure(.processFailed("synthetic", 1, "auth_or_permission")) == .setupRequired, "auth failure must offer setup")
+        try check(WorkspaceSyncState.afterFailure(.processFailed("synthetic", 1, "network")) == .offline, "network failure must be distinct from setup")
+        try check(WorkspaceSyncState.afterFailure(.invalidResponse("synthetic")) == .failed, "invalid response must offer retry without claiming offline")
+        try check(WorkspaceSyncState.afterFailure(.timedOut("synthetic")) == .failed, "timeout alone must not claim missing configuration")
+    }
+
+    static func testTaskProjectionBaseline() throws {
+        let today = DateOnly(rawValue: "2026-06-15")!
+        let tasks = (0..<4_096).map { index in
+            GoogleTask(id: "synthetic-perf-\(index)", taskListID: "synthetic-list-\(index % 4)",
+                       title: "Synthetic task \(index)", notes: nil,
+                       due: index.isMultiple(of: 17) ? nil : DateOnly(year: 2026, month: 6, day: index % 30 + 1),
+                       completed: index.isMultiple(of: 5), deleted: false, updated: nil)
+        }
+        var filtered: [GoogleTask] = []
+        let filtering = measuredSamples {
+            filtered = TaskWorkspaceLayout.filteredTasks(tasks, filter: .upcoming, selectedTaskListID: "synthetic-list-1",
+                                                         searchText: "task 1", today: today)
+        }
+        try check(!filtered.isEmpty && filtered.allSatisfy { !$0.completed && $0.due.map { $0 > today } == true },
+                  "performance fixture must exercise a nonempty active future search")
+        var grouped: [(String, [GoogleTask])] = []
+        let projection = measuredSamples {
+            grouped = TaskWorkspaceLayout.groups(tasks, today: today)
+        }
+        try check(grouped.flatMap { $0.1 }.count == tasks.count, "projection baseline must retain all fixture rows exactly once")
+        print(String(format: "PERF task_upcoming_search items=4096 samples=9 p50_ms=%.3f p95_ms=%.3f", filtering.0, filtering.1))
+        print(String(format: "PERF task_groups items=4096 samples=9 p50_ms=%.3f p95_ms=%.3f", projection.0, projection.1))
+    }
+
+    static func measuredSamples(_ operation: () -> Void) -> (Double, Double) {
+        operation()
+        let samples = (0..<9).map { _ -> Double in
+            let start = DispatchTime.now().uptimeNanoseconds
+            operation()
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        }.sorted()
+        return (samples[4], samples[8])
+    }
+
     static func testDemoRuntimeIsolation() async throws {
+        try expectForbidden({ _ = try SyntheticLedgerAcceptanceSession.explicitLedgerURL(arguments: ["g-calendar", "--ledger-acceptance"]) }, "implicit historical acceptance ledger")
+        try expectForbidden({ _ = try SyntheticLedgerAcceptanceSession.explicitLedgerURL(arguments: ["g-calendar", "--acceptance-ledger", "relative.json"]) }, "relative acceptance ledger")
+        try expectForbidden({ _ = try SyntheticLedgerAcceptanceSession.explicitLedgerURL(arguments: ["g-calendar", "--acceptance-ledger", "/private/tmp/one.json", "--acceptance-ledger", "/private/tmp/two.json"]) }, "ambiguous acceptance ledger")
+        try check(try SyntheticLedgerAcceptanceSession.explicitLedgerURL(arguments: ["g-calendar", "--acceptance-ledger", "/private/tmp/synthetic-ledger.json"]).path == "/private/tmp/synthetic-ledger.json", "acceptance must use only the explicitly selected ledger")
         try check(AppLaunchMode.parse(arguments: ["g-calendar", "--demo"]) == .demo, "--demo launch flag was not parsed")
         try check(AppLaunchMode.parse(arguments: ["g-calendar", "--notification-status"]) == .notificationStatus,
                   "--notification-status launch flag was not parsed")
+        try check(AppLaunchMode.parse(arguments: ["g-calendar", "--notification-test"]) == .notificationTest,
+                  "notification test must require its own explicit launch flag")
+        let allowedNotifications = RecordingScheduler(permission: .authorized)
+        let testNow = Date(timeIntervalSince1970: 1_800_000_000)
+        let notification = try await NotificationAcceptance.scheduleOneTest(using: allowedNotifications, now: testNow)
+        try check(allowedNotifications.requests == [notification] && notification.identifier.hasPrefix("g-calendar.acceptance.") && notification.fireDate == testNow.addingTimeInterval(3),
+                  "notification acceptance must schedule exactly one isolated synthetic request")
+        let deniedNotifications = RecordingScheduler(permission: .denied)
+        do {
+            _ = try await NotificationAcceptance.scheduleOneTest(using: deniedNotifications, now: testNow)
+            throw TestFailure(description: "unauthorized notification test scheduled")
+        } catch let failure as GWSFailure {
+            try check(failure == .forbiddenOperation && deniedNotifications.requests.isEmpty && deniedNotifications.permissionRequestCount == 0,
+                      "notification test must never prompt or schedule when authorization is absent")
+        }
         var liveFactoryCalled = false
         let demoRunner = RuntimeProcessBoundary.runner(for: .demo) {
             liveFactoryCalled = true
@@ -488,6 +601,11 @@ struct InvariantTests {
             liveFactoryCalled = true
             return FakeProcessRunner { _ in throw GWSFailure.forbiddenOperation }
         }
+        let notificationRunner = RuntimeProcessBoundary.runner(for: .notificationTest) {
+            liveFactoryCalled = true
+            return FakeProcessRunner { _ in throw GWSFailure.forbiddenOperation }
+        }
+        try check(notificationRunner == nil, "notification test must not construct a Google runner")
         let demoRunnerUnavailable: Bool
         if case nil = demoRunner { demoRunnerUnavailable = true } else { demoRunnerUnavailable = false }
         let statusRunnerUnavailable: Bool
@@ -496,7 +614,7 @@ struct InvariantTests {
         let snapshot = adapter.snapshot()
         try check(demoRunnerUnavailable && statusRunnerUnavailable && !liveFactoryCalled,
                   "isolated modes constructed a live Google process runner")
-        try check(snapshot.calendars.map(\.id) == ["demo-calendar"] && snapshot.events.first?.id == "demo-event" &&
+        try check(snapshot.calendars.map(\.id) == ["demo-calendar", "demo-readonly-calendar"] && snapshot.events.first?.id == "demo-event" &&
                   snapshot.tasks.contains(where: { $0.id == "demo-task-undated" }) && snapshot.tasks.count >= 50 &&
                   snapshot.tasks.allSatisfy({ $0.id.hasPrefix("demo-task-") }) && snapshot.calendarCoverage != nil,
                   "demo adapter must expose deterministic synthetic fixtures including enough rows to exercise scrolling")
@@ -671,6 +789,9 @@ struct InvariantTests {
                   "week columns must preserve a readable minimum and allow horizontal navigation on narrow windows")
         try check(CalendarGridLayout.dateOnlyRegionHeight == 116,
                   "date-only regions must have a shared bounded height across calendar days")
+        try check(CalendarGridLayout.dateOnlyHeight(maximumItemCount: 0) == 0, "empty date-only rows must reserve no blank panel")
+        try check(CalendarGridLayout.dateOnlyHeight(maximumItemCount: 1) == 62, "one date-only item needs a compact readable region")
+        try check(CalendarGridLayout.dateOnlyHeight(maximumItemCount: 1_000) == 116, "large date-only content must stay bounded and scrollable")
         let event = syntheticTimedEvent(id: "synthetic-accessibility-event", calendarID: "synthetic-calendar",
                                         start: "2026-10-02T09:00:00-04:00", end: "2026-10-02T10:00:00-04:00")
         try check(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: TimeZone(secondsFromGMT: 0)!) == "09:00–10:00",
@@ -916,6 +1037,43 @@ struct InvariantTests {
         try check(insertRunner.invocations.map(\.operation) == [.eventInsert, .eventGet],
                   "event create must perform exact GET after the mutation")
 
+        var fractionalBody = body
+        fractionalBody["start"] = ["dateTime": "2026-10-02T13:00:00.332+03:00", "timeZone": "UTC"]
+        fractionalBody["end"] = ["dateTime": "2026-10-02T14:00:00.332+03:00", "timeZone": "UTC"]
+        let canonicalInsert = try factory.eventInsert(calendar: calendar, body: fractionalBody, authorization: .userSave)
+        let canonicalBody = try Self.jsonBody(canonicalInsert)
+        try check((canonicalBody["start"] as? [String: Any])?["dateTime"] as? String == "2026-10-02T10:00:00Z" &&
+                  (canonicalBody["end"] as? [String: Any])?["dateTime"] as? String == "2026-10-02T11:00:00Z",
+                  "event draft must use second precision before journaling, preserving absolute instants")
+        try check(try GWSMutationService(runner: insertRunner).perform(canonicalInsert, reader: reader).isReadBackVerified,
+                  "Google's second-precision read-back must verify the canonical event draft")
+        let canonicalPatch = try factory.eventPatch(event: verifiedEvent, calendar: calendar, body: fractionalBody, authorization: .userSave)
+        try check(try Self.jsonBody(canonicalPatch) as NSDictionary == canonicalBody as NSDictionary,
+                  "event create and edit must apply the same precision policy")
+        let shiftedRunner = FakeProcessRunner { input in
+            if input.operation == .eventInsert { return response(Data(#"{"id":"synthetic-created-event"}"#.utf8)) }
+            return response(Data(eventJSON.replacingOccurrences(of: "10:00:00Z", with: "10:00:01Z").utf8))
+        }
+        do {
+            _ = try GWSMutationService(runner: shiftedRunner).perform(canonicalInsert, reader: GWSReadClient(factory: factory, runner: shiftedRunner))
+            throw TestFailure(description: "whole-second mismatch accepted")
+        } catch let failure as GWSFailure {
+            try check(failure == .mutationNotVerified, "canonicalization must not weaken exact instant verification")
+        }
+        let eventDeletion = try factory.eventDelete(event: verifiedEvent, calendar: calendar, authorization: .confirmedDelete)
+        for id in [verifiedEvent.id, "synthetic-foreign-event"] {
+            let cancelledRunner = FakeProcessRunner { input in
+                if input.operation == .eventDelete { return response(Data()) }
+                return response(try JSONSerialization.data(withJSONObject: ["id": id, "status": "cancelled"]))
+            }
+            do {
+                let outcome = try GWSMutationService(runner: cancelledRunner).perform(eventDeletion, reader: GWSReadClient(factory: factory, runner: cancelledRunner))
+                try check(id == verifiedEvent.id && outcome == .resourceDeleted, "sparse cancelled event must prove exact deletion without requiring times")
+            } catch let failure as GWSFailure {
+                try check(id != verifiedEvent.id && failure == .invalidResponse("event_identity"), "foreign cancelled event must not prove deletion")
+            }
+        }
+
         let taskBody = try factory.taskInsert(taskListID: "synthetic-task-list", title: "Synthetic verified task", notes: nil,
                                               due: DateOnly(rawValue: "2026-10-02"), authorization: .userSave)
         let taskRunner = FakeProcessRunner { invocation in
@@ -930,6 +1088,27 @@ struct InvariantTests {
         guard case .taskVerified(let verifiedTask) = taskResult else { throw TestFailure(description: "task create did not produce typed exact-read result") }
         try check(verifiedTask.id == "synthetic-created-task" && verifiedTask.due == DateOnly(rawValue: "2026-10-02"),
                   "task create exact GET did not verify returned ID and date-only due")
+
+        let emptyNotesInsert = try factory.taskInsert(taskListID: "synthetic-task-list", title: "Synthetic verified task", notes: "",
+                                                      due: DateOnly(rawValue: "2026-10-02"), authorization: .userSave)
+        let emptyNotesResult = try GWSMutationService(runner: taskRunner).perform(emptyNotesInsert, reader: taskReader)
+        try check(emptyNotesResult.isReadBackVerified, "omitted Google notes must verify an explicitly empty notes draft")
+
+        let deletion = try factory.taskDelete(task: verifiedTask, authorization: .confirmedDelete)
+        for (id, deleted) in [(verifiedTask.id, true), (verifiedTask.id, false), ("synthetic-other-task", true)] {
+            let tombstoneRunner = FakeProcessRunner { input in
+                if input.operation == .taskDelete { return response(Data()) }
+                return response(try JSONSerialization.data(withJSONObject: ["id": id, "title": "Synthetic", "deleted": deleted, "status": "needsAction"]))
+            }
+            do {
+                let outcome = try GWSMutationService(runner: tombstoneRunner).perform(deletion, reader: GWSReadClient(factory: factory, runner: tombstoneRunner))
+                try check(id == verifiedTask.id && deleted && outcome == .resourceDeleted,
+                          "only the exact task deletion tombstone may confirm deletion")
+            } catch let failure as GWSFailure {
+                try check((id != verifiedTask.id && failure == .invalidResponse("task_identity")) || (!deleted && failure == .mutationNotVerified),
+                          "active task or wrong-identity tombstone must not confirm deletion")
+            }
+        }
 
         let taskListBody = try factory.taskListInsert(title: "Synthetic verified list", authorization: .userSave)
         let taskListJSON = #"{"id":"synthetic-created-list","title":"Synthetic verified list"}"#
@@ -981,6 +1160,19 @@ struct InvariantTests {
                   "task-list deletion must be accepted only after exact GET confirms absence")
         try check(taskListDeleteRunner.invocations.map(\.operation) == [.taskListDelete, .taskListGet],
                   "task-list deletion must perform an exact GET after mutation")
+        for (code, message, expectedMissing) in [(404, "Not Found", true), (410, "Gone", true), (401, "Resource synthetic404 permission denied", false)] {
+            let errorRunner = FakeProcessRunner { input in
+                if input.operation == .taskListDelete { return response(Data()) }
+                return response(try JSONSerialization.data(withJSONObject: ["error": ["code": code, "message": message]]), code: 1)
+            }
+            do {
+                let outcome = try GWSMutationService(runner: errorRunner).perform(taskListDelete, reader: GWSReadClient(factory: factory, runner: errorRunner))
+                try check(expectedMissing && outcome == .resourceDeleted, "structured exact 404/410 must prove deletion")
+            } catch let failure as GWSFailure {
+                if case .processFailed = failure { try check(!expectedMissing, "an identifier containing 404 must not prove deletion after an auth error") }
+                else { throw failure }
+            }
+        }
 
         let mismatchedRunner = FakeProcessRunner { invocation in
             switch invocation.operation {
@@ -1059,6 +1251,213 @@ struct InvariantTests {
         }
     }
 
+    static func testRecoverableWrites() throws {
+        let factory = GWSCommandFactory(executableURL: executable)
+        let insert = try factory.taskInsert(taskListID: "synthetic-list", title: "Synthetic pending", notes: "", due: nil, authorization: .userSave)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("g-calendar-journal-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("pending.json")
+        let journal = MutationJournal(fileURL: file)
+        var readsFail = true
+        let runner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .taskInsert: return response(Data(#"{"id":"synthetic-created"}"#.utf8))
+            case .taskGet:
+                if readsFail { throw GWSFailure.timedOut("synthetic-exact-get") }
+                return response(Data(#"{"id":"synthetic-created","title":"Synthetic pending","status":"needsAction"}"#.utf8))
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        let reader = GWSReadClient(factory: factory, runner: runner)
+        let service = RecoverableMutationService(runner: runner, journal: journal)
+        do { _ = try service.perform(insert, reader: reader); throw TestFailure(description: "failed GET accepted") }
+        catch is GWSFailure { }
+        try check(journal.pending?.resourceID == "synthetic-created", "accepted identity must survive verification failure")
+        do { _ = try service.perform(insert, reader: reader); throw TestFailure(description: "duplicate INSERT allowed") }
+        catch is MutationRecoveryFailure { }
+        try check(runner.invocations.filter { $0.operation == .taskInsert }.count == 1, "repeat Save must not resend INSERT")
+        let restored = MutationJournal(fileURL: file)
+        try check(restored.pending == journal.pending && restored.isBlocked, "restart must retain exact identity and draft")
+        try check(restored.pending?.draftTitle == "Synthetic pending", "draft body must survive restart privately")
+        readsFail = false
+        let result = try RecoverableMutationService(runner: runner, journal: restored).recheck(reader: reader)
+        try check(result.isReadBackVerified && !restored.isBlocked, "exact recheck must verify and clear the journal")
+        try check(runner.invocations.filter { $0.operation == .taskInsert }.count == 1, "recheck must be read-only")
+
+        let unknownJournal = MutationJournal()
+        let unknownRunner = FakeProcessRunner { _ in response(Data("{}".utf8)) }
+        let unknownService = RecoverableMutationService(runner: unknownRunner, journal: unknownJournal)
+        let unknownReader = GWSReadClient(factory: factory, runner: unknownRunner)
+        do { _ = try unknownService.perform(insert, reader: unknownReader); throw TestFailure(description: "missing ID accepted") }
+        catch is GWSFailure { }
+        do { _ = try unknownService.recheck(reader: unknownReader); throw TestFailure(description: "unknown ID rechecked") }
+        catch is MutationRecoveryFailure { }
+        try check(unknownRunner.invocations.count == 1 && unknownJournal.isBlocked, "unknown ID must never trigger another write or guessed GET")
+
+        let rejectedJournal = MutationJournal()
+        let rejectedRunner = FakeProcessRunner { _ in throw GWSFailure.executableUnavailable }
+        do {
+            _ = try RecoverableMutationService(runner: rejectedRunner, journal: rejectedJournal).perform(insert,
+                reader: GWSReadClient(factory: factory, runner: rejectedRunner))
+            throw TestFailure(description: "unavailable executable accepted")
+        } catch is GWSFailure { }
+        try check(!rejectedJournal.isBlocked, "rejected-before-launch must permit corrected Save")
+
+        let ownTask = GoogleTask(id: "synthetic-delete", taskListID: "synthetic-list", title: "Synthetic", notes: nil, due: nil, completed: false, deleted: false, updated: nil)
+        let deletion = try factory.taskDelete(task: ownTask, authorization: .confirmedDelete)
+        for deleted in [true, false] {
+            let deletionJournal = MutationJournal()
+            let deletionRunner = FakeProcessRunner { input in
+                if input.operation == .taskDelete { return response(Data(), code: 1, stderr: "synthetic CLI failure after submission") }
+                return response(try JSONSerialization.data(withJSONObject: ["id": ownTask.id, "title": ownTask.title, "deleted": deleted]))
+            }
+            do {
+                let outcome = try RecoverableMutationService(runner: deletionRunner, journal: deletionJournal).perform(deletion, reader: GWSReadClient(factory: factory, runner: deletionRunner))
+                try check(deleted && outcome == .resourceDeleted && !deletionJournal.isBlocked, "nonzero DELETE may succeed only when exact GET proves its deletion")
+            } catch let failure as GWSFailure {
+                try check(!deleted && failure == .mutationNotVerified && deletionJournal.isBlocked, "nonzero DELETE without exact deletion proof must stay blocked")
+            }
+            try check(deletionRunner.invocations.map(\.operation) == [.taskDelete, .taskGet], "nonzero DELETE recovery must be one exact read and never a second write")
+        }
+
+        let nonemptyInsert = try factory.taskInsert(taskListID: "synthetic-list", title: "Synthetic pending", notes: "Meaningful", due: nil, authorization: .userSave)
+        let mismatchJournal = MutationJournal()
+        do {
+            _ = try RecoverableMutationService(runner: runner, journal: mismatchJournal).perform(nonemptyInsert, reader: reader)
+            throw TestFailure(description: "nonempty notes mismatch accepted")
+        } catch let failure as GWSFailure {
+            try check(failure == .mutationNotVerified && mismatchJournal.isBlocked, "nonempty notes mismatch must fail and retain attempt")
+        }
+
+        try Data("not-json".utf8).write(to: file)
+        let corrupt = MutationJournal(fileURL: file)
+        try check(corrupt.isBlocked && FileManager.default.fileExists(atPath: file.path), "corrupt journal must block writes and preserve original")
+        try corrupt.releaseAfterManualReview()
+        let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("reviewed-attempt-") }
+        try check(!corrupt.isBlocked && backups.count == 1 && (try Data(contentsOf: backups[0])) == Data("not-json".utf8),
+                  "explicit manual review must preserve corrupt data privately while releasing the block")
+
+        let calendar = CalendarInfo(id: "synthetic-calendar", title: "Synthetic", accessRole: "writer", timeZoneID: "UTC", colorHex: nil)
+        let eventInsert = try factory.eventInsert(calendar: calendar,
+            body: ["summary": "Synthetic", "start": ["date": "2026-10-05"], "end": ["date": "2026-10-06"]], authorization: .userSave)
+        let listInsert = try factory.taskListInsert(title: "Synthetic", authorization: .userSave)
+        for invocation in [eventInsert, listInsert] {
+            let currentJournal = MutationJournal()
+            let currentRunner = FakeProcessRunner { input in
+                if input.operation == invocation.operation { return response(Data(#"{"id":"synthetic-resource"}"#.utf8)) }
+                throw GWSFailure.timedOut("synthetic-exact-get")
+            }
+            let currentReader = GWSReadClient(factory: factory, runner: currentRunner)
+            let currentService = RecoverableMutationService(runner: currentRunner, journal: currentJournal)
+            do { _ = try currentService.perform(invocation, reader: currentReader); throw TestFailure(description: "unverified write accepted") }
+            catch is GWSFailure { }
+            do { _ = try currentService.perform(invocation, reader: currentReader); throw TestFailure(description: "duplicate write allowed") }
+            catch is MutationRecoveryFailure { }
+            try check(currentJournal.pending?.resourceID == "synthetic-resource" && currentRunner.invocations.count == 2,
+                      "event/list accepted IDs must be retained and subsequent writes blocked")
+        }
+    }
+
+    static func testSyntheticLifecycle() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("g-calendar-lifecycle-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var event: [String: Any]?
+        var list: [String: Any]?
+        var task: [String: Any]?
+        var interruptDeletionRead = false
+        let owner: [String: Any] = ["id": "synthetic-owner", "summary": "Synthetic", "accessRole": "owner", "timeZone": "UTC"]
+        let runner = FakeProcessRunner { invocation in
+            let arguments = invocation.arguments
+            var body: [String: Any] = [:]
+            if let index = arguments.firstIndex(of: "--json"), let data = arguments[index + 1].data(using: .utf8) {
+                body = (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            }
+            let object: [String: Any]
+            switch invocation.operation {
+            case .calendarList: object = ["items": [owner]]
+            case .calendarGet: object = owner
+            case .eventInsert:
+                event = body; event?["id"] = "synthetic-live-event"; object = event!
+            case .eventPatch:
+                event?.merge(body) { _, new in new }; object = event!
+            case .eventGet:
+                guard let event else { throw GWSFailure.resourceNotFound }; object = event
+            case .eventDelete: event?["status"] = "cancelled"; object = [:]
+            case .taskListInsert:
+                list = body; list?["id"] = "synthetic-live-list"; object = list!
+            case .taskListPatch:
+                list?.merge(body) { _, new in new }; object = list!
+            case .taskListGet:
+                guard let list else { throw GWSFailure.resourceNotFound }; object = list
+            case .taskListDelete: list = nil; object = [:]
+            case .taskInsert:
+                task = body; task?["id"] = "synthetic-live-task"; object = task!
+            case .taskPatch:
+                task?.merge(body) { _, new in new }; object = task!
+            case .taskGet:
+                if interruptDeletionRead && task?["deleted"] as? Bool == true {
+                    interruptDeletionRead = false
+                    throw GWSFailure.timedOut("synthetic-delete-read")
+                }
+                guard let task else { throw GWSFailure.resourceNotFound }; object = task
+            case .taskDelete: task?["deleted"] = true; object = [:]
+            default: throw GWSFailure.forbiddenOperation
+            }
+            return response(try JSONSerialization.data(withJSONObject: object))
+        }
+        let factory = GWSCommandFactory(executableURL: executable)
+        let run = try SyntheticAcceptanceRun(directory: directory, factory: factory, runner: runner)
+        try check(try run.run(now: Date(timeIntervalSince1970: 1_800_000_000.332)) == 11, "native acceptance must verify all 11 create/edit/toggle/delete steps")
+        try check(event?["status"] as? String == "cancelled" && task?["deleted"] as? Bool == true && list == nil, "only current-run synthetic resources must be cleaned, including exact deletion tombstones")
+        try check(runner.invocations.filter { [.eventInsert, .taskInsert, .taskListInsert].contains($0.operation) }.count == 3,
+                  "native acceptance must never repeat an INSERT")
+        try check(runner.invocations.filter { $0.operation == .eventGet }.count == 5 &&
+                  runner.invocations.filter { $0.operation == .taskGet }.count == 9 &&
+                  runner.invocations.filter { $0.operation == .taskListGet }.count == 5,
+                  "every edit/toggle/delete must have exact GET before and after")
+        let ledgerFile = directory.appendingPathComponent("ledger.json")
+        let attributes = try FileManager.default.attributesOfItem(atPath: ledgerFile.path)
+        let ledger = try JSONSerialization.jsonObject(with: Data(contentsOf: ledgerFile)) as? [String: Any]
+        try check((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600 && ledger?["complete"] as? Bool == true,
+                  "exact ledger must remain private and honestly completed")
+        do {
+            _ = try SyntheticAcceptanceRun(directory: directory, factory: factory, runner: runner)
+            throw TestFailure(description: "existing acceptance run was reused")
+        } catch is GWSFailure { }
+        try check(AppLaunchMode.parse(arguments: ["app", "--synthetic-lifecycle"]) == .syntheticAcceptance,
+                  "live acceptance must require its own explicit launch mode")
+        try check(DemoScenario.parse(arguments: ["app", "--demo-state", "recovery"]) == .ready &&
+                  DemoScenario.parse(arguments: ["app", "--demo", "--demo-state", "recovery"]) == .recovery,
+                  "synthetic UI scenarios must never affect normal mode")
+
+        let recoveryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("g-calendar-lifecycle-recovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: recoveryDirectory) }
+        interruptDeletionRead = true
+        do {
+            _ = try SyntheticAcceptanceRun(directory: recoveryDirectory, factory: factory, runner: runner).run()
+            throw TestFailure(description: "failed deletion GET accepted")
+        } catch let failure as GWSFailure {
+            if case .timedOut = failure { try check(true, "accepted deletion with failed GET must stop before further writes") }
+            else { throw failure }
+        }
+        let pendingFile = recoveryDirectory.appendingPathComponent("pending.json")
+        let originalPending = try Data(contentsOf: pendingFile)
+        var foreignPending = try JSONSerialization.jsonObject(with: originalPending) as! [String: Any]
+        foreignPending["resourceID"] = "synthetic-foreign-id"
+        try JSONSerialization.data(withJSONObject: foreignPending).write(to: pendingFile)
+        let beforeForeign = runner.invocations.count
+        try expectForbidden({
+            _ = try SyntheticAcceptanceRun(directory: recoveryDirectory, factory: factory, runner: runner, finishExistingCleanup: true).finishExistingCleanup()
+        }, "cleanup journal outside exact ledger")
+        try check(runner.invocations.count == beforeForeign, "foreign cleanup identity must be rejected before any process call")
+        try originalPending.write(to: pendingFile)
+        let beforeResume = runner.invocations.count
+        let resumed = try SyntheticAcceptanceRun(directory: recoveryDirectory, factory: factory, runner: runner, finishExistingCleanup: true)
+        try check(try resumed.finishExistingCleanup() == 11, "cleanup must resume by exact read-only recheck and verify all remaining deletions")
+        let resumedWrites = runner.invocations.dropFirst(beforeResume).filter { [.eventInsert, .eventDelete, .eventPatch, .taskInsert, .taskDelete, .taskPatch, .taskListInsert, .taskListDelete, .taskListPatch].contains($0.operation) }
+        try check(resumedWrites.map(\.operation) == [.eventDelete, .taskListDelete], "cleanup must not repeat the already accepted task DELETE or any INSERT")
+    }
+
     static func testMutationGuardsAndExactArguments() throws {
         let factory = GWSCommandFactory(executableURL: executable)
         let readOnly = CalendarInfo(id: "readonly-fixture", title: "Synthetic Read Only", accessRole: "reader", timeZoneID: "UTC", colorHex: nil)
@@ -1133,8 +1532,14 @@ struct InvariantTests {
         let failedRequest = await NotificationAuthorization.requestAfterExplicitUserAction(using: erroredScheduler)
         try check(failedRequest.status == .notDetermined && failedRequest.requestFailure == schedulerError,
                   "request errors must preserve the actual authorization read-back instead of mapping to denied")
-        try check(failedRequest.userMessage.contains("UNErrorDomain") && failedRequest.userMessage.contains("not_determined"),
-                  "the safe diagnostic must include only the error domain/code and actual status")
+        try check(failedRequest.userMessage.contains("разрешение ещё не получено") &&
+                  !failedRequest.userMessage.contains("UNErrorDomain") && !failedRequest.userMessage.contains("not_determined"),
+                  "user feedback must describe actual permission without internal diagnostic identifiers")
+        try check(NotificationAuthorizationResult(status: .authorized, requestFailure: schedulerError).userMessage.contains("уведомления разрешены"),
+                  "request failure feedback must retain an authorized read-back")
+        try check(NotificationAuthorizationResult(status: .denied).userMessage.contains("системных настройках") &&
+                  !NotificationAuthorizationResult(status: .denied).userMessage.contains("нажал"),
+                  "denied feedback must offer settings recovery without guessing a user action")
 
         let deniedScheduler = RecordingScheduler(permission: .notDetermined, requestResult: .denied)
         let denied = await NotificationAuthorization.requestAfterExplicitUserAction(using: deniedScheduler)

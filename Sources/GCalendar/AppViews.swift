@@ -11,19 +11,33 @@ struct RootView: View {
                 .navigationSplitViewColumnWidth(min: 205, ideal: 245, max: 310)
         } detail: {
             VStack(spacing: 0) {
-                SyncStatusBar()
+                SyncStatusBar(onOpenSettings: { local.showSettings = true })
+                if model.pendingMutation != nil || model.mutationRecoveryProblem != nil {
+                    MutationRecoveryPanel()
+                }
                 Group {
-                    if model.section == .calendar { CalendarWorkspaceView() }
+                    if model.snapshot.fetchedAt == .distantPast && model.syncState == .syncing {
+                        ProgressView("Загрузка календарей и задач…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if model.snapshot.fetchedAt == .distantPast && model.syncState == .setupRequired {
+                        WorkspaceEmptyState(title: "Настройте подключение", symbol: "gearshape",
+                                            description: model.statusMessage, actionTitle: "Открыть настройки") { local.showSettings = true }
+                    } else if model.snapshot.fetchedAt == .distantPast && (model.syncState == .failed || model.syncState == .offline) {
+                        WorkspaceEmptyState(title: model.syncState == .offline ? "Нет связи с Google" : "Данные не загружены",
+                                            symbol: "exclamationmark.arrow.circlepath", description: model.statusMessage,
+                                            actionTitle: "Повторить") { model.refresh() }
+                    } else if model.section == .calendar { CalendarWorkspaceView() }
                     else { TaskWorkspaceView() }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background(AppTheme.canvas)
+            .background(AppTheme.surface)
             .toolbar {
                 ToolbarItemGroup(placement: .automatic) {
-                    Button { model.moveDate(-1) } label: { Image(systemName: "chevron.left") }.help("Назад")
+                    if model.section == .calendar {
+                    Button { model.moveDate(-1) } label: { Image(systemName: "chevron.left") }.help("Назад · ⌘[").accessibilityLabel("Предыдущий период")
                     Button { model.goToToday() } label: { Text("Сегодня") }
-                    Button { model.moveDate(1) } label: { Image(systemName: "chevron.right") }.help("Вперёд")
+                    Button { model.moveDate(1) } label: { Image(systemName: "chevron.right") }.help("Вперёд · ⌘]").accessibilityLabel("Следующий период")
+                    }
                 }
                 ToolbarItem(placement: .automatic) {
                     HStack(spacing: 7) {
@@ -31,6 +45,7 @@ struct RootView: View {
                         TextField(model.section == .calendar ? "Поиск событий" : "Поиск задач", text: $model.searchText)
                             .textFieldStyle(.plain)
                             .focused($searchFocused)
+                            .onExitCommand { model.searchText = "" }
                             .frame(width: 180)
                             .accessibilityLabel(model.section == .calendar ? "Поиск событий" : "Поиск задач")
                             .accessibilityIdentifier("workspace-search-field")
@@ -44,6 +59,7 @@ struct RootView: View {
                     .padding(.horizontal, 8)
                     .frame(height: 28)
                     .background(AppTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(searchFocused ? AppTheme.accent : AppTheme.outline.opacity(0.4), lineWidth: searchFocused ? 2 : 1))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { model.refresh() } label: {
@@ -61,15 +77,19 @@ struct RootView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .tint(AppTheme.accent)
         .sheet(isPresented: $local.showSettings) { SettingsView() }
         .sheet(isPresented: $local.showTaskLists) { TaskListManagerView() }
         .onChange(of: model.searchFocusRequestID) { _ in searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.updateLocalDate()
             model.reconcileLocalReminders(trigger: .appActivation)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            model.updateLocalDate()
             model.reconcileLocalReminders(trigger: .systemWake)
         }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in model.updateLocalDate(now: now) }
     }
 }
 
@@ -89,9 +109,10 @@ private struct SidebarView: View {
                             Text(section.rawValue)
                         }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 3)
-                            .contentShape(Rectangle())
-                            .background(model.section == section ? AppTheme.accent.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                            .padding(.horizontal, 8)
+                            .frame(minHeight: 36)
+                            .contentShape(.interaction, Rectangle())
+                            .background(model.section == section ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(section == .tasks ? "workspace-section-tasks" : "workspace-section-calendar")
@@ -109,9 +130,10 @@ private struct SidebarView: View {
                                     Spacer(minLength: 2)
                                     if !calendar.isWritable { Image(systemName: "lock.fill").foregroundStyle(AppTheme.textSecondary).help("Только просмотр") }
                                 }
-                                .padding(.vertical, 4)
-                                .contentShape(Rectangle())
-                                .background(model.selectedCalendarID == calendar.id ? AppTheme.accent.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                                .padding(.horizontal, 8)
+                                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                                .contentShape(.interaction, Rectangle())
+                                .background(model.selectedCalendarID == calendar.id ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Выбрать календарь: \(calendar.title), \(calendar.isWritable ? "доступна запись" : "только просмотр")")
@@ -133,11 +155,13 @@ private struct SidebarView: View {
                 Section {
                     ForEach(model.snapshot.taskLists) { list in
                         Button { model.selectedTaskListID = list.id } label: {
-                            Label(list.title, systemImage: model.selectedTaskListID == list.id ? "checkmark.circle.fill" : "circle")
+                            Label(list.title, systemImage: "list.bullet")
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 3)
-                                .background(model.selectedTaskListID == list.id ? AppTheme.accent.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: 36)
+                                .contentShape(.interaction, Rectangle())
+                                .background(model.selectedTaskListID == list.id ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("sidebar-task-list-option")
@@ -150,21 +174,10 @@ private struct SidebarView: View {
                     HStack {
                         Text("Списки задач").accessibilityIdentifier("sidebar-task-list-selector")
                         Spacer()
-                        Button { showTaskLists = true } label: { Image(systemName: "plus") }.buttonStyle(.plain).help("Создать и управлять списками")
+                        Button { showTaskLists = true } label: { Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityLabel("Управлять списками задач").help("Создать и управлять списками")
                     }
                 }
-                Section("Фильтры") {
-                    ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in
-                        Button { model.taskFilter = filter } label: {
-                            Label(filter.rawValue, systemImage: filterSymbol(filter))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 2)
-                                .background(model.taskFilter == filter ? AppTheme.accent.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
-                    }
-                }
+
             }
         }
         .listStyle(.sidebar)
@@ -173,14 +186,7 @@ private struct SidebarView: View {
         .foregroundStyle(AppTheme.textPrimary)
         .accessibilityIdentifier("workspace-sidebar")
         .navigationTitle("g-calendar")
-        .safeAreaInset(edge: .bottom) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Google Tasks: срок — дата без времени").font(.caption2)
-                Text("Локальные напоминания не синхронизируются").font(.caption2)
-            }
-            .foregroundStyle(AppTheme.textSecondary)
-            .padding(12)
-        }
+
     }
 
     private func sectionSymbol(_ section: WorkspaceViewModel.Section) -> String {
@@ -190,33 +196,37 @@ private struct SidebarView: View {
         }
     }
 
-    private func filterSymbol(_ filter: WorkspaceViewModel.TaskFilter) -> String {
-        switch filter { case .all: return "list.bullet"; case .today: return "sun.max"; case .upcoming: return "calendar.badge.clock"; case .overdue: return "exclamationmark.circle" }
-    }
 }
 
 struct SyncStatusBar: View {
     @EnvironmentObject private var model: WorkspaceViewModel
+    let onOpenSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 8, height: 8)
-            Text(model.statusMessage).font(.callout).foregroundStyle(AppTheme.textPrimary).lineLimit(1)
+            Text(model.statusMessage).font(.caption).foregroundStyle(AppTheme.textSecondary).lineLimit(2)
+                .help(model.statusMessage)
+                .accessibilityLabel("Состояние синхронизации: \(model.statusMessage)")
+                .accessibilityAddTraits(.updatesFrequently)
             if let date = model.cacheDateText {
-                Text("· Кэш: \(date)").font(.callout).foregroundStyle(AppTheme.textSecondary).lineLimit(1)
+                Text("· Кэш: \(date)").font(.caption).foregroundStyle(AppTheme.textSecondary).lineLimit(1)
             }
             Spacer()
-            if model.syncState == .stale {
+            if model.cacheDateText != nil && [.stale, .offline, .failed].contains(model.syncState) {
                 Label("Показаны сохранённые данные", systemImage: "externaldrive.badge.exclamationmark")
                     .font(.caption).foregroundStyle(AppTheme.warning)
             }
+            if model.syncState == .setupRequired {
+                Button("Настройки", action: onOpenSettings)
+            } else if [.stale, .offline, .failed].contains(model.syncState) {
+                Button("Повторить") { model.refresh() }.disabled(model.mutationInFlight)
+            }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
         .background(AppTheme.surfaceRaised)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Состояние синхронизации: \(model.statusMessage)")
-        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityElement(children: .contain)
     }
 
     private var color: Color {
@@ -224,6 +234,8 @@ struct SyncStatusBar: View {
         case .updated: return AppTheme.success
         case .syncing: return AppTheme.accent
         case .stale: return AppTheme.warning
+        case .offline: return AppTheme.warning
+        case .failed: return AppTheme.overdue
         case .setupRequired: return AppTheme.overdue
         case .idle: return AppTheme.textSecondary
         }

@@ -7,9 +7,29 @@ struct CalendarDayInterval: Equatable {
     var durationMinutes: Double { endExclusive.timeIntervalSince(start) / 60 }
 }
 
+enum TaskWorkspaceFilter: String, CaseIterable {
+    case all = "Все", today = "Сегодня", upcoming = "Предстоящие", overdue = "Просроченные", withoutDue = "Без срока"
+}
+
+enum TaskWorkspacePresentation: String, CaseIterable {
+    case list = "Список", columns = "Колонки"
+
+    static let defaultMode = TaskWorkspacePresentation.list
+    var symbol: String { self == .list ? "list.bullet" : "rectangle.split.3x1" }
+}
+
 enum TaskWorkspaceLayout {
     static let idealSidebarWidth = 245.0
     static let topScrollAnchorID = "task-workspace-scroll-top"
+
+    static func validSelectedListID(_ selectedID: String?, lists: [TaskList]) -> String? {
+        if let selectedID, lists.contains(where: { $0.id == selectedID }) { return selectedID }
+        return lists.first?.id
+    }
+
+    static func isOverdue(_ task: GoogleTask, today: DateOnly) -> Bool {
+        !task.deleted && !task.completed && task.due.map { $0 < today } == true
+    }
 
     static func detailWidth(windowWidth: Double, sidebarWidth: Double = idealSidebarWidth) -> Double {
         max(0, windowWidth - sidebarWidth)
@@ -17,6 +37,43 @@ enum TaskWorkspaceLayout {
 
     static func usesSingleColumn(availableWidth: Double, threshold: Double = 1_020) -> Bool {
         availableWidth < threshold
+    }
+
+    static func usesColumnBoard(presentation: TaskWorkspacePresentation, availableWidth: Double) -> Bool {
+        presentation == .columns && !usesSingleColumn(availableWidth: availableWidth)
+    }
+
+    static func filteredTasks(_ tasks: [GoogleTask], filter: TaskWorkspaceFilter,
+                              selectedTaskListID: String?, searchText: String, today: DateOnly) -> [GoogleTask] {
+        let matches = tasks.filter { task in
+            guard !task.deleted, selectedTaskListID == nil || task.taskListID == selectedTaskListID,
+                  searchText.isEmpty || task.title.localizedCaseInsensitiveContains(searchText) else { return false }
+            switch filter {
+            case .all: return true
+            case .today: return !task.completed && task.due == today
+            case .upcoming: return !task.completed && task.due.map { $0 > today } == true
+            case .overdue: return !task.completed && task.due.map { $0 < today } == true
+            case .withoutDue: return !task.completed && task.due == nil
+            }
+        }
+        return [.today, .upcoming, .overdue].contains(filter) ? datedOrder(matches) : matches
+    }
+
+    static func groups(_ tasks: [GoogleTask], today: DateOnly) -> [(String, [GoogleTask])] {
+        let active = datedOrder(tasks.filter { !$0.completed && $0.due != nil }) + tasks.filter { !$0.completed && $0.due == nil }
+        return [("Просрочено", active.filter { $0.due.map { $0 < today } == true }),
+                ("Сегодня", active.filter { $0.due == today }),
+                ("Предстоящие", active.filter { $0.due.map { $0 > today } == true }),
+                ("Без срока", active.filter { $0.due == nil }),
+                ("Готово", tasks.filter(\.completed))]
+    }
+
+    /// Equal dates retain Google's source order; this projection never writes order back.
+    private static func datedOrder(_ tasks: [GoogleTask]) -> [GoogleTask] {
+        tasks.enumerated().sorted { left, right in
+            guard let a = left.element.due, let b = right.element.due, a != b else { return left.offset < right.offset }
+            return a < b
+        }.map(\.element)
     }
 }
 
@@ -27,6 +84,10 @@ enum CalendarGridLayout {
     static let headerHeight = 56.0
     static let pointsPerMinute = 0.8
     static let dateOnlyRegionHeight = 116.0
+
+    static func dateOnlyHeight(maximumItemCount: Int) -> Double {
+        maximumItemCount <= 0 ? 0 : min(dateOnlyRegionHeight, 24 + Double(maximumItemCount) * 38)
+    }
 
     static func columnWidth(isDayView: Bool,
                             availableWidth: Double,

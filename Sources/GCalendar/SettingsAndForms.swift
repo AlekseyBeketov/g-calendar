@@ -1,5 +1,65 @@
 import SwiftUI
 
+struct EditorBody<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    private var maximumHeight: CGFloat {
+        // Reserve space for header, 24 pt insets and the taller recovery footer.
+        max(180, min(520, (NSApp.mainWindow?.contentLayoutRect.height ?? 700) - 180))
+    }
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content.fixedSize(horizontal: false, vertical: true)
+            ScrollView { content.fixedSize(horizontal: false, vertical: true).padding(.trailing, 8) }
+        }.frame(maxHeight: maximumHeight)
+    }
+}
+
+/// Shared editor spacing: 24 pt outer inset, 16 pt sections, 8 pt field labels.
+struct EditorField<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
+            Text(title).font(.callout.weight(.medium)).foregroundStyle(AppTheme.textSecondary)
+            content.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct MutationSaveControl: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
+    let pendingMutationID: UUID?
+    let disabled: Bool
+    let save: () -> Void
+    let verified: () -> Void
+
+    private var ownsPendingAttempt: Bool {
+        pendingMutationID != nil && pendingMutationID == model.pendingMutation?.id
+    }
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if ownsPendingAttempt {
+                Text(model.pendingMutation?.resourceID == nil
+                     ? "ID не получен. Закройте форму и откройте сохранённый черновик для ручной сверки."
+                     : "Запрос уже отправлен. Проверка повторно прочитает объект.")
+                    .font(.caption).foregroundStyle(AppTheme.warning).fixedSize(horizontal: false, vertical: true)
+                Button(model.mutationInFlight ? "Проверяем…" : "Проверить сохранение") {
+                    model.recheckPendingMutation(onSuccess: verified)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.mutationInFlight || model.pendingMutation?.resourceID == nil)
+            } else {
+                Button(model.mutationInFlight ? "Сохраняем…" : "Сохранить", action: save)
+                    .keyboardShortcut(.defaultAction).disabled(disabled || model.mutationsBlocked)
+            }
+        }
+    }
+}
+
 struct WorkspaceEmptyState: View {
     let title: String
     let symbol: String
@@ -35,44 +95,62 @@ struct TaskEditorView: View {
     let taskListID: String?
 
     @StateObject private var local: ViewLocalState
+    @FocusState private var titleFocused: Bool
 
     init(task: GoogleTask?, taskListID: String?) {
         self.task = task
         self.taskListID = taskListID
         let initialDue = task?.due?.startOfDay(in: .current) ?? Date()
         _local = StateObject(wrappedValue: ViewLocalState(title: task?.title ?? "", notes: task?.notes ?? "",
-                                                         dueEnabled: task?.due != nil, dueDate: initialDue))
+                                                         dueEnabled: task?.due != nil, dueDate: initialDue, contextID: taskListID ?? ""))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             HStack {
                 Text(task == nil ? "Новая задача" : "Редактирование задачи").font(.title2.weight(.semibold))
                 Spacer()
-                if task != nil { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true } }
+                if task != nil { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked) }
             }
-            Form {
-                TextField("Название", text: $local.title)
-                TextField("Заметки", text: $local.notes, axis: .vertical).lineLimit(2...5)
+            EditorBody {
+            VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
+                EditorField(title: "Название") { TextField("Название задачи", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
+                EditorField(title: "Заметки") { TextField("Необязательно", text: $local.notes, axis: .vertical).lineLimit(2...5).textFieldStyle(.roundedBorder) }
                 Toggle("Указать срок", isOn: $local.dueEnabled)
                 if local.dueEnabled {
                     DatePicker("Срок (дата)", selection: $local.dueDate, displayedComponents: [.date])
                 }
-                LabeledContent("Список", value: model.snapshot.taskLists.first(where: { $0.id == taskListID })?.title ?? "Не выбран")
+                if task == nil {
+                    EditorField(title: "Список") {
+                        Picker("Список задач", selection: $local.contextID) {
+                            ForEach(model.snapshot.taskLists) { Text($0.title).tag($0.id) }
+                        }.labelsHidden()
+                    }
+                } else {
+                    LabeledContent("Список", value: model.snapshot.taskLists.first(where: { $0.id == taskListID })?.title ?? "Не выбран")
+                }
+                Text("Срок — дата без времени. Локальное напоминание можно добавить после сохранения.")
+                    .font(.caption).foregroundStyle(AppTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if let message = local.errorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(AppTheme.overdue).accessibilityAddTraits(.updatesFrequently)
+                        .foregroundStyle(AppTheme.overdue).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
                 }
             }
+            }
+            .disabled(model.mutationsBlocked)
             HStack {
                 Spacer()
                 Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Сохранить") { save() }.keyboardShortcut(.defaultAction)
-                    .disabled(local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || taskListID == nil || model.mutationInFlight)
+                MutationSaveControl(pendingMutationID: local.pendingMutationID,
+                                    disabled: local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || local.contextID.isEmpty,
+                                    save: save, verified: { dismiss() })
             }
         }
-        .padding(22)
-        .frame(minWidth: 460, minHeight: 400)
+        .padding(AppTheme.editorInset)
+        .frame(width: 500)
+        .fixedSize(horizontal: false, vertical: true)
+        .defaultFocus($titleFocused, true)
+        .onAppear { if local.contextID.isEmpty { local.contextID = model.snapshot.taskLists.first?.id ?? "" } }
         .confirmationDialog("Удалить задачу?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить задачу", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
@@ -80,7 +158,8 @@ struct TaskEditorView: View {
     }
 
     private func save() {
-        guard let taskListID else { local.errorMessage = "Сначала выберите список задач."; return }
+        let taskListID = task?.taskListID ?? local.contextID
+        guard !taskListID.isEmpty else { local.errorMessage = "Сначала выберите список задач."; return }
         do {
             let factory = try model.commandFactory()
             let due = local.dueEnabled ? DateOnly(date: local.dueDate) : nil
@@ -92,7 +171,7 @@ struct TaskEditorView: View {
                 invocation = try factory.taskInsert(taskListID: taskListID, title: local.title.trimmingCharacters(in: .whitespacesAndNewlines),
                                                     notes: local.notes, due: due, authorization: .userSave)
             }
-            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0 })
+            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id })
         } catch { local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Сохранение не выполнено." }
     }
 
@@ -100,7 +179,7 @@ struct TaskEditorView: View {
         guard let task else { return }
         do {
             let invocation = try model.commandFactory().taskDelete(task: task, authorization: .confirmedDelete)
-            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0 })
+            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id })
         } catch { local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Удаление не выполнено." }
     }
 }
@@ -111,7 +190,7 @@ struct TaskListManagerView: View {
     @StateObject private var local = ViewLocalState()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             HStack {
                 Text("Списки задач").font(.title2.weight(.semibold))
                 Spacer()
@@ -131,8 +210,8 @@ struct TaskListManagerView: View {
             }
             HStack { Spacer(); Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction) }
         }
-        .padding(20)
-        .frame(minWidth: 420, minHeight: 360)
+        .padding(AppTheme.editorInset)
+        .frame(width: 500, height: 400)
         .sheet(item: $local.listForm) { form in
             switch form {
             case .create: TaskListEditorView(list: nil).environmentObject(model)
@@ -147,6 +226,7 @@ private struct TaskListEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let list: TaskList?
     @StateObject private var local: ViewLocalState
+    @FocusState private var titleFocused: Bool
 
     init(list: TaskList?) {
         self.list = list
@@ -154,28 +234,32 @@ private struct TaskListEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             HStack {
                 Text(list == nil ? "Новый список" : "Переименовать список").font(.title2.weight(.semibold))
                 Spacer()
-                if list != nil { Button("Удалить…", role: .destructive) { local.showingDeleteConfirmation = true } }
+                if list != nil { Button("Удалить…", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked) }
             }
-            Form {
-                TextField("Название списка", text: $local.title)
+            EditorBody {
+            VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
+                EditorField(title: "Название списка") { TextField("Например, Рабочие задачи", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
                 if let message = local.errorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(AppTheme.overdue).accessibilityAddTraits(.updatesFrequently)
+                        .foregroundStyle(AppTheme.overdue).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
                 }
             }
+            }
+            .disabled(model.mutationsBlocked)
             HStack {
                 Spacer()
                 Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Сохранить") { save() }.keyboardShortcut(.defaultAction)
-                    .disabled(local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.mutationInFlight)
+                MutationSaveControl(pendingMutationID: local.pendingMutationID, disabled: local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, save: save, verified: { dismiss() })
             }
         }
-        .padding(22)
-        .frame(minWidth: 400, minHeight: 200)
+        .padding(AppTheme.editorInset)
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
+        .defaultFocus($titleFocused, true)
         .confirmationDialog("Удалить список задач?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить список", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
@@ -187,7 +271,7 @@ private struct TaskListEditorView: View {
             let factory = try model.commandFactory()
             let invocation = try list.map { try factory.taskListPatch(id: $0.id, title: local.title, authorization: .userSave) }
                 ?? factory.taskListInsert(title: local.title, authorization: .userSave)
-            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0 })
+            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id })
         } catch { local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Сохранение не выполнено." }
     }
 
@@ -200,7 +284,7 @@ private struct TaskListEditorView: View {
             model.performMutation(invocation, onSuccess: {
                 Task { for task in tasks { try? await coordinator.delete(taskID: task.id) } }
                 dismiss()
-            }, onFailure: { local.errorMessage = $0 })
+            }, onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id })
         } catch { local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Удаление не выполнено." }
     }
 }
@@ -217,8 +301,10 @@ struct ReminderEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             Text("Локальное напоминание").font(.title2.weight(.semibold))
+            EditorBody {
+                VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             Text("Для «\(task.title)». Время хранится только на этом устройстве и не отправляется в Google Tasks.")
                 .font(.callout).foregroundStyle(.secondary)
             Toggle("Напомнить в выбранное время", isOn: $local.enabled)
@@ -226,6 +312,8 @@ struct ReminderEditorView: View {
             Text("Показ зависит от разрешения macOS, Focus и настроек уведомлений. Спящий Mac может показать уведомление позже; после явного завершения приложения доставка не гарантируется.")
                 .font(.caption).foregroundStyle(.secondary)
             if let message = local.reminderStatus { Text(message).font(.callout).foregroundStyle(.secondary) }
+                }
+            }
             HStack {
                 Spacer()
                 Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -233,8 +321,9 @@ struct ReminderEditorView: View {
                     .keyboardShortcut(.defaultAction).disabled(local.isSaving)
             }
         }
-        .padding(22)
-        .frame(minWidth: 450, minHeight: 300)
+        .padding(AppTheme.editorInset)
+        .frame(width: 500)
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             let metadata = model.metadataStore.metadata(for: task.id)
             local.enabled = metadata.reminderAt != nil
@@ -243,6 +332,10 @@ struct ReminderEditorView: View {
     }
 
     private func save() {
+        guard model.launchMode == .normal else {
+            local.reminderStatus = "В тестовом режиме системные уведомления отключены. Напоминание не отправлено в macOS."
+            return
+        }
         local.isSaving = true
         Task {
             do {
@@ -273,15 +366,15 @@ struct SettingsView: View {
     @StateObject private var local = ViewLocalState()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             Text("Настройки")
                 .font(.title2.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
                     GroupBox("Google Workspace CLI") {
-                        VStack(alignment: .leading, spacing: 9) {
+                        VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
                             Text("Оставьте путь пустым для безопасного поиска gws. Приложение проверяет только исполняемый файл и не читает и не показывает OAuth-данные.")
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -348,7 +441,7 @@ struct SettingsView: View {
 
             HStack { Spacer(); Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction) }
         }
-        .padding(16)
+        .padding(AppTheme.editorInset)
         .frame(minWidth: 400, idealWidth: 500, minHeight: 430)
         .task { await model.refreshNotificationStatus() }
     }

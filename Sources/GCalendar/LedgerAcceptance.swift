@@ -34,14 +34,22 @@ final class SyntheticLedgerAcceptanceSession: @unchecked Sendable {
         }
     }
 
-    static let ledgerURL = URL(fileURLWithPath: "/Users/alexbeketov/.hermes/profiles/prompter/cache/scratch/g-calendar-test-ledger.json")
+    static func explicitLedgerURL(arguments: [String]) throws -> URL {
+        guard arguments.filter({ $0 == "--acceptance-ledger" }).count == 1,
+              let index = arguments.firstIndex(of: "--acceptance-ledger"),
+              arguments.indices.contains(index + 1), arguments[index + 1].hasPrefix("/"),
+              !arguments[index + 1].hasSuffix("/") else {
+            throw GWSFailure.forbiddenOperation
+        }
+        return URL(fileURLWithPath: arguments[index + 1])
+    }
 
     let manifest: SyntheticAcceptanceManifest
     let factory: GWSCommandFactory
     let runner: SyntheticLedgerAcceptanceRunner
 
     convenience init() throws {
-        try self.init(ledgerURL: SyntheticLedgerAcceptanceSession.ledgerURL)
+        try self.init(ledgerURL: Self.explicitLedgerURL(arguments: ProcessInfo.processInfo.arguments))
     }
 
     init(ledgerURL: URL) throws {

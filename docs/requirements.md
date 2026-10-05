@@ -16,7 +16,8 @@
 - События можно создавать/редактировать/удалять в доступном для записи календаре из явного UI workflow. Удаление подтверждается. Не включать участников/приглашения в MVP.
 
 ### 3. Google Tasks
-- Selector task list, списки/колонки, Today, Upcoming, Overdue, search; completion toggle доступен из списка и календарного контекста.
+- Selector task list, список по умолчанию и явное переключение в колонки, Today, Upcoming, Overdue, Without due, search; completion toggle доступен из списка и календарного контекста.
+- Today содержит due date = локальному сегодня; Upcoming — due date строго позже; Overdue — незавершённые задачи до сегодня; Without due — задачи без Google due. Одинаковые date-only predicates используются в фильтрах, группах и календарном контексте.
 - Создание/редактирование/удаление задач и task lists, complete/uncomplete — если API/текущий `gws` поддерживают соответствующий endpoint; каждый workflow проверяется только fixtures.
 - Срок Google Task отображается как дата без скрытого времени. Для локального reminder time хранить отдельное app-local значение, отдельно от Google payload, и обозначать его «Локальное напоминание».
 
@@ -43,7 +44,7 @@
 - Google Tasks due-time sync невозможен на Tasks API; точное время существует только как локальное расширение.
 - Google Calendar push требует публично доступного HTTPS callback; hosted receiver для MVP не добавляется.
 - Прямой OAuth реализация, credentials generation/export, приглашения/письма, полная recurring-event scope UX, Google parity, hosted services, платные keys, sync во время сна и login helper не входят.
-- Production/личные Google writes запрещены. Пользователь отдельно разрешил только создать минимальный synthetic event/task с уникальным `[g-calendar TEST <run-id>]` через actual application UI/adapter и выполнить GET/read-back; без attendees/invites/email, без изменения существующих объектов. Live edit/complete/uncomplete/delete test objects остаются запрещены до отдельного подтверждения. Обычная UI write-функция сама по себе не разрешает mutations вне этого ограниченного сценария.
+- Production/личные Google writes запрещены. Текущая запись в `docs/HUMAN_APPROVALS.md` дополнительно разрешает в одном acceptance run создать и затем редактировать, завершать, возобновлять, GET/read-back и удалить только synthetic event/task ресурсы с уникальным `[g-calendar TEST <run-id>]`, созданные этим run через actual application UI/adapter. Перед каждой мутацией проверить точный ID и marker GET-запросом, после неё проверить результат ещё одним exact GET; IDs остаются только в private ledger. Без attendees/invites/email, без изменения существующих объектов и broad cleanup. Другие live writes остаются запрещены.
 
 ## Гейты приёмки
 
@@ -57,5 +58,6 @@
 
 - Первый показ и фактическая доставка macOS notification после пользовательского разрешения.
 - Поддержка all-day/recurring Calendar event reminders не входит в текущую реализацию и не может быть выведена из task-reminder tests.
-- Live edit/complete/uncomplete/delete of synthetic test objects: not authorized in `docs/HUMAN_APPROVALS.md`; only create+exact read-back is permitted this run.
+- Live lifecycle of only this run's synthetic test objects is authorized as described above; any operation on another object remains prohibited.
+- Screen Recording/screenshot and full manual VoiceOver traversal are human gates; do not bypass TCC.
 - Подписание, notarization, App Store публикация, login item/helper.

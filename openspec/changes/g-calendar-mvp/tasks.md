@@ -13,7 +13,7 @@
 - [x] 2.4 Add typed auth/network/quota/process/JSON errors and atomic last-known-good cache; prove a later-page failure cannot erase old data.
 - [x] 2.5 Implement explicit UI-triggered mutation command paths for supported event/task/task-list operations; automated tests assert argument construction and confirmation boundaries only with fixtures.
 - [x] 2.6 Run privacy-safe live read-only gws smoke for calendar/task-list metadata and counts only; record sanitized output/exit codes, never titles, email or identifiers.
-- [ ] 2.7 Add typed exact-resource GET/read-back for event/task mutations and a narrow actual-app workflow that creates one synthetic event/task with unique run marker/private ID ledger; do not live edit, complete, uncomplete or delete until separately approved.
+- [x] 2.7 Add typed exact-resource GET/read-back for event/task mutations and a narrow actual-app workflow for this run's uniquely marked synthetic event/task; use a private ID ledger and exact GET before and after every authorized create/edit/complete/reopen/delete operation. Never touch unrelated objects.
 - [x] 2.8 Refresh the Tasks domain independently after verified task mutations; preserve calendar data and coverage without cross-domain reads.
 
 ## 3. Calendar and Task Workflows
@@ -21,7 +21,7 @@
 - [x] 3.1 Build SwiftUI navigation, calendar/task-list selectors, Today/Search/sync states and week/day calendar view matching `docs/ui.md`.
 - [x] 3.2 Render timed/all-day events and visible tasks with read-only calendar affordances; disable recurring-instance mutations until exact scope UX is implemented.
 - [x] 3.3 Build task list/column view with Today/Upcoming/Overdue/search and complete/uncomplete controls.
-- [x] 3.4 Implement event/task draft create/edit/delete flows with cancel/save separation and confirmation for destructive actions; never issue live writes in agent tests.
+- [x] 3.4 Implement event/task draft create/edit/delete flows with cancel/save separation and confirmation for destructive actions; automated fixtures never issue live writes; separately authorized native synthetic acceptance is scoped by task 2.7.
 - [x] 3.5 Validate timezone, daylight-saving boundaries, event overlap and all-day exclusive end behavior with deterministic fixtures.
 - [x] 3.6 Replace the event list with a week/day time grid, overlap lanes, all-day region, date-only Tasks region, independent calendar visibility toggles, and explicit read-only/recurrence safeguards.
 - [x] 3.7 Add responsive task-column fallback, actionable search clear/no-match, selected accessibility states, and inline mutation-failure feedback that preserves drafts.
@@ -43,7 +43,39 @@
 ## 5. Verification and Handoff
 
 - [ ] 5.1 Verify loading/empty/offline/stale/error states, visible focus, keyboard actions, VoiceOver labels, light/dark/system and resizing.
-- [x] 5.2 Run the actual available build and focused test commands plus a fixture integration suite; report each pass/failure/not-run honestly.
-- [ ] 5.3 Launch the real built `.app` in isolated synthetic demo mode; verify GUI/process behavior. Screenshot requires Screen Recording approval and remains a human gate.
-- [x] 5.4 Write `docs/verification.md` with exact commands, exit codes, privacy-safe read-only smoke results and needs-human-verification items; update README and roadmap/status.
-- [ ] 5.5 Inspect sources, scripts and tracked/untracked state for accidental personal data, user-file deletion, or unsupported claims; do not commit or publish.
+- [ ] 5.2 Run the current-source build and focused test commands plus the fixture integration suite with a compatible installed compiler/SDK; report environment blockers separately from source test failures.
+- [ ] 5.3 Launch the real built `.app` in isolated synthetic demo mode; verify GUI/process behavior. Computer-use testing and synthetic screenshots are owner-authorized; respect actual OS permission availability.
+- [ ] 5.4 Refresh `docs/verification.md` with current-source commands/exit codes, sanitized live acceptance results and human gates; update README and roadmap/status only where current behavior changed.
+- [x] 5.5 Inspect sources, scripts and tracked/untracked state for accidental personal data, user-file deletion, or unsupported claims; do not commit or publish.
+
+## 6. Product Quality Follow-up
+
+- [x] 6.1 Make Today, Upcoming, Overdue and Without due use consistent local date-only predicates across task filters, groups and calendar visibility.
+- [x] 6.2 Add a compact, accessible collapse/expand control for the single week-level undated-task region.
+- [x] 6.3 Make list the default task presentation and expose columns as an explicit alternative with a readable narrow-width fallback.
+- [ ] 6.4 Complete shared semantic Material-inspired color/surface/state roles across calendar, tasks, forms and status while preserving SF typography and System appearance default.
+- [ ] 6.5 Distinguish and provide contextual recovery for loading, empty, no-match, setup-required, offline, stale and failure states; preserve drafts and cache on errors.
+- [ ] 6.6 Complete native keyboard, visible focus, selected/accessibility states for primary navigation, calendar visibility and task controls.
+- [ ] 6.7 Measure fixed synthetic local interaction scenarios before choosing performance budgets; optimize only measured bottlenecks and record method/results.
+
+## 7. Screenshot Audit and Interaction Reliability — 2026-10-05
+
+Scope and acceptance: `docs/plans/2026-10-05-final-product-completion.md`. Implementation resumed by the owner on 2026-10-05; checkboxes require current evidence.
+
+- [x] 7.1 Reproduce task-save read-back rejection with synthetic fixtures, including empty/omitted notes, due normalization, genuine field/identity mismatch, read failure and missing create-response ID; establish the cause before changing verification semantics.
+- [ ] 7.2 Model unresolved writes separately from pre-write rejection, retain known exact identity and draft across reopen/relaunch, provide read-only recheck, and prevent repeated INSERT for the same unresolved attempt across tasks/events/task lists; never accept an unverified write as success. Existing single-instance/relaunch fixtures pass; checkpoint review found two independent normal instances can overwrite the same journal, requiring interprocess serialization and a regression fixture before closure.
+- [ ] 7.3 Align sidebar visible row and hit area across sections, task lists, workspace filters and calendar selection; verify icon/text/blank area/edges plus keyboard/AX activation and independent visibility checkbox, then audit equivalent controls throughout the app.
+- [ ] 7.4 Make calendar/task headers adapt without letter-by-letter labels, crowding or inaccessible actions; simplify duplicate filter controls while preserving access with sidebar hidden and retaining Week in narrow windows.
+- [ ] 7.5 Compact empty date-only calendar content with one shared bounded content-aware height, preserve overflow and pinned column alignment, and verify time-axis clipping, seven-day horizontal reachability and initial/manual scroll behavior.
+- [ ] 7.6 Improve default task-list density and empty-group treatment; define stable chronological due order for dated views without rewriting Google/manual order or mixing completed/undated tasks.
+- [ ] 7.7 Make task/event/list forms fit content and viewport, preserve reachable footer and drafts/errors, clarify creation context and navigation selection symbols, and consolidate repetitive technical help across themes.
+- [ ] 7.8 Execute the synthetic cross-app interaction/layout/accessibility/state regression matrix, verify test-resource isolation and exact-ledger cleanup policy, and record results without personal screenshot data or unverified closure claims.
+- [ ] 7.9 Establish an optimized-build GUI baseline including cached launch, search, selection, week navigation, resize, scroll, forms, CPU and memory; distinguish CLI/network/read-back time, profile hotspots, then choose budgets and link evidence to task 6.7.
+
+## 8. Approved Pixel Paper and Final Spacing Acceptance — 2026-10-05
+
+- [x] 8.1 Record Pixel Paper as the approved identity with only Color Atlas task-row metadata, consolidate plans and remove rejected design artifacts.
+- [ ] 8.2 Implement aligned due/status/list/local metadata and selected-row treatment using the approved solid light-first Pixel Paper system; retain native System/Dark and supported semantics.
+- [ ] 8.3 Audit padding, alignment, content sizing and footer reachability in code and through computer use for all modal and primary surfaces after UI development; fix equivalent spacing defects and record evidence.
+
+Current evidence (2026-10-05): tasks 2.7/7.1 have fixtures and native exact-ledger lifecycle/recovery proof; 7.2 reopened after the two-instance journal finding. 6.1/6.3 have deterministic predicate/presentation fixtures; 6.2 has native AX control and code evidence. Full mouse, visual/modal, state/theme/resize and GUI performance acceptance remains open. See docs/verification.md for build/test checkpoints and limitations.

@@ -9,6 +9,18 @@ struct ReminderRequest: Equatable {
     let fireDate: Date
 }
 
+enum NotificationAcceptance {
+    /// Explicit test mode only. Never requests permission, reads cache or changes reminders.
+    static func scheduleOneTest(using scheduler: ReminderScheduling, now: Date = Date()) async throws -> ReminderRequest {
+        guard await scheduler.permission() == .authorized else { throw GWSFailure.forbiddenOperation }
+        let identifier = "g-calendar.acceptance." + UUID().uuidString
+        let request = ReminderRequest(identifier: identifier, taskID: identifier,
+                                      title: "g-calendar: тест системного уведомления", fireDate: now.addingTimeInterval(3))
+        try await scheduler.schedule(request)
+        return request
+    }
+}
+
 enum ReminderPermission: Equatable {
     case notDetermined
     case authorized
@@ -54,16 +66,23 @@ struct NotificationAuthorizationResult: Equatable {
     }
 
     var userMessage: String {
-        if let requestFailure {
-            return "Системный запрос завершился ошибкой (\(requestFailure.domain), код \(requestFailure.code)); фактический статус macOS: \(status.statusIdentifier)."
+        if requestFailure != nil {
+            let currentState: String
+            switch status {
+            case .notDetermined: currentState = "разрешение ещё не получено"
+            case .authorized: currentState = "уведомления разрешены"
+            case .denied: currentState = "уведомления отключены"
+            case .unknown: currentState = "статус разрешения пока неизвестен"
+            }
+            return "Не удалось запросить разрешение. Текущее состояние: \(currentState). Проверьте настройки уведомлений macOS."
         }
         switch status {
         case .notDetermined:
-            return "Статус macOS — not_determined; уведомления не запланированы."
+            return "Разрешение на уведомления ещё не получено. Напоминание не запланировано."
         case .authorized:
-            return "Статус macOS — authorized."
+            return "Уведомления разрешены."
         case .denied:
-            return "Статус macOS — denied; приложение не делает вывод, что пользователь нажал «Не разрешать». Проверьте системные настройки уведомлений."
+            return "Уведомления отключены в macOS. Разрешите их для g-calendar в системных настройках."
         case .unknown:
             return "macOS вернула неизвестный статус авторизации; напоминание не запланировано. Обновите статус позже."
         }
@@ -308,6 +327,14 @@ final class UserNotificationScheduler: ReminderScheduling, NotificationStatusPro
     func cancel(identifier: String) async {
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
+
+    func wasDelivered(identifier: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { notifications in
+                continuation.resume(returning: notifications.contains { $0.request.identifier == identifier })
+            }
+        }
     }
 
     func notificationStatus() async -> NotificationRuntimeStatus {

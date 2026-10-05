@@ -7,6 +7,7 @@ struct CalendarTimeGridDay: View {
     let calendars: [CalendarInfo]
     let timeZone: TimeZone
     let columnWidth: CGFloat
+    var dateOnlyHeight: CGFloat = CGFloat(CalendarGridLayout.dateOnlyRegionHeight)
     let onEdit: (CalendarEvent) -> Void
     let onToggleTask: (GoogleTask) -> Void
 
@@ -82,17 +83,13 @@ struct CalendarTimeGridDay: View {
                         .accessibilityLabel("Задача: \(task.title), срок \(task.due?.description ?? "без срока"), \(task.completed ? "выполнена" : "не выполнена")")
                     }
                 }
-                if allDayEvents.isEmpty && tasks.isEmpty {
-                    Text("Нет событий на весь день или задач с датой")
-                        .font(.caption2).foregroundStyle(AppTheme.textSecondary)
-                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.visible)
         .frame(maxWidth: .infinity)
-        .frame(height: CGFloat(CalendarGridLayout.dateOnlyRegionHeight), alignment: .topLeading)
+        .frame(height: dateOnlyHeight, alignment: .topLeading)
         .frame(width: columnWidth)
         .background(AppTheme.canvas.opacity(0.72))
     }
@@ -121,9 +118,8 @@ struct CalendarTimeGridDay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!writable)
         .accessibilityLabel("Событие: \(event.title), \(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: calendar?.timeZoneID.flatMap(TimeZone.init(identifier:)) ?? timeZone)), календарь \(calendar?.title ?? "неизвестен")\(event.recurring ? ", повторяется" : "")\(writable ? ", редактировать" : ", только просмотр")")
-        .help(event.recurring ? "Повторяющиеся события доступны только для просмотра" : (calendar?.isWritable == true ? "Редактировать событие" : "Календарь только для просмотра"))
+        .help(writable ? "Редактировать событие" : "Открыть событие для просмотра")
     }
 
     private var timeGrid: some View {
@@ -189,14 +185,18 @@ struct CalendarHourAxis: View {
     var body: some View {
         Group {
             if let interval = CalendarTimeGridLayout.dayInterval(containing: day, timeZone: timeZone) {
-                ZStack(alignment: .topLeading) {
-                    ForEach(CalendarTimeGridLayout.hourMarks(for: interval, timeZone: timeZone)) { mark in
+                let marks = CalendarTimeGridLayout.hourMarks(for: interval, timeZone: timeZone)
+                VStack(spacing: 0) {
+                    ForEach(Array(marks.enumerated()), id: \.element.id) { index, mark in
+                        let nextOffset = index + 1 < marks.count ? marks[index + 1].offsetMinutes : interval.durationMinutes
                         Text(mark.label)
-                            .font(.system(.caption2, design: .rounded).monospacedDigit())
+                            .font(.system(.caption2).monospacedDigit())
                             .foregroundStyle(AppTheme.textSecondary)
-                            .frame(width: CGFloat(CalendarGridLayout.timeAxisWidth) - 5, alignment: .trailing)
-                            .offset(y: CGFloat(mark.offsetMinutes) * CGFloat(CalendarGridLayout.pointsPerMinute) - 7)
+                            .frame(width: CGFloat(CalendarGridLayout.timeAxisWidth) - 5,
+                                   height: CGFloat(nextOffset - mark.offsetMinutes) * CGFloat(CalendarGridLayout.pointsPerMinute),
+                                   alignment: .topTrailing)
                             .id(mark.localHour == 8 ? "calendar-hour-8" : "calendar-hour-\(mark.id)")
+                            .offset(y: index == 0 ? 0 : -7)
                             .accessibilityHidden(true)
                     }
                 }
@@ -208,35 +208,55 @@ struct CalendarHourAxis: View {
 
 struct CalendarUndatedTaskRegion: View {
     let tasks: [GoogleTask]
+    @Binding var isCollapsed: Bool
     let onToggleTask: (GoogleTask) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Label("Без срока", systemImage: "tray")
+            Button { isCollapsed.toggle() } label: {
+                HStack {
+                    Label("Без срока", systemImage: "tray")
+                    Spacer()
+                    Text("\(tasks.count)").monospacedDigit()
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                }
                 .font(.headline)
                 .foregroundStyle(AppTheme.task)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), alignment: .leading)], alignment: .leading, spacing: 6) {
-                ForEach(tasks) { task in
-                    Button { onToggleTask(task) } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(task.completed ? AppTheme.textSecondary : AppTheme.task)
-                            Text(task.title)
-                                .font(.callout)
-                                .foregroundStyle(AppTheme.textPrimary)
-                                .lineLimit(2)
-                                .strikethrough(task.completed)
-                            Spacer(minLength: 0)
+                .frame(minHeight: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("calendar-undated-task-toggle")
+            .accessibilityLabel("Задачи без срока, \(tasks.count)")
+            .accessibilityValue(isCollapsed ? "Свёрнуто" : "Развёрнуто")
+            .accessibilityHint(isCollapsed ? "Показать задачи" : "Скрыть задачи")
+            if !isCollapsed {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), alignment: .leading)], alignment: .leading, spacing: 6) {
+                        ForEach(tasks) { task in
+                            Button { onToggleTask(task) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(task.completed ? AppTheme.textSecondary : AppTheme.task)
+                                    Text(task.title)
+                                        .font(.callout)
+                                        .foregroundStyle(AppTheme.textPrimary)
+                                        .lineLimit(2)
+                                        .strikethrough(task.completed)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 40)
+                                .contentShape(Rectangle())
+                                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Задача: \(task.title), без срока, \(task.completed ? "выполнена" : "не выполнена")")
+                            .accessibilityHint("Изменить состояние выполнения")
                         }
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 40)
-                        .contentShape(Rectangle())
-                        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 8))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Задача: \(task.title), без срока, \(task.completed ? "выполнена" : "не выполнена")")
-                    .accessibilityHint("Изменить состояние выполнения")
                 }
+                .frame(maxHeight: 160)
             }
         }
         .padding(10)

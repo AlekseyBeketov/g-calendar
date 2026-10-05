@@ -1,5 +1,18 @@
 import Foundation
 
+enum WorkspaceSyncState: Equatable {
+    case idle, syncing, updated, stale, setupRequired, offline, failed
+
+    static func afterFailure(_ failure: GWSFailure?) -> WorkspaceSyncState {
+        switch failure {
+        case .executableUnavailable, .invalidExecutablePath: return .setupRequired
+        case .processFailed(_, _, "auth_or_permission"): return .setupRequired
+        case .processFailed(_, _, "network"): return .offline
+        default: return .failed
+        }
+    }
+}
+
 struct RefreshTicket<Key: Equatable>: Equatable {
     let generation: Int
     let key: Key

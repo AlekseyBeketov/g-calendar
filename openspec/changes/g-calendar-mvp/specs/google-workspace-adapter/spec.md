@@ -1,5 +1,26 @@
 ## ADDED Requirements
 
+### Requirement: Unresolved writes preserve identity and prevent accidental repetition
+The app SHALL distinguish rejection before a write from a write whose outcome is unresolved after sending or acceptance. It SHALL retain the draft and any known exact resource identity for recovery across closing/reopening the editor and app restart, SHALL NOT repeat an INSERT for the same unresolved attempt through Save or retry, and SHALL NOT claim success without exact identity and semantic field verification. Recovery records SHALL NOT act as an automatic write queue.
+
+#### Scenario: Create succeeds but exact verification fails
+- **WHEN** a create response identifies a resource but its exact GET fails or fields do not verify
+- **THEN** the app retains that identity, explains the unresolved result and offers a read-only exact recheck instead of another create request
+- **AND** repeated clicks or reopening the draft do not create a duplicate for that attempt
+
+#### Scenario: A write outcome has no known resource identity
+- **WHEN** the write may have reached Google but the response does not establish an exact resource ID
+- **THEN** the app preserves the unresolved state without automatically resending the write or presenting title-only search as verification
+
+#### Scenario: Verify equivalent empty values without hiding mismatches
+- **WHEN** documented or fixture-established API normalization changes representation of an optional empty field or date-only due
+- **THEN** verification applies the explicitly defined semantic equivalence for that field
+- **AND** mismatching identity, nonempty content, date or completion state still fails verification
+
+#### Scenario: Rejection occurs before sending
+- **WHEN** validation or authorization prevents a request from being sent
+- **THEN** the app reports a pre-write rejection, retains the draft and permits a corrected explicit Save without falsely recording an accepted write
+
 ### Requirement: gws commands are executed through a constrained process boundary
 The system MUST resolve a configured absolute `gws` executable and invoke it with `Foundation.Process` and a separate argument vector. The system MUST NOT construct shell command strings or accept arbitrary service/method commands from UI input. Authentication remains owned by gws; the app MUST NOT read/export credentials or invoke auth-changing commands.
 
@@ -75,15 +96,19 @@ The system MUST NOT log event/task titles, participant emails, raw API payloads,
 - **THEN** logs contain safe diagnostic metadata only and the UI presents an understandable non-secret error
 
 ### Requirement: Synthetic live acceptance is narrowly isolated and read back
-Only the separately owner-authorized acceptance run may create live Google test objects, limited to this run's uniquely-prefixed synthetic event and task. It MUST use the actual app create flow and adapter, keep exact IDs in a private local ledger, and GET/read back the exact object after each create before accepting the result. Normal automated tests remain fixture-only. Editing/completing/uncompleting test objects and deleting any test object remain unauthorized pending explicit owner approval. Unrelated resources, invitations, attendees and email are excluded.
+Only the separately owner-authorized acceptance run may create or mutate live Google test objects, limited to this run's uniquely-prefixed synthetic event and task. It MUST use the actual app UI and adapter, keep exact IDs in a private local ledger, and GET the exact object before every mutation and again afterward before accepting the result. This run is separately authorized to create, edit, complete, reopen, read back, and delete only its own synthetic objects. Normal automated tests remain fixture-only. Unrelated resources, invitations, attendees, email, existing user data, and broad cleanup are excluded.
 
 #### Scenario: Create a synthetic event
 - **WHEN** the approved test workflow creates an event with `[g-calendar TEST <run-id>]` in the confirmed writable calendar
 - **THEN** the app sends no attendees, sets `sendUpdates=none` when supported, captures only the returned resource ID privately, and reads back that exact event before recording success
 
+#### Scenario: Verify a synthetic object lifecycle
+- **WHEN** the authorized acceptance run edits, completes, reopens, or deletes one of its own synthetic objects
+- **THEN** the app first GETs that exact ledger ID and verifies the unique marker, sends one explicit UI-triggered operation, then GETs that exact ID again and verifies the requested result; deletion is issued only for that verified ID
+
 #### Scenario: Restrict live operation set
 - **WHEN** the authorized acceptance run is exercised
-- **THEN** it may create and GET/read back only its synthetic objects; all later edits/completion toggles/deletion remain fixture-only until separately approved
+- **THEN** it may operate only on this run's recorded synthetic event and task; all other Google mutations remain fixture-only
 
 #### Scenario: Avoid duplicate test writes
 - **WHEN** the workflow starts or resumes a run

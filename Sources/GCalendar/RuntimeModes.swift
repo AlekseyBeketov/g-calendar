@@ -4,13 +4,27 @@ enum AppLaunchMode: Equatable {
     case normal
     case demo
     case notificationStatus
+    case notificationTest
     case ledgerAcceptance
+    case syntheticAcceptance
 
     static func parse(arguments: [String]) -> AppLaunchMode {
+        if arguments.contains("--synthetic-lifecycle") { return .syntheticAcceptance }
+        if arguments.contains("--notification-test") { return .notificationTest }
         if arguments.contains("--notification-status") { return .notificationStatus }
         if arguments.contains("--demo") { return .demo }
         if arguments.contains("--ledger-acceptance") { return .ledgerAcceptance }
         return .normal
+    }
+}
+
+enum DemoScenario: String {
+    case ready, loading, setup, offline, stale, failed, empty, recovery
+
+    static func parse(arguments: [String]) -> DemoScenario {
+        guard AppLaunchMode.parse(arguments: arguments) == .demo,
+              let index = arguments.firstIndex(of: "--demo-state"), arguments.indices.contains(index + 1) else { return .ready }
+        return DemoScenario(rawValue: arguments[index + 1]) ?? .ready
     }
 }
 
@@ -245,11 +259,27 @@ final class DemoWorkspaceAdapter {
                               title: "Демо: пункт списка \(index)", notes: nil, due: due,
                               completed: index.isMultiple(of: 7), deleted: false, updated: nil)
         }
+        let readOnlyID = "demo-readonly-calendar"
+        let readOnlyEvent = CalendarEvent(id: "demo-recurring-event", calendarID: readOnlyID, title: "Демо: повторяющийся обзор",
+                                         start: event.start, end: event.end, recurring: true, status: "confirmed")
+        let allDayEvents = (1...8).compactMap { index -> CalendarEvent? in
+            guard let endDay = todayDue.adding(days: 1) else { return nil }
+            return CalendarEvent(id: "demo-all-day-\(index)", calendarID: calendarID,
+                                 title: "Демо: событие на весь день \(index) с длинным названием для проверки переноса",
+                                 start: EventTime(rawValue: todayDue.description, instant: nil, dateOnly: todayDue, timeZoneID: nil),
+                                 end: EventTime(rawValue: endDay.description, instant: nil, dateOnly: endDay, timeZoneID: nil),
+                                 recurring: false, status: "confirmed")
+        }
+        let alternateTask = GoogleTask(id: "demo-task-alternate", taskListID: "demo-second-list", title: "Демо: проверить другой список",
+                                       notes: "Синтетические заметки для проверки редактора", due: tomorrowDue, completed: false, deleted: false, updated: nil)
         var snapshot = WorkspaceSnapshot(calendars: [CalendarInfo(id: calendarID, title: "Демо-календарь", accessRole: "writer",
-                                                                    timeZoneID: timeZone.identifier, colorHex: "#4F6BED")],
-                                         events: [event],
-                                         taskLists: [TaskList(id: listID, title: "Демо-список", updated: nil)],
-                                         tasks: [datedTask, timelessTask] + overflowTasks,
+                                                                    timeZoneID: timeZone.identifier, colorHex: "#0B57D0"),
+                                                    CalendarInfo(id: readOnlyID, title: "Демо: календарь только для просмотра с длинным названием",
+                                                                 accessRole: "reader", timeZoneID: timeZone.identifier, colorHex: "#188038")],
+                                         events: [event, readOnlyEvent] + allDayEvents,
+                                         taskLists: [TaskList(id: listID, title: "Демо-список", updated: nil),
+                                                     TaskList(id: "demo-second-list", title: "Демо: второй список с длинным названием", updated: nil)],
+                                         tasks: [datedTask, timelessTask] + overflowTasks + [alternateTask],
                                          fetchedAt: now)
         if let interval = calendar.dateInterval(of: .weekOfYear, for: today),
            let range = try? DateRange(start: interval.start, endExclusive: interval.end, timeZone: timeZone) {

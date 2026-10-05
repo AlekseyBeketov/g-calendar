@@ -35,10 +35,14 @@ final class ViewLocalState: ObservableObject {
     @Published var reminderStatus: String?
     @Published var pathStatus: String?
     @Published var isSaving = false
+    @Published var pendingMutationID: UUID?
+    @Published var contextID = ""
+    @Published var isHovered = false
+    @Published var collapsedGroups: Set<String> = ["Готово"]
 
     init(title: String = "", notes: String = "", start: Date = Date(), end: Date = Date().addingTimeInterval(3600),
          allDay: Bool = false, timeZoneID: String = TimeZone.current.identifier, dueEnabled: Bool = false,
-         dueDate: Date = Date(), enabled: Bool = false, fireDate: Date = Date().addingTimeInterval(3600)) {
+         dueDate: Date = Date(), enabled: Bool = false, fireDate: Date = Date().addingTimeInterval(3600), contextID: String = "") {
         self.title = title
         self.notes = notes
         self.start = start
@@ -49,5 +53,6 @@ final class ViewLocalState: ObservableObject {
         self.dueDate = dueDate
         self.enabled = enabled
         self.fireDate = fireDate
+        self.contextID = contextID
     }
 }

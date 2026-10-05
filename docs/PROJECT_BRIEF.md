@@ -25,7 +25,7 @@
 Swift + SwiftUI с точечным AppKit, Foundation, UserNotifications; gws adapter для существующего локального Google доступа. Сборка SPM и proper .app bundle. Это гипотеза до решения default/research, не утверждение о готовом продукте.
 
 ## Ограничения безопасности
-- Агентам разрешены чтение Google, проектные файлы, локальные build/test/launch. Пользователь отдельно разрешил только минимальные synthetic event/task test objects с уникальным run marker и проверкой GET/read-back через настоящий app adapter; нельзя менять существующие личные объекты, приглашать людей, экспортировать токены, менять credentials, подключать billing, ставить login items, публиковать код/релизы или удалять test objects/пользовательские файлы без отдельного подтверждения. Production writes остаются только по явному действию владельца в UI.
+- Агентам разрешены чтение Google, проектные файлы, локальные build/test/launch. Текущая отдельная запись в `docs/HUMAN_APPROVALS.md` разрешает только synthetic event/task lifecycle для объектов, созданных этим run с уникальным marker: actual app UI/adapter, exact GET до и после каждой мутации, private ID ledger. Нельзя менять существующие личные объекты, приглашать людей, экспортировать токены, менять credentials, подключать billing, ставить login items, публиковать код/релизы или делать broad cleanup. Production writes остаются запрещены.
 
 ## Рабочее задание
 Полный completion contract и правила делегирования: `.hermes/prompts/build-goal.md`.

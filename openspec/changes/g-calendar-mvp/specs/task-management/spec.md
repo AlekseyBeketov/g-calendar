@@ -1,5 +1,20 @@
 ## ADDED Requirements
 
+### Requirement: The default task list has readable density and predictable date order
+The default list SHALL use readable title/date hierarchy and convenient independent completion/edit/menu targets without excessive card whitespace. Empty groups SHALL have a compact treatment while a wholly empty scope retains a clear empty state. Dated working views SHALL use ascending due date with a stable tie-breaker, without rewriting remote manual order; undated and completed tasks SHALL remain semantically separate.
+
+#### Scenario: Show upcoming tasks in date order
+- **WHEN** upcoming tasks arrive in a nonchronological API order
+- **THEN** their local presentation is ordered by ascending date with a stable tie-breaker and no remote reordering mutation occurs
+
+#### Scenario: Show a list with empty daily groups
+- **WHEN** some groups are empty and another group contains tasks
+- **THEN** empty groups use a compact treatment and active rows remain readily visible and operable
+
+#### Scenario: Read and activate a long task row
+- **WHEN** a task has a long title and the user uses completion, editing or its menu
+- **THEN** the title remains readable and each independent target performs only its matching action
+
 ### Requirement: Task lists and tasks support focused daily workflows
 The system MUST let the user select a Google task list and access list/column view, search, Today, Upcoming and Overdue filters. It MUST distinguish completion state and task list association.
 
@@ -56,3 +71,33 @@ The system MUST show cached task content and freshness when available but MUST N
 #### Scenario: Mutation fails after Save
 - **WHEN** a Google task/list mutation fails
 - **THEN** the editor remains open with its draft intact and a useful inline error is accessible, while the last-known-good snapshot remains available
+
+### Requirement: Task filters use consistent date-only semantics
+Task filters MUST use the current local calendar date and Google's date-only due field. Today contains tasks due today. Upcoming contains tasks due strictly after today. Overdue contains incomplete tasks due before today. Without due contains tasks with no Google due date. The same predicates MUST be used by the task list, groups, and calendar task visibility.
+
+#### Scenario: Separate today's tasks from upcoming tasks
+- **WHEN** a task is due today
+- **THEN** it appears in Today and is excluded from Upcoming
+
+#### Scenario: Show only future dates in Upcoming
+- **WHEN** a task is due after the current local date
+- **THEN** it appears in Upcoming and not in Today or Overdue
+
+#### Scenario: Show undated tasks separately
+- **WHEN** a task has no Google due date
+- **THEN** it appears only in the Without due filter or timeless calendar region, never in Upcoming
+
+### Requirement: Task list is the default presentation and columns are explicit
+The task workspace MUST default to a vertical list. Users MUST be able to explicitly switch to a column presentation and back without losing the selected task list or filter. When the available detail width is too small for readable columns, the column mode MUST fall back to one vertical column while preserving the selected mode and task actions.
+
+#### Scenario: Open the task workspace
+- **WHEN** the user opens Tasks without a saved view preference
+- **THEN** tasks appear in the list presentation
+
+#### Scenario: Switch task presentation
+- **WHEN** the user switches between list and columns
+- **THEN** the selected task list and filter remain unchanged
+
+#### Scenario: Resize columns to a narrow workspace
+- **WHEN** the user narrows the detail area while columns are selected
+- **THEN** the same groups and actions remain reachable in a single vertical column
