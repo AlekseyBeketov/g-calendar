@@ -8,14 +8,17 @@ struct MutationRecoveryPanel: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "exclamationmark.arrow.triangle.2.circlepath").foregroundStyle(AppTheme.warning)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Проверка изменения не завершена").font(.headline)
+                Text(model.mutationJournalBusy ? "Изменение выполняется в другой копии" : "Проверка изменения не завершена").font(.headline)
                 Text(model.mutationRecoveryProblem ?? (model.pendingMutation?.resourceID == nil
                      ? "Запрос мог быть принят, но ID не получен. Сверьте результат в Google; повторная запись заблокирована."
                      : "Черновик сохранён на этом Mac. Повторная проверка прочитает точный объект и не отправит изменение ещё раз."))
-                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+                    .font(.caption).lineLimit(3)
+                    .help(model.mutationRecoveryProblem ?? "Проверьте сохранённый черновик")
             }
             Spacer(minLength: 4)
-            if model.pendingMutation != nil || model.mutationRecoveryProblem != nil {
+            if model.mutationJournalBusy {
+                Button("Проверить журнал") { model.refreshMutationRecoveryState() }
+            } else if model.pendingMutation != nil || model.mutationRecoveryProblem != nil {
                 Button("Черновик") { local.showEditor = true }
                 Button(model.mutationInFlight ? "Проверяем…" : "Проверить") { model.recheckPendingMutation() }
                     .disabled(model.pendingMutation?.resourceID == nil || model.mutationInFlight)
@@ -24,10 +27,10 @@ struct MutationRecoveryPanel: View {
         .padding(16)
         .background(AppTheme.warning.opacity(0.09))
         .sheet(isPresented: $local.showEditor) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
                 Text("Неподтверждённое изменение").font(.title2.weight(.semibold))
                 EditorBody {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
                 if let record = model.pendingMutation {
                     if !record.draftTitle.isEmpty { Text(record.draftTitle).textSelection(.enabled) }
                     if !record.draftNotes.isEmpty { Text(record.draftNotes).textSelection(.enabled) }

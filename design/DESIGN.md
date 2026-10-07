@@ -8,9 +8,9 @@ colors:
   surface: "#FFFFFF"
   on-surface: "#202124"
   secondary-text: "#505866"
-  success: "#188038"
-  warning: "#B06000"
-  error: "#C5221F"
+  success: "#137333"
+  warning: "#8A4B00"
+  error: "#B21C19"
 ---
 
 # Утверждённая айдентика g-calendar
@@ -25,9 +25,11 @@ Task workspace: заголовок текущего списка, поиск в 
 
 ## Типографика, размеры и состояния
 
-SF system: title 22–24 pt semibold, section 14 pt semibold, body 13–14 pt, metadata 11–12 pt. Spacing 4/8/12/16/24/32 pt. Sidebar target 36–40 pt и full-row click area; task target минимум 44 pt, controls glyph и target имеют отдельные размеры. Радиусы 8–12 pt для controls, 16–18 pt для крупных поверхностей, pill для selection/filter. Нет тяжёлых рамок вокруг каждой задачи.
+SF system: title 22–24 pt semibold, section 14 pt semibold, body 13–14 pt, metadata 12 pt (SF callout). Spacing 4/8/12/16/24/32 pt. Sidebar target 36–40 pt и full-row click area; task target минимум 44 pt, controls glyph и target имеют отдельные размеры. Радиусы 8–12 pt для controls, 16–18 pt для крупных поверхностей, pill для selection/filter. Нет тяжёлых рамок вокруг каждой задачи.
 
 Light — основной сценарий пользователя; System остаётся default и Dark поддерживается через парные semantic roles. Primary blue — главное действие и selected state; белый текст на primary. Surface/ink не зависят от цвета Google calendar. Hover/pressed/disabled/focus имеют различимый feedback. Keyboard focus сохраняется нативным или явным контуром. Цвет не заменяет label/AX semantics.
+
+Контраст уточнён 2026-10-06: sRGB значения находятся в Sources/GCalendar/ThemePalette.swift, AppTheme использует их напрямую. Светлые task #0F6E58, success #137333, warning #8A4B00 и error #B21C19 читаются и на selected background. Fixtures проверяют text 4.5:1 и control boundaries 3:1 в обеих темах, включая translucent selections; это не заменяет внешнюю оценку actual native controls.
 
 ## Формы и отступы
 

@@ -11,7 +11,8 @@ struct EditorBody<Content: View>: View {
     var body: some View {
         ViewThatFits(in: .vertical) {
             content.fixedSize(horizontal: false, vertical: true)
-            ScrollView { content.fixedSize(horizontal: false, vertical: true).padding(.trailing, 8) }
+            ScrollView { content.fixedSize(horizontal: false, vertical: true) }
+                .scrollIndicators(.visible)
         }.frame(maxHeight: maximumHeight)
     }
 }
@@ -154,7 +155,7 @@ struct TaskEditorView: View {
         .confirmationDialog("Удалить задачу?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить задачу", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
-        } message: { Text("Задача будет удалена из Google Tasks только после подтверждения.") }
+        } message: { Text(model.launchMode == .demo ? "Будет удалена только тестовая задача в демо-режиме." : "Задача будет удалена из Google Tasks только после подтверждения.") }
     }
 
     private func save() {
@@ -197,21 +198,29 @@ struct TaskListManagerView: View {
                 Button { local.listForm = .create } label: { Label("Новый список", systemImage: "plus") }
             }
             if model.snapshot.taskLists.isEmpty {
-                WorkspaceEmptyState(title: "Списков пока нет", symbol: "list.bullet", description: "Создайте первый Google Tasks list.") { }
+                VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
+                    Label("Списков пока нет", systemImage: "list.bullet").font(.headline)
+                    Text("Создайте первый список задач.").foregroundStyle(AppTheme.textSecondary)
+                }.padding(.vertical, AppTheme.sectionGap)
             } else {
                 List(model.snapshot.taskLists) { list in
-                    HStack {
-                        Text(list.title).lineLimit(1)
-                        Spacer()
-                        Button("Изменить") { local.listForm = .edit(list) }
-                    }
-                    .padding(.vertical, 3)
+                    Button { local.listForm = .edit(list) } label: {
+                        HStack {
+                            Text(list.title).lineLimit(1).foregroundStyle(AppTheme.textPrimary)
+                            Spacer()
+                            Label("Изменить", systemImage: "pencil").foregroundStyle(AppTheme.accent)
+                        }.frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                            .contentShape(.interaction, Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel("Изменить список: \(list.title)")
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
                 }
+                .frame(height: CGFloat(min(model.snapshot.taskLists.count, 6)) * 44 + 16)
             }
             HStack { Spacer(); Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction) }
         }
         .padding(AppTheme.editorInset)
-        .frame(width: 500, height: 400)
+        .frame(width: 500)
+        .fixedSize(horizontal: false, vertical: true)
         .sheet(item: $local.listForm) { form in
             switch form {
             case .create: TaskListEditorView(list: nil).environmentObject(model)
@@ -263,7 +272,7 @@ private struct TaskListEditorView: View {
         .confirmationDialog("Удалить список задач?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить список", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
-        } message: { Text("Будут удалены список и его задачи в Google Tasks.") }
+        } message: { Text(model.launchMode == .demo ? "Будут удалены только тестовый список и его задачи в демо-режиме." : "Будут удалены список и его задачи в Google Tasks.") }
     }
 
     private func save() {
@@ -373,7 +382,7 @@ struct SettingsView: View {
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
-                    GroupBox("Google Workspace CLI") {
+                    SettingsSection(title: "Google Workspace CLI") {
                         VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
                             Text("Оставьте путь пустым для безопасного поиска gws. Приложение проверяет только исполняемый файл и не читает и не показывает OAuth-данные.")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -394,14 +403,14 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    GroupBox("Внешний вид") {
+                    SettingsSection(title: "Внешний вид") {
                         Picker("Тема", selection: Binding(get: { model.appearance }, set: { model.setAppearance($0) })) {
                             ForEach(WorkspaceViewModel.Appearance.allCases) { Text($0.rawValue).tag($0) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    GroupBox("Локальные уведомления") {
+                    SettingsSection(title: "Локальные уведомления") {
                         VStack(alignment: .leading, spacing: 8) {
                             Button(notificationActionTitle, action: inspectOrRequestNotificationAccess)
                                 .disabled(model.launchMode != .normal || model.notificationRuntimeStatus == nil ||
@@ -412,14 +421,12 @@ struct SettingsView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             } else if let status = model.notificationRuntimeStatus {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text("Состояние macOS: \(status.authorization) · alerts: \(status.alertSetting) · sound: \(status.soundSetting)")
-                                    Text("Ожидают: \(status.pendingCount) · доставлено в Notification Center: \(status.deliveredCount)")
-                                    Text("Foreground-показатель приложения: \(status.foregroundDelegateReady ? "готов" : "не готов")")
+                                    ForEach(status.userFacingLines, id: \.self) { Text($0) }
                                 }
                                 .font(.caption)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityElement(children: .combine)
-                                .accessibilityLabel("Уведомления: \(status.authorization), alerts \(status.alertSetting), sound \(status.soundSetting), ожидают \(status.pendingCount), доставлено \(status.deliveredCount), foreground delegate \(status.foregroundDelegateReady ? "готов" : "не готов")")
+                                .accessibilityLabel(status.userFacingLines.joined(separator: " "))
                             } else {
                                 ProgressView("Проверяется статус macOS…").font(.caption)
                             }
@@ -463,8 +470,27 @@ struct SettingsView: View {
             }
             await model.refreshNotificationStatus()
             if model.notificationRuntimeStatus?.authorization == "denied" {
-                local.reminderStatus = "Статус macOS — denied. Это не доказывает, что пользователь нажал «Не разрешать»; проверьте настройки уведомлений приложения в System Settings."
+                local.reminderStatus = "Уведомления отключены. Разрешите их для g-calendar в системных настройках macOS → Уведомления."
             }
         }
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
+            Text(title).font(.headline).foregroundStyle(AppTheme.textPrimary)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(AppTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(AppTheme.outline.opacity(0.4))
+            .allowsHitTesting(false).accessibilityHidden(true))
+        .accessibilityElement(children: .contain)
     }
 }

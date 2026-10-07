@@ -15,6 +15,8 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   -framework UserNotifications \
   "$ROOT/Sources/GCalendar/Models.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
+  "$ROOT/Sources/GCalendar/TaskKeyboardNavigation.swift" \
+  "$ROOT/Sources/GCalendar/ThemePalette.swift" \
   "$ROOT/Sources/GCalendar/RefreshCoordinator.swift" \
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \

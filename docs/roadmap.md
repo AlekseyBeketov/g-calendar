@@ -1,31 +1,38 @@
 # Roadmap
 
-## Current planning checkpoint — 2026-10-05
+Обновлено: **2026-10-07**. Актуальные задачи и их доказательства находятся в [ExecPlan](plans/2026-10-05-final-product-completion.md), [OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) и [STATUS](STATUS.md).
 
-Owner approved Pixel Paper as the base with compact Color Atlas task-row metadata. The current [design contract](../design/DESIGN.md) and [execution plan](plans/2026-10-05-final-product-completion.md) replace the exploration variants and earlier quality plans. Implementation is active, with fixture tests and synthetic computer-use acceptance authorized, including final code/visual modal spacing audit. OpenSpec tasks 2.7, 5–8 remain driven by current evidence.
+## Текущий этап — локальный нативный клиент
 
-## MVP — Local native client
-- Native macOS SwiftUI application with consistent Material-inspired visual direction.
-- Week/day calendar and task-focused list/columns; date selectors, Today/Overdue/Search.
-- Real read-only Google sync through configured `gws`, explicit cache freshness/error states.
-- Calendar and task CRUD controls, including complete/uncomplete, validated with local fixtures. The owner separately authorized a narrowly scoped synthetic live lifecycle for event/task objects created by this run through the actual app workflow, with exact GET before and after each mutation; production/personal mutations remain prohibited.
-- Product-quality completion: Material-inspired semantic tokens, list-first Tasks with explicit columns, consistent date-only filters, a collapsible undated region, and measurable performance evidence.
-- Local-only task reminder time and UserNotifications permission/schedule/cancel/reschedule flow.
-- Reproducible source build and bundle script, tests, read-only smoke report, privacy-safe screenshots/verification.
+- SwiftUI/AppKit и утверждённый [Pixel Paper + Color Atlas](../design/DESIGN.md); Light как основной личный сценарий, System по умолчанию и поддержка Dark.
+- Неделя/день календаря, список задач по умолчанию и колонки как отдельный режим; поиск, сроки, метаданные и сворачиваемые группы.
+- Read-only синхронизация через настроенный `gws`, кэш и явные состояния свежести/ошибки; Google-записи только по действию пользователя с exact read-back и безопасным восстановлением неподтверждённого результата.
+- Полные зоны клика, нативная клавиатура, закреплённая шкала календаря, общие отступы и достижимые элементы маленького окна. Финальная приёмка, включая busy layout и Cmd+N, завершена.
+- Локальные напоминания, fixture suites, синтетическая Computer Use приёмка и GUI baseline с ограничениями измерения.
+- Установщики из исходников и закреплённого release, локальный DMG, обновление/rollback и сохранность данных. Реализация и локальные проверки входят в текущий этап; это не публичный подписанный релиз.
 
-## Near-term after MVP
-- Month view and stronger recurrence handling after timezone/DST and event-scope tests.
-- Additional keyboard shortcuts and accessibility QA with VoiceOver, contrast/dynamic type review.
-- Improve adapter version discovery/compatibility matrix and user-facing `gws` setup diagnostics.
-- Optional manual calendar refresh controls and quota-conscious sync intervals.
+## Следующие продуктовые доработки
 
-## Later / separately approved
-- All-day/recurring Calendar event reminders and Google popup/email preference mirroring remain later scope; current event reminders are explicit local-only exact-time settings for supported timed occurrences.
-- Direct official Google API integration only if gws distribution, scopes, versioning, or UX becomes a material blocker; assess OAuth verification and secret storage first.
-- Other platforms only after a demonstrated product need.
-- Publicly signed/notarized release only with explicit release approval and appropriate Apple Developer credentials.
+- Месячный календарь и более полная работа с повторениями после timezone/DST и event-scope проверок.
+- Полный ручной VoiceOver проход, дополнительные клавиатурные сценарии и проверка доступности на пользовательской системе.
+- Более удобная диагностика настройки `gws` и проверенная матрица поддерживаемых версий адаптера.
+- Дополнительные ручные настройки обновления и интервалы синхронизации с учётом квот.
 
-## Not planned
-- Hosted backend, push relay, paid synchronization service, telemetry by default.
-- Silent Google writes, hidden offline operation queue, or claims of Tasks due-time sync.
-- Login item/helper or notifications that bypass user permission.
+## Отдельный этап распространения
+
+- Выбрать лицензию и разрешить публичный выпуск.
+- Предоставить Developer ID identity, Team ID и Keychain profile; выполнить нотарификацию и проверить скачанный пакет на чистом Mac с сохранённым quarantine.
+- Опубликовать закреплённый tag и проверенные DMG/ZIP/checksums. Установщик одной командой должен использовать реальные опубликованные version/commit/digest, а не шаблонные значения.
+- Рассмотреть Homebrew cask после приёмки подписанного релиза. Intel-сборка требует отдельной сборки и тестирования; сейчас поддерживается arm64/macOS 13+.
+
+## Позже, по отдельному решению
+
+- Напоминания all-day/recurring Calendar и отражение Google popup/email preferences; текущие event reminders локальны и относятся к поддерживаемым timed occurrences.
+- Прямой Google API вместо `gws`, если его распространение, scopes, версия или UX станут существенным препятствием; сначала оценить OAuth verification и хранение секретов.
+- Другие платформы при подтверждённой потребности.
+
+## Не планируется
+
+- Hosted backend, push relay, платная служба синхронизации и телеметрия по умолчанию.
+- Скрытые Google-записи, неявная offline write queue и синхронизация времени срока Google Tasks.
+- Login item/helper или уведомления в обход разрешения пользователя.

@@ -11,6 +11,7 @@ final class ViewLocalState: ObservableObject {
     }
 
     @Published var showSettings = false
+    @Published var searchFocused = false
     @Published var showTaskLists = false
     @Published var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @Published var showingEventEditor = false
@@ -39,6 +40,13 @@ final class ViewLocalState: ObservableObject {
     @Published var contextID = ""
     @Published var isHovered = false
     @Published var collapsedGroups: Set<String> = ["Готово"]
+    @Published var selectedTaskIdentity: TaskSelectionIdentity?
+    @Published var previousVisibleTaskIdentities: [TaskSelectionIdentity] = []
+    @Published var keyboardTaskEditor: GoogleTask?
+    @Published var taskKeyboardFocused = false
+    @Published var taskKeyboardFocusRequest = UUID()
+    @Published var taskColumnsVisible = false
+    @Published var calendarHorizontalOffset: CGFloat = 0
 
     init(title: String = "", notes: String = "", start: Date = Date(), end: Date = Date().addingTimeInterval(3600),
          allDay: Bool = false, timeZoneID: String = TimeZone.current.identifier, dueEnabled: Bool = false,

@@ -33,7 +33,11 @@ struct CalendarWorkspaceView: View {
             .padding(.top, 16)
 
             if model.snapshot.calendars.isEmpty {
-                WorkspaceEmptyState(title: "Календари не загружены", symbol: "calendar", description: "Проверьте путь к gws и выполните синхронизацию.") { }
+                WorkspaceEmptyState(title: model.snapshot.fetchedAt == .distantPast ? "Календари не загружены" : "Нет доступных календарей", symbol: "calendar",
+                                    description: model.snapshot.fetchedAt == .distantPast
+                                        ? "Проверьте подключение и выполните синхронизацию."
+                                        : "Синхронизация завершена. В подключённом аккаунте нет доступных календарей.",
+                                    actionTitle: "Обновить") { model.refresh() }
             } else if calendarContentState != .hasContent {
                 WorkspaceEmptyState(title: calendarEmptyStateTitle,
                                     symbol: "calendar.badge.clock",
@@ -64,44 +68,35 @@ struct CalendarWorkspaceView: View {
                         ))
                         let headerHeight = CGFloat(CalendarGridLayout.headerHeight)
                         let dateOnlyHeight = sharedDateOnlyHeight
-                        let timedHeight = max(0, geometry.size.height - headerHeight - dateOnlyHeight - 1)
                         let axisDayMinutes = visibleDays.compactMap { CalendarTimeGridLayout.dayInterval(containing: $0, timeZone: model.selectedTimeZone)?.durationMinutes }.max() ?? 1_440
                         let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute) + 8
-                        ScrollView(.horizontal) {
-                            VStack(spacing: 0) {
+                        let documentWidth = CGFloat(visibleDays.count) * columnWidth + CGFloat(max(0, visibleDays.count - 1)) * 10
+                        let axisDay = visibleDays.first ?? model.currentRange().start
+                        let initialMinutes = CalendarTimeGridLayout.dayInterval(containing: axisDay, timeZone: model.selectedTimeZone)
+                            .flatMap { interval in CalendarTimeGridLayout.hourMarks(for: interval, timeZone: model.selectedTimeZone).first { $0.localHour == 8 }?.offsetMinutes } ?? 480
+                        CalendarNativeScrollableGrid(
+                            axis: AnyView(CalendarHourAxis(day: axisDay, timeZone: model.selectedTimeZone, height: axisContentHeight)
+                                .background(AppTheme.canvas)),
+                            headers: AnyView(VStack(spacing: 0) {
                                 HStack(alignment: .top, spacing: 10) {
-                                    Color.clear.frame(width: timeAxisWidth, height: headerHeight)
-                                    ForEach(visibleDays, id: \.self) { day in
-                                        dayColumn(day, width: columnWidth).dayHeader
-                                    }
+                                    ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth).dayHeader }
                                 }
                                 HStack(alignment: .top, spacing: 10) {
-                                    Color.clear.frame(width: timeAxisWidth, height: dateOnlyHeight)
-                                    ForEach(visibleDays, id: \.self) { day in
-                                        dayColumn(day, width: columnWidth).dateOnlyArea
-                                    }
+                                    ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth).dateOnlyArea }
                                 }
                                 Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
-                                ScrollViewReader { proxy in
-                                    ScrollView(.vertical) {
-                                        HStack(alignment: .top, spacing: 10) {
-                                            CalendarHourAxis(day: visibleDays.first ?? model.currentRange().start,
-                                                             timeZone: model.selectedTimeZone,
-                                                             height: axisContentHeight)
-                                            ForEach(visibleDays, id: \.self) { day in
-                                                dayColumn(day, width: columnWidth)
-                                            }
-                                        }
-                                        .padding(.bottom, 14)
-                                    }
-                                    .onAppear { proxy.scrollTo("calendar-hour-8", anchor: .top) }
-                                }
-                                .frame(height: timedHeight, alignment: .top)
-                            }
-                            .padding(.horizontal, 24)
-                            .frame(height: geometry.size.height, alignment: .top)
-                        }
-                        .scrollIndicators(.hidden)
+                            }),
+                            days: AnyView(HStack(alignment: .top, spacing: 10) {
+                                ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth) }
+                            }.padding(.bottom, 14)),
+                            axisWidth: timeAxisWidth,
+                            headerHeight: headerHeight + dateOnlyHeight + 1,
+                            documentWidth: documentWidth,
+                            documentHeight: axisContentHeight + 14,
+                            initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute)
+                        )
+                        .padding(.horizontal, 24)
+                        .background(AppTheme.canvas)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -240,22 +235,29 @@ struct EventEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             HStack {
                 Text(event == nil ? "Новое событие" : (canEdit ? "Редактирование события" : "Просмотр события")).font(.title2.weight(.semibold))
                 Spacer()
                 if event != nil && canEdit { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked) }
             }
             EditorBody {
-            VStack(alignment: .leading, spacing: 16) {
-                EditorField(title: "Название") { TextField("Название события", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused).disabled(!canEdit) }
-                Toggle("Весь день", isOn: $local.allDay).disabled(!canEdit)
-                DatePicker("Начало", selection: $local.start, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute]).disabled(!canEdit)
-                DatePicker(local.allDay ? "Последний день (включительно)" : "Окончание", selection: $local.end, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute]).disabled(!canEdit)
-                Picker("Часовой пояс", selection: $local.timeZoneID) {
-                    ForEach(timeZoneChoices, id: \.self) { id in Text(id).tag(id) }
+            VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
+                if canEdit {
+                    EditorField(title: "Название") { TextField("Название события", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
+                    Toggle("Весь день", isOn: $local.allDay)
+                    DatePicker("Начало", selection: $local.start, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute])
+                    DatePicker(local.allDay ? "Последний день (включительно)" : "Окончание", selection: $local.end, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute])
+                    Picker("Часовой пояс", selection: $local.timeZoneID) {
+                        ForEach(timeZoneChoices, id: \.self) { id in Text(id).tag(id) }
+                    }
+                } else {
+                    EditorField(title: "Название") { Text(local.title).textSelection(.enabled).foregroundStyle(AppTheme.textPrimary) }
+                    LabeledContent("Формат", value: local.allDay ? "Весь день" : "Со временем")
+                    LabeledContent("Начало", value: readOnlyDateText(local.start))
+                    LabeledContent(local.allDay ? "Последний день (включительно)" : "Окончание", value: readOnlyDateText(local.end))
+                    LabeledContent("Часовой пояс", value: local.timeZoneID)
                 }
-                .disabled(!canEdit)
                 if event == nil {
                     Picker("Календарь", selection: $local.contextID) {
                         ForEach(model.snapshot.calendars.filter(\.isWritable)) { Text($0.title).tag($0.id) }
@@ -319,7 +321,7 @@ struct EventEditorView: View {
         .confirmationDialog("Удалить событие?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить событие", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
-        } message: { Text("Это действие будет отправлено в Google после подтверждения.") }
+        } message: { Text(model.launchMode == .demo ? "Будет удалено только тестовое событие в демо-режиме." : "Это действие будет отправлено в Google после подтверждения.") }
     }
 
     private var activeCalendar: CalendarInfo? {
@@ -331,6 +333,12 @@ struct EventEditorView: View {
     }
     private var timeZoneChoices: [String] {
         Array(Set([local.timeZoneID, TimeZone.current.identifier, "America/Los_Angeles", "America/New_York", "Europe/Moscow", "Europe/London"])).sorted()
+    }
+
+    private func readOnlyDateText(_ date: Date) -> String {
+        var format = Date.FormatStyle(date: .abbreviated, time: local.allDay ? .omitted : .shortened)
+        format.timeZone = zone
+        return date.formatted(format)
     }
 
     private func save() {

@@ -172,12 +172,17 @@ struct InvariantTests {
     static var failures = 0
 
     static func main() async {
+        if CommandLine.arguments.count == 5, CommandLine.arguments[1] == "--journal-lock-probe" {
+            do { try runJournalLockProbe(); return }
+            catch { Darwin.exit(1) }
+        }
         run("optional-event-summary", testOptionalEventSummary)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)
         run("file-metadata-date-round-trip", testFileMetadataRoundTrip)
         run("completion-patch-only-status", testCompletionPatchOnlyStatus)
         run("explicit-empty-notes-clears", testExplicitEmptyNotes)
         run("recoverable-write-journal-exact-recheck", testRecoverableWrites)
+        run("independent-journals-preserve-pending-owner", testIndependentMutationJournals)
         run("native-synthetic-lifecycle-ledger-scope", testSyntheticLifecycle)
         run("pagination-and-model-mapping", testPaginationAndTypedMapping)
         run("process-errors-malformed-json-timeout", testErrorsAndTimeout)
@@ -187,6 +192,9 @@ struct InvariantTests {
         run("calendar-task-only-date-is-not-empty", testCalendarTaskOnlyDateIsNotEmpty)
         run("calendar-undated-tasks-once-and-search-scope", testCalendarUndatedTasks)
         run("task-date-filters-and-groups", testTaskFilters)
+        run("task-keyboard-selection-scope-and-commands", testTaskKeyboardNavigation)
+        run("theme-srgb-text-and-control-contrast", testThemeContrast)
+        run("notification-status-user-facing-copy", testNotificationStatusCopy)
         run("sync-failure-recovery-category", testSyncFailureState)
         run("local-task-projection-performance-baseline", testTaskProjectionBaseline)
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
@@ -525,6 +533,92 @@ struct InvariantTests {
         let ordered = TaskWorkspaceLayout.filteredTasks(unordered, filter: .upcoming, selectedTaskListID: "synthetic-list", searchText: "", today: today)
         try check(ordered.map(\.id) == ["same-a", "same-b", "later"], "dated views must sort by due and retain source order for equal dates")
         try check(TaskWorkspaceLayout.groups(unordered, today: today)[3].1.map(\.id) == ["undated-b", "undated-a"], "undated manual order must not change")
+    }
+
+    static func testTaskKeyboardNavigation() throws {
+        let a = GoogleTask(id: "shared-id", taskListID: "synthetic-a", title: "A", notes: nil, due: nil, completed: false, deleted: false, updated: nil)
+        let b = GoogleTask(id: "shared-id", taskListID: "synthetic-b", title: "B", notes: nil, due: nil, completed: false, deleted: false, updated: nil)
+        let c = GoogleTask(id: "completed", taskListID: "synthetic-a", title: "C", notes: nil, due: nil, completed: true, deleted: false, updated: nil)
+        let ids = [a, b, c].map(\.selectionIdentity)
+        try check(a.selectionIdentity != b.selectionIdentity, "selection must include list ID even when Google IDs overlap")
+        try check(TaskKeyboardNavigation.command(keyCode: 126, hasModifiers: false, isRepeat: true) == .previous, "held arrows may navigate")
+        try check(TaskKeyboardNavigation.command(keyCode: 125, hasModifiers: false, isRepeat: false) == .next, "down selects the next visible item")
+        try check(TaskKeyboardNavigation.command(keyCode: 36, hasModifiers: false, isRepeat: false) == .edit, "Return opens the selected task")
+        try check(TaskKeyboardNavigation.command(keyCode: 76, hasModifiers: false, isRepeat: false) == .edit, "keypad Return also opens the task")
+        try check(TaskKeyboardNavigation.command(keyCode: 49, hasModifiers: false, isRepeat: false) == .toggleCompletion, "Space toggles the selected task")
+        try check([36, 76, 49].allSatisfy { TaskKeyboardNavigation.command(keyCode: UInt16($0), hasModifiers: false, isRepeat: true) == nil }, "holding action keys must not repeat edits or writes")
+        try check([126, 125, 36, 49].allSatisfy { TaskKeyboardNavigation.command(keyCode: UInt16($0), hasModifiers: true, isRepeat: false) == nil }, "modified keys stay in the responder chain")
+        try check(TaskKeyboardNavigation.command(keyCode: 48, hasModifiers: false, isRepeat: false) == nil, "Tab remains native focus navigation")
+        try check(TaskKeyboardNavigation.movedSelection(nil, in: ids, command: .next) == ids.first, "down enters at the first task")
+        try check(TaskKeyboardNavigation.movedSelection(nil, in: ids, command: .previous) == ids.last, "up enters at the last task")
+        try check(TaskKeyboardNavigation.movedSelection(ids[0], in: ids, command: .previous) == ids[0], "selection must stop at the start")
+        try check(TaskKeyboardNavigation.movedSelection(ids[2], in: ids, command: .next) == ids[2], "selection must stop at the end")
+        try check(TaskKeyboardNavigation.movedSelection(ids[0], in: ids, command: .next) == ids[1], "navigation must follow visible order")
+        try check(TaskKeyboardNavigation.movedSelection(ids[0], in: [], command: .next) == nil, "empty results clear selection")
+        try check(TaskKeyboardNavigation.reconciledSelection(ids[1], previous: ids, visible: [ids[0], ids[2]]) == ids[2], "a removed selection moves to the same visible position")
+        try check(TaskKeyboardNavigation.reconciledSelection(ids[2], previous: ids, visible: [ids[0]]) == ids[0], "selection clamps after filtering")
+        try check(TaskKeyboardNavigation.reconciledSelection(nil, previous: ids, visible: ids) == nil, "refresh must not select a task without user focus")
+        let groups = [("Без срока", [a, b]), ("Готово", [c])]
+        let list = TaskKeyboardNavigation.visibleTasks(filteredTasks: [a, b, c], groups: groups, usesGroups: true, usesColumns: false, collapsedGroups: ["Готово"])
+        try check(list.map(\.selectionIdentity) == Array(ids.prefix(2)), "keyboard navigation excludes collapsed list rows")
+        let columns = TaskKeyboardNavigation.visibleTasks(filteredTasks: [a, b, c], groups: groups, usesGroups: true, usesColumns: true, collapsedGroups: ["Готово"])
+        try check(columns.map(\.selectionIdentity) == ids, "visible column tasks remain navigable regardless of list collapse state")
+        let filtered = TaskKeyboardNavigation.visibleTasks(filteredTasks: [b], groups: groups, usesGroups: false, usesColumns: true, collapsedGroups: [])
+        try check(filtered == [b], "a filter must not leak tasks from other groups into navigation")
+    }
+
+    static func testThemeContrast() throws {
+        let black = ThemePalette.RGB(hex: 0x000000), white = ThemePalette.RGB(hex: 0xFFFFFF)
+        try check(abs(black.contrast(against: white) - 21) < 0.00001, "black/white contrast must be 21:1")
+        try check(white.contrast(against: white) == 1, "equal colors have 1:1 contrast")
+        try check(black.blended(over: white, opacity: 0) == white && black.blended(over: white, opacity: 1) == black, "alpha endpoints must use the actual foreground/background")
+        let textRoles: [ThemePalette.Role] = [.textPrimary, .textSecondary, .accent, .task, .overdue, .success, .warning]
+        let backgrounds: [ThemePalette.Role] = [.surface, .surfaceRaised, .canvas, .selection]
+        for dark in [false, true] {
+            for role in textRoles {
+                for background in backgrounds {
+                    let ratio = ThemePalette.color(role, dark: dark).contrast(against: ThemePalette.color(background, dark: dark))
+                    try check(ratio >= 4.5, "\(role) text on \(background), dark=\(dark), contrast \(ratio) must meet 4.5:1 without rounding")
+                }
+            }
+            for background in backgrounds {
+                try check(ThemePalette.color(.outline, dark: dark).contrast(against: ThemePalette.color(background, dark: dark)) >= 3,
+                          "outline/control boundary must meet 3:1 against \(background), dark=\(dark)")
+            }
+            for opacity in [0.55, 0.65] {
+                let selected = ThemePalette.color(.selection, dark: dark).blended(over: ThemePalette.color(.surface, dark: dark), opacity: opacity)
+                for role in textRoles {
+                    try check(ThemePalette.color(role, dark: dark).contrast(against: selected) >= 4.5,
+                              "\(role) must stay readable on actual translucent selected rows/badges, dark=\(dark)")
+                }
+            }
+        }
+        try check(white.contrast(against: ThemePalette.color(.accent, dark: false)) >= 4.5, "light primary blue supports white action text")
+        // Google supplies arbitrary calendar colors. Both title and calendar
+        // subtitle use primary ink over the two composited timed-event tints.
+        for dark in [false, true] {
+            for hex: UInt32 in [0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0x00FFFF, 0xFF00FF] {
+                let tint = ThemePalette.RGB(hex: hex)
+                let outer = tint.blended(over: ThemePalette.color(.surface, dark: dark), opacity: 0.16)
+                let inner = tint.blended(over: outer, opacity: 0.13)
+                try check(ThemePalette.color(.textPrimary, dark: dark).contrast(against: inner) >= 4.5,
+                          "event title/subtitle must remain readable over both calendar tint layers, dark=\(dark)")
+            }
+        }
+    }
+
+    static func testNotificationStatusCopy() throws {
+        for access in ["authorized", "denied", "not_determined", "provisional", "ephemeral", "synthetic-unrecognized"] {
+            let status = NotificationRuntimeStatus(authorization: access, pendingCount: 2, deliveredCount: 3,
+                                                  alertSetting: "enabled", soundSetting: "disabled", foregroundDelegateReady: true)
+            let copy = status.userFacingLines.joined(separator: " ")
+            try check(!copy.contains(access) && !copy.contains("foreground") && !copy.contains("delegate"), "settings must explain notification state without raw API/debug identifiers")
+            try check(copy.contains("Ожидают доставки: 2") && copy.contains("в Центре уведомлений: 3"), "user-facing counts must distinguish scheduled from delivered notifications")
+            try check(status.safeSummary.contains("authorization=\(access)") && status.safeSummary.contains("foreground_delegate_ready=true"), "CLI diagnostic summary must retain exact machine-readable status")
+        }
+        let unavailable = NotificationRuntimeStatus(authorization: "unknown", pendingCount: 0, deliveredCount: 0,
+                                                   alertSetting: "not_supported", soundSetting: "not_queried", foregroundDelegateReady: false)
+        try check(unavailable.userFacingLines[1].contains("недоступен") && unavailable.userFacingLines[1].contains("ещё не проверен"), "unsupported and unqueried settings must be distinct")
     }
 
     static func testSyncFailureState() throws {
@@ -1331,6 +1425,7 @@ struct InvariantTests {
 
         try Data("not-json".utf8).write(to: file)
         let corrupt = MutationJournal(fileURL: file)
+        try check(corrupt.blockingFailure == .corruptJournal, "malformed durable bytes must still report journal corruption")
         try check(corrupt.isBlocked && FileManager.default.fileExists(atPath: file.path), "corrupt journal must block writes and preserve original")
         try corrupt.releaseAfterManualReview()
         let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("reviewed-attempt-") }
@@ -1355,6 +1450,150 @@ struct InvariantTests {
             catch is MutationRecoveryFailure { }
             try check(currentJournal.pending?.resourceID == "synthetic-resource" && currentRunner.invocations.count == 2,
                       "event/list accepted IDs must be retained and subsequent writes blocked")
+        }
+    }
+
+    static func testIndependentMutationJournals() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("g-calendar-independent-journals-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("pending.json")
+        let factory = GWSCommandFactory(executableURL: executable)
+        let invocation = try factory.taskInsert(taskListID: "synthetic-list", title: "Synthetic race", notes: nil, due: nil, authorization: .userSave)
+        let first = MutationJournal(fileURL: file)
+        let stale = MutationJournal(fileURL: file)
+        try first.begin(invocation)
+        let firstID = first.pending?.id
+        do {
+            try stale.begin(invocation)
+            throw TestFailure(description: "stale journal replaced another process's pending mutation")
+        } catch is MutationRecoveryFailure { }
+        try check(MutationJournal(fileURL: file).pending?.id == firstID, "independent journal must retain the durable owner")
+        guard let firstID else { throw TestFailure(description: "missing race owner") }
+        let oldObserver = MutationJournal(fileURL: file)
+        try first.clear(expectedID: firstID)
+        let replacementID = try stale.begin(invocation)
+        for action in [
+            { try oldObserver.capture(Data(#"{"id":"synthetic-foreign"}"#.utf8), expectedID: firstID) },
+            { try oldObserver.clear(expectedID: firstID) },
+            { try oldObserver.releaseAfterManualReview(expectedID: firstID) },
+            { try oldObserver.releaseAfterManualReview() }
+        ] {
+            do { try action(); throw TestFailure(description: "stale owner acknowledged a replacement attempt") }
+            catch is MutationRecoveryFailure { }
+            try check(MutationJournal(fileURL: file).pending?.id == replacementID, "stale capture/clear/manual release must preserve the replacement UUID")
+        }
+        let untouchedRunner = FakeProcessRunner { _ in throw TestFailure(description: "stale recheck reached exact GET") }
+        do {
+            _ = try RecoverableMutationService(runner: untouchedRunner, journal: oldObserver).recheck(
+                reader: GWSReadClient(factory: factory, runner: untouchedRunner), expectedID: firstID)
+            throw TestFailure(description: "stale recheck accepted the replacement")
+        } catch is MutationRecoveryFailure { }
+        try check(untouchedRunner.invocations.isEmpty, "stale recheck must stop before reading a different attempt")
+        try stale.capture(Data(#"{"id":"synthetic-current"}"#.utf8), expectedID: replacementID)
+        try check(MutationJournal(fileURL: file).pending?.resourceID == "synthetic-current", "current owner may capture its exact response")
+
+        let corruptObserver = MutationJournal(fileURL: file)
+        try Data("synthetic corrupt one".utf8).write(to: file)
+        let corrupt = MutationJournal(fileURL: file)
+        try Data("synthetic corrupt two".utf8).write(to: file)
+        do { try corrupt.releaseAfterManualReview(); throw TestFailure(description: "changed corrupt journal released") }
+        catch is MutationRecoveryFailure { }
+        do { try corruptObserver.clear(expectedID: replacementID); throw TestFailure(description: "corrupt replacement cleared") }
+        catch is MutationRecoveryFailure { }
+        try check(try Data(contentsOf: file) == Data("synthetic corrupt two".utf8), "changed corrupt data must remain untouched")
+
+        // Hold the service lease while an exact GET is delayed. Independent journal
+        // objects use distinct file descriptors, exercising the sidecar flock too.
+        let overlapFile = root.appendingPathComponent("overlap.json")
+        let firstOverlap = MutationJournal(fileURL: overlapFile)
+        let secondOverlap = MutationJournal(fileURL: overlapFile)
+        let reading = DispatchSemaphore(value: 0)
+        let finishRead = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let outcomeLock = NSLock()
+        var firstOutcome: Result<GWSMutationResult, Error>?
+        let firstRunner = FakeProcessRunner { input in
+            if input.operation == .taskInsert { return response(Data(#"{"id":"synthetic-overlap"}"#.utf8)) }
+            reading.signal()
+            guard finishRead.wait(timeout: .now() + 5) == .success else { throw TestFailure(description: "overlap fixture release timed out") }
+            return response(Data(#"{"id":"synthetic-overlap","title":"Synthetic race","status":"needsAction"}"#.utf8))
+        }
+        DispatchQueue.global().async {
+            let outcome = Result { try RecoverableMutationService(runner: firstRunner, journal: firstOverlap).perform(
+                invocation, reader: GWSReadClient(factory: factory, runner: firstRunner)) }
+            outcomeLock.lock(); firstOutcome = outcome; outcomeLock.unlock()
+            finished.signal()
+        }
+        guard reading.wait(timeout: .now() + 5) == .success else { throw TestFailure(description: "overlap fixture did not reach GET") }
+        let initializedWhileBusy = MutationJournal(fileURL: overlapFile)
+        try check(initializedWhileBusy.pending == nil && initializedWhileBusy.isBlocked && initializedWhileBusy.blockingFailure == .journalBusy,
+                  "initialization during another operation must report busy, never corrupt journal")
+        let busyReview = initializedWhileBusy.review()
+        try check(busyReview.pending == nil && busyReview.failure == .journalBusy, "atomic UI review must distinguish a busy lease from a corrupt or missing draft")
+        try check(firstOverlap.isBlocked && firstOverlap.pending == nil, "same-process observation must fail closed without waiting for network I/O")
+        let secondRunner = FakeProcessRunner { _ in throw TestFailure(description: "overlapping write reached process runner") }
+        do {
+            _ = try RecoverableMutationService(runner: secondRunner, journal: secondOverlap).perform(
+                invocation, reader: GWSReadClient(factory: factory, runner: secondRunner))
+            throw TestFailure(description: "overlapping service acquired the lease")
+        } catch is MutationRecoveryFailure { }
+        try check(secondRunner.invocations.isEmpty && secondOverlap.isBlocked, "overlapping service must fail closed without starting a process")
+        finishRead.signal()
+        guard finished.wait(timeout: .now() + 5) == .success else { throw TestFailure(description: "overlap service failed to finish") }
+        outcomeLock.lock(); let outcome = firstOutcome; outcomeLock.unlock()
+        try check(try outcome?.get().isReadBackVerified == true && !firstOverlap.isBlocked, "lease owner must finish exact verification and clear only its attempt")
+        try check(initializedWhileBusy.blockingFailure == nil && !initializedWhileBusy.isBlocked, "busy initialization must recover after the owner releases its lease")
+        let releasedReview = initializedWhileBusy.review()
+        try check(releasedReview.pending == nil && releasedReview.failure == nil, "atomic UI review must clear a released busy state")
+        let lockFile = URL(fileURLWithPath: overlapFile.path + ".lock")
+        let lockAttributes = try FileManager.default.attributesOfItem(atPath: lockFile.path)
+        try check((lockAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o600 && FileManager.default.fileExists(atPath: lockFile.path), "sidecar must remain private and stable after atomic journal removal")
+
+        // A separate test-binary process holds the same sidecar, proving this is
+        // OS-level exclusion rather than just the journal's NSRecursiveLock.
+        let processFile = root.appendingPathComponent("process.json")
+        let ready = root.appendingPathComponent("process-ready")
+        let release = root.appendingPathComponent("process-release")
+        let processJournal = MutationJournal(fileURL: processFile)
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        child.arguments = ["--journal-lock-probe", processFile.path, ready.path, release.path]
+        try child.run()
+        defer {
+            try? Data().write(to: release)
+            let deadline = Date().addingTimeInterval(2)
+            while child.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+            if child.isRunning { child.terminate() }
+            child.waitUntilExit()
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: ready.path) && child.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        guard FileManager.default.fileExists(atPath: ready.path) else { throw TestFailure(description: "separate process did not acquire the journal lease") }
+        do { try processJournal.begin(invocation); throw TestFailure(description: "separate-process lease allowed a write") }
+        catch is MutationRecoveryFailure { }
+        try check(processJournal.isBlocked && !FileManager.default.fileExists(atPath: processFile.path), "separate-process lease must block before creating a journal or running a mutation")
+        try Data().write(to: release)
+        let exitDeadline = Date().addingTimeInterval(5)
+        while child.isRunning && Date() < exitDeadline { Thread.sleep(forTimeInterval: 0.01) }
+        guard !child.isRunning else { throw TestFailure(description: "separate-process lease did not release") }
+        try check(child.terminationStatus == 0, "separate-process lease probe must finish successfully")
+        let processID = try processJournal.begin(invocation)
+        try processJournal.clear(expectedID: processID)
+        let after = try FileManager.default.attributesOfItem(atPath: processFile.path + ".lock")
+        try check((after[.posixPermissions] as? NSNumber)?.intValue == 0o600, "a released OS lock must remain usable by the next process")
+    }
+
+    static func runJournalLockProbe() throws {
+        let journal = MutationJournal(fileURL: URL(fileURLWithPath: CommandLine.arguments[2]))
+        try journal.withExclusiveAccess {
+            try Data("ready".utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[3]))
+            let deadline = Date().addingTimeInterval(8)
+            while !FileManager.default.fileExists(atPath: CommandLine.arguments[4]) && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            guard FileManager.default.fileExists(atPath: CommandLine.arguments[4]) else { throw TestFailure(description: "journal lock probe release timed out") }
         }
     }
 

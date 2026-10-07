@@ -124,6 +124,30 @@ struct NotificationRuntimeStatus: Equatable {
     let soundSetting: String
     let foregroundDelegateReady: Bool
 
+    var userFacingLines: [String] {
+        let access: String
+        switch authorization {
+        case "authorized": access = "Уведомления разрешены."
+        case "denied": access = "Уведомления отключены. Разрешите их для g-calendar в настройках macOS."
+        case "not_determined": access = "Разрешение на уведомления ещё не запрошено."
+        case "provisional": access = "Разрешены тихие уведомления."
+        case "ephemeral": access = "Уведомления разрешены временно."
+        default: access = "Статус разрешения неизвестен. Обновите статус позже."
+        }
+        func setting(_ value: String) -> String {
+            switch value {
+            case "enabled": return "включён"
+            case "disabled": return "выключен"
+            case "not_supported": return "недоступен"
+            case "not_queried": return "ещё не проверен"
+            default: return "неизвестен"
+            }
+        }
+        return [access,
+                "Показ уведомлений: \(setting(alertSetting)) · звук: \(setting(soundSetting)).",
+                "Ожидают доставки: \(pendingCount) · в Центре уведомлений: \(deliveredCount)."]
+    }
+
     var safeSummary: String {
         "authorization=\(authorization) alert_setting=\(alertSetting) sound_setting=\(soundSetting) pending_count=\(pendingCount) delivered_count=\(deliveredCount) foreground_delegate_ready=\(foregroundDelegateReady)"
     }

@@ -51,7 +51,8 @@ struct CalendarTimeGridDay: View {
         .padding(.horizontal, 10)
         .frame(width: columnWidth, height: CGFloat(CalendarGridLayout.headerHeight), alignment: .center)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1)
+            .allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(formattedDay(day, template: "EEEE, d MMMM y"))
     }
@@ -105,7 +106,7 @@ struct CalendarTimeGridDay: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.title).font(.caption.weight(.medium)).foregroundStyle(AppTheme.textPrimary).lineLimit(compact ? 2 : 1)
                     if !compact, let calendar {
-                        Text(calendar.title).font(.caption2).foregroundStyle(AppTheme.textSecondary).lineLimit(1)
+                        Text(calendar.title).font(.caption2).foregroundStyle(AppTheme.textPrimary).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
@@ -148,6 +149,7 @@ struct CalendarTimeGridDay: View {
                                     .background(color.opacity(0.16), in: RoundedRectangle(cornerRadius: 5))
                                     .overlay(alignment: .leading) {
                                         RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 2)
+                                            .allowsHitTesting(false).accessibilityHidden(true)
                                     }
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
                                     .offset(x: CGFloat(placement.laneIndex) * laneWidth,
@@ -196,7 +198,6 @@ struct CalendarHourAxis: View {
                                    height: CGFloat(nextOffset - mark.offsetMinutes) * CGFloat(CalendarGridLayout.pointsPerMinute),
                                    alignment: .topTrailing)
                             .id(mark.localHour == 8 ? "calendar-hour-8" : "calendar-hour-\(mark.id)")
-                            .offset(y: index == 0 ? 0 : -7)
                             .accessibilityHidden(true)
                     }
                 }

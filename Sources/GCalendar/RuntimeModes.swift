@@ -19,7 +19,7 @@ enum AppLaunchMode: Equatable {
 }
 
 enum DemoScenario: String {
-    case ready, loading, setup, offline, stale, failed, empty, recovery
+    case ready, loading, setup, offline, stale, failed, empty, recovery, busy
 
     static func parse(arguments: [String]) -> DemoScenario {
         guard AppLaunchMode.parse(arguments: arguments) == .demo,

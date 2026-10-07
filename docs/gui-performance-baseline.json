@@ -1,0 +1,161 @@
+{
+  "elapsed_ms": 418622.32637499983,
+  "gpu_fps_measured": false,
+  "main_runloop_timer": {
+    "delays_over_50_ms": 119,
+    "delays_over_100_ms": 71,
+    "interval_ms": 20,
+    "scheduling_delay": {
+      "coalesced_starts": 0,
+      "count": 19713,
+      "max_ms": 598.7643333323649,
+      "mean_ms": 1.5889431043941205,
+      "p50_ms": 0,
+      "p95_ms": 0.9406249996391121,
+      "percentile_sample_count": 7425
+    },
+    "tolerance_ms": 0
+  },
+  "measurement": "local_state_action_to_next_visible_AppKit_window_update_notification",
+  "mode": "synthetic_demo_only",
+  "operations": {
+    "appearance": {
+      "coalesced_starts": 0,
+      "count": 12,
+      "max_ms": 50.87466666736873,
+      "mean_ms": 48.7963993067145,
+      "p50_ms": 48.48495833721245,
+      "p95_ms": 50.87466666736873,
+      "percentile_sample_count": 12
+    },
+    "filter": {
+      "coalesced_starts": 0,
+      "count": 10,
+      "max_ms": 184.44958332838723,
+      "mean_ms": 143.10160000022734,
+      "p50_ms": 111.69558333494933,
+      "p95_ms": 184.44958332838723,
+      "percentile_sample_count": 10
+    },
+    "form": {
+      "coalesced_starts": 0,
+      "count": 13,
+      "max_ms": 642.5518333344371,
+      "mean_ms": 308.3443974364155,
+      "p50_ms": 325.2710416709306,
+      "p95_ms": 642.5518333344371,
+      "percentile_sample_count": 13
+    },
+    "launch": {
+      "coalesced_starts": 0,
+      "count": 1,
+      "max_ms": 492.5843333330704,
+      "mean_ms": 492.5843333330704,
+      "p50_ms": 492.5843333330704,
+      "p95_ms": 492.5843333330704,
+      "percentile_sample_count": 1
+    },
+    "range": {
+      "coalesced_starts": 0,
+      "count": 10,
+      "max_ms": 99.77670833177399,
+      "mean_ms": 82.58385833250941,
+      "p50_ms": 68.64941666572122,
+      "p95_ms": 99.77670833177399,
+      "percentile_sample_count": 10
+    },
+    "resize": {
+      "coalesced_starts": 180,
+      "count": 27,
+      "max_ms": 737.7805833311868,
+      "mean_ms": 254.59625000022007,
+      "p50_ms": 133.8904166696011,
+      "p95_ms": 596.925416662998,
+      "percentile_sample_count": 27
+    },
+    "search": {
+      "coalesced_starts": 0,
+      "count": 12,
+      "max_ms": 131.99799999711104,
+      "mean_ms": 75.56330555477568,
+      "p50_ms": 41.89695833338192,
+      "p95_ms": 131.99799999711104,
+      "percentile_sample_count": 12
+    },
+    "section": {
+      "coalesced_starts": 0,
+      "count": 13,
+      "max_ms": 200.42745833052322,
+      "mean_ms": 156.93897756416567,
+      "p50_ms": 150.2197083318606,
+      "p95_ms": 200.42745833052322,
+      "percentile_sample_count": 13
+    },
+    "selection": {
+      "coalesced_starts": 0,
+      "count": 11,
+      "max_ms": 15.751791666843928,
+      "mean_ms": 13.144598485351624,
+      "p50_ms": 12.981208332348615,
+      "p95_ms": 15.751791666843928,
+      "percentile_sample_count": 11
+    },
+    "taskList": {
+      "coalesced_starts": 0,
+      "count": 10,
+      "max_ms": 106.24583333265036,
+      "mean_ms": 69.03751666541211,
+      "p50_ms": 40.49945833685342,
+      "p95_ms": 106.24583333265036,
+      "percentile_sample_count": 10
+    }
+  },
+  "pending_operation_count": 0,
+  "pixel_presentation_measured": false,
+  "schema": 1,
+  "viewport": {
+    "backing_scale": 2,
+    "height_pt": 561,
+    "width_pt": 761
+  },
+  "invalidated_measurements": {
+    "scroll": "Schema 1 action-to-window-update measured idle wait, not scrolling. Excluded from budgets; replaced below by schema 2 native clip synchronization handler duration."
+  },
+  "scroll_followup": {
+    "date": "2026-10-07",
+    "build": "run-54154",
+    "schema": 2,
+    "measurement": "native_clip_synchronization_handler_duration_not_pixel_latency",
+    "viewport": {
+      "backing_scale": 2,
+      "height_pt": 897,
+      "width_pt": 1434
+    },
+    "operations": {
+      "scroll": {
+        "coalesced_starts": 0,
+        "count": 242,
+        "max_ms": 0.2552500009187497,
+        "mean_ms": 0.1507610192246762,
+        "p50_ms": 0.14133333024801686,
+        "p95_ms": 0.21970833040541038,
+        "percentile_sample_count": 242
+      }
+    }
+  },
+  "environment": {
+    "date": "2026-10-07",
+    "initial_build": "run-48822",
+    "macOS": "27.0.1",
+    "chip": "Apple M4 Pro",
+    "memory_gib": 24,
+    "idle_cpu_percent_samples": [
+      0.4,
+      0.6,
+      0.5
+    ],
+    "idle_rss_kib": 203968,
+    "fixture_task_count": 51,
+    "fixture_event_count": 10
+  }
+}

@@ -1,65 +1,87 @@
-# Проверка g-calendar
+# Проверки g-calendar
 
-Обновлено: 2026-10-05, Europe/Moscow. Реализация продолжается; полная внешняя приёмка ещё не завершена.
+Обновлено: **2026-10-07**. Локальная разработка и приёмка утверждённого UI завершены. Внешние условия публичного выпуска перечислены отдельно; этот документ не подтверждает подписанный релиз или голосовой проход VoiceOver.
 
-## Код и сборка
+## Сборка и автоматические проверки
 
-`rtk ./scripts/test.sh`: exit 0, 254 assertions. Последний current-source оптимизированный запуск `rtk proxy env G_CALENDAR_TEST_OPTIMIZE=1 ./scripts/test.sh`: exit 0, 268 assertions; включает explicit-ledger guards, selection reconciliation после remote удаления списка и overdue status predicates. Первоначальный повторный запуск не компилировался из-за отсутствия LedgerAcceptance.swift в test source list; файл добавлен, suite прошёл.
+Все команды выполнялись в `/Users/alexbeketov/g-calendar` через `rtk proxy`.
 
-Проверены pagination, сохранение кэша при ошибке страницы, date-only/DST/all-day, overlap, независимые refresh domains, latest-wins, mutation guards, точный read-back, reminders и изоляция demo. Регрессии покрывают пустые/отсутствующие notes, настоящий field/identity mismatch, неизвестный create ID, failed GET, persisted journal, запрет повторного INSERT и read-only recheck. Время событий приводится к секундам до отправки и journaling; несовпадение на целую секунду отвергается.
+| Команда | Результат |
+|---|---|
+| `./scripts/build-app.sh` | exit 0, optimized arm64/macOS 13+, финальная сборка run-54154 |
+| `./scripts/test.sh` | exit 0, 440 assertions |
+| `env G_CALENDAR_TEST_OPTIMIZE=1 ./scripts/test.sh` | exit 0, 440 assertions, повторён после финального UI fix |
+| `./scripts/test-native-ui.sh` | exit 0, 20 assertions |
+| `./scripts/test-installers.sh` | exit 0, 26 сценариев |
 
-Deletion tombstone принимается только после совпадения точного ID. Отсутствие ресурса подтверждается структурированным HTTP 404/410 или явным HTTP статусом; случайное «404» внутри идентификатора не является доказательством удаления. При nonzero exit DELETE возможен только один точный GET; повторной записи нет. Cleanup fixture запрещает identity вне ledger и повтор уже отправленного DELETE.
+Модельные fixtures проверяют Google argument vectors и exact-resource GET, настоящие field/identity mismatches, empty/omitted notes, date-only due, timestamp precision, tombstones, cache/pagination failure, refresh supersession, DST/overlap, reminders и runtime isolation. Журнал удерживает stable flock на весь write + exact GET; stale instances, attempt identity, delayed GET, corruption и отдельный процесс покрыты регрессиями. Повторный INSERT при неизвестном результате не выполняется.
 
-Последняя завершённая `rtk ./scripts/build-app.sh`: exit 0; включает notification-test, FocusState и общие spacing constants. arm64, macOS 13+, оптимизация `-O`, Info.plist valid, локальная ad-hoc подпись проверена. Последние правки explicit ledger path, settings spacing, list selection reconciliation и overdue/metadata accessibility сделаны после сборки. Повторную сборку отклонил automatic approval review из-за общего правила AGENTS.md о сборках владельцем; запрошено точное разрешение. Direct-swiftc scripts используют process-local toolchain overlay без изменения системного SDK.
+Native UI suite проверяет clip synchronization, сохранение scroll origin при layout update, removal observers и scoped keyboard responder. Поиск использует owned NSTextField: Escape очищает binding, field editor и control; остальные команды сохраняют native responder chain. Cmd+N заменяет стандартную `.newItem` команду macOS и не создаёт лишнюю вкладку.
 
-## Реальная интеграция Google
+## Computer Use — актуальный исходный код
 
-Разрешены только собственные синтетические задачи, списки и события с уникальной меткой и приватными точными ID. Перед edit/complete/reopen/delete выполняется GET, после записи — точная проверка. Личные объекты не изменяются; ledger и черновики находятся вне репозитория.
+Прогоны 6–7 октября использовали только built `.app` и синтетический `--demo`, отдельные настройки, отключённые gws, пользовательский кэш и UserNotifications. Доступы работают; TCC/helper binaries не менялись. Финальный busy/ready/recovery/loading/setup и installed-app проход использовал run-54154. Предшествующие current-source проходы state/theme/modal/pinned calendar выполнены на run-43884–53128; финальная сборка содержит эти исправления.
 
-Первый запуск обнаружил округление времени Google Calendar до секунд: timestamp отличался на 332 мс. Созданное событие удалено после exact GET и проверки своего маркера; post-GET подтвердил cancelled. Этот запуск не объявлен успешным.
+| Область | Внешний результат |
+|---|---|
+| Sidebar | icon/text/blank/interior edges переключают section/list; выбранный calendar и visibility checkbox независимы; отдельные local controls не перекрыты decoration |
+| Tasks | компактные rows, aligned date/list metadata, просроченные с текстом/иконкой, отсутствие пустых групп, отдельные Upcoming/Undated, доступная прокрутка, default list и explicit columns fallback |
+| Keyboard/search | Cmd+1/2, Cmd+F с native caret, текст/clear/no-match/Escape, Tab/стрелки/Return, scoped Space, возврат после editor; text fields/menu/sheets сохраняют ввод |
+| Calendar | initial 08:00 без clipping; horizontal scroll до воскресенья, шкала часов остаётся слева; вертикальная прокрутка до 23:00, headers закреплены; manual origin сохраняется при collapse undated |
+| Date-only overflow | восемь all-day событий и длинный список dated tasks достижимы в bounded scroll; Today region прокручен до последней fixture task 45 |
+| Appearance/resize | Light/Dark/System через Settings, широкое и узкое/короткое окно; content 761×561–1434×897 pt, scale 2; full-row hit area и читаемые native состояния |
+| States | loading и setup с доступом к Settings; empty Calendar/Tasks, no-match с clear; stale/offline/failed сохраняют данные, читаемые status/cache/badge/Retry |
+| Busy/recovery | disabled Create/complete и Cmd+N; предупреждение/шапка/фильтры внутри короткого окна; retained draft, неизвестный ID не допускает recheck/write; длинный draft прокручен до инструкции/ручной сверки, footer доступен |
 
-Два последующих native-app запуска завершили каждый 11 проверенных шагов: event/list/task create, edit, complete/reopen и удаление всех трёх объектов. Они включали остановку после неподтверждённого DELETE и явное продолжение cleanup: сначала read-only recheck уже отправленного DELETE, затем удаление оставшихся собственных ресурсов. В обоих ledger complete=true, deleted=3, pending отсутствует. Это успешная проверка lifecycle и восстановления, а не утверждение о непрерывном прохождении без ошибок.
+В финальной приёмке обнаружено два дополнительных дефекта. Стандартная команда New Window конкурировала с Cmd+N; `CommandGroup(replacing: .newItem)` устранил создание вкладки, ready теперь открывает task editor, busy сохраняет одно окно без editor. При busy list мог вытеснить шапку за viewport. Конечный GeometryReader размер detail/workspace и bounded recovery text удерживают status/warning/header/list в окне. Повторный screenshot в коротком окне подтвердил исправление. Простое fixedSize и ограничение только TaskWorkspace ранее не устранили overflow; эти попытки не считались успешной приёмкой.
 
-Последний свежий запуск завершился timeout до первой записи: verified_steps=0, created=0, pending отсутствует. Очистка для него не нужна. При неподтверждённом INSERT повторная запись запрещена.
+Settings больше не вызывает прежний Sky helper SIGTRAP: native sections с пассивным decoration заменили проблемную структуру; current screenshots/AX и многократное переключение темы проходят. Разовый native pipe error устранялся переподключением; доступы не объявляются оставшейся блокировкой.
 
-Измеренные отдельные оставшиеся cleanup операции заняли 1582.9 и 1326.2 мс (mutation + exact GET). Эти значения не являются p50 всего lifecycle или UI latency.
+## Кодовый и внешний аудит отступов
 
-## Интерфейс и отступы
+Общий контракт: **24 pt** внешний inset, **16 pt** между разделами, **8 pt** между label/field. Footer находится вне прокручиваемого EditorBody, который ограничивает высоту по viewport. Удалён лишний trailing 8 pt overflow inset. Decoration overlays не участвуют в hit testing/AX.
 
-Утверждён [Pixel Paper](../design/DESIGN.md) с компактными task rows Color Atlas. Отвергнутые варианты удалены, сохранены два выбранных референса.
+| Поверхность | Размер/источник | Внешняя приёмка |
+|---|---|---|
+| Task create/edit | 500 pt, shared 24/16/8 | Симметричные края, title focus, date/list context, reachable Cancel/Save; финальный Cmd+N screenshot |
+| Event create/edit | 540 pt, shared 24/16/8 | Timed/all-day, часовой пояс и footer; короткое окно без clipping |
+| Read-only/recurring event | 540 pt, selectable значения | Читаемые значения, Save/Delete отсутствуют, Close доступен |
+| List create/rename | 460 pt, shared 24/16/8 | Title focus, Cancel/Save, создание/rename/delete собственных demo objects |
+| List manager | 500 pt, content-fit max шесть rows | Полная строка открывает editor, нет прежней избыточной высоты, footer доступен |
+| Task reminder | 500 pt, off/on content height | Date control и footer доступны, локальный scope |
+| Recovery draft | 460 pt, bounded body | Финальный длинный draft в коротком окне: scroll reaches manual-review action, Close виден, 24 pt inset |
+| Settings | outer 24/sections 16/fields 8, section inset 12 | Light/Dark/System и небольшой viewport; footer доступен, AX helper не падает |
+| Confirmations | Native confirmationDialog | Раздельные cancel/destructive действия для собственных demo task/event/list |
+| Primary surfaces | Sidebar 36 pt targets; task/header insets 24; bounded calendar | Шапка не переносится побуквенно; status/warning остаются сверху, list scroll bounded |
 
-Code audit охватил task/event/list editors, list manager, reminder, settings и recovery sheet: общий outer inset 24 pt, EditorField gap 8 pt, основные секции 16 pt; content-fit editors и ограниченная прокрутка тела с footer снаружи. Во время pending/in-flight Google write поля заблокированы; title использует native FocusState/defaultFocus. Внешняя проверка каждого окна и крайних размеров требуется отдельно.
-
-После явного разрешения владельца старая обычная копия закрыта через Cmd+Q. Привязка по пути к одному изолированному demo восстановилась: native clicks и synthetic task workflows прошли. Calendar screenshot показывает начальное положение около 08:00, но подпись 08:00 обрезана верхней границей; это открытый дефект, требующий исправления и повторного снимка. Settings вызывает падение SkyComputerUseService (EXC_BREAKPOINT/SIGTRAP, Array.remove(at:)); g-calendar остаётся живым. Свежий собственный demo перезапущен без личных данных. Primary reports аналогичного helper stack: https://github.com/openai/codex/issues/43573 и https://github.com/openai/codex/issues/34432. Совпадение стека не доказывает точную внутреннюю причину. Рассмотрены новая привязка, один demo process, REPL reset, restart target и helper update владельцем; изменение TCC/helper binary и raw input обход не применяются.
-
-Task-list sidebar icon/text/blank/edge clicks и create/edit-cancel/complete/reopen подтверждены в предыдущей demo-сборке. Task/reminder screenshots показывают симметричные outer insets 24 pt и reachable footer. Calendar selection/visibility, workspace filters, Light/Dark/System и полная focus/resize/state matrix остаются открытыми. Полный ручной VoiceOver проход отдельно не проведён.
+Source palette и fixtures используют общий sRGB ThemePalette. Предыдущий отрицательный fixture воспроизвёл contrast 4.43156:1; исправлены роли и проверены Light/Dark, alpha selections, control boundaries и event tint extremes. Это проверка заданных ролей, не заявление полного WCAG соответствия native приложения. AX labels и keyboard проверены; голосовой VoiceOver walkthrough отдельно не выполнен.
 
 ## Производительность
 
-Машина: Apple M4 Pro, Mac16,8, RAM 24 GiB. Оптимизированный pure-model benchmark (`-O`), фиксированный synthetic набор, 9 samples: search/filter 4096 tasks p50 1.587 мс, p95 1.817 мс; grouping 4096 tasks p50 5.079 мс, p95 6.248 мс. Overlap 1024 events — 1.30 мс за один проход. Это вычисления модели; результаты разных запусков меняются и не задают GUI budget.
+Метод, sample sizes, измерения и предварительные бюджеты — [GUI_PERFORMANCE](GUI_PERFORMANCE.md), агрегаты — [JSON](gui-performance-baseline.json). macOS 27.0.1, M4 Pro, 24 GiB, 51 synthetic tasks/10 events. GUI action → AppKit update отделён от pixel latency/FPS/GPU. `.scroll` schema 2 измеряет handler duration: 242 callbacks, p95 0,220 ms, max 0,255 ms. Старый schema 1 idle wait исключён из baseline. Idle CPU 0,4/0,6/0,5%, RSS 199,2 MiB.
 
-Один idle snapshot собственного оптимизированного demo process: CPU 0.0%, RSS 135.3 MiB. Это не peak load или frame profile. GUI launch/search/selection/week/resize/scroll/forms и frame hitches ещё не измерены. Instruments/xctrace отсутствует в текущем CLT. CLI startup, Google/API latency и exact GET нужно учитывать отдельно от UI.
+Финальный optimized model run: 4096 tasks/search, девять samples, p50 1,635 ms/p95 1,917 ms; grouping p50 4,967/p95 6,271 ms; overlap 1024 events 1,48 ms за один проход. Вариативность между прогонами учитывается; это не GUI или network latency. Instruments/xctrace отсутствует; peak resource/FPS и attribution RunLoop stalls не подтверждаются.
 
-## Системные уведомления
+## Установщики — fixtures и настоящие bundles
 
-Actual bundle `com.alexbeketov.gcalendar`: authorization=authorized, alert_setting=enabled, sound_setting=enabled, foreground_delegate_ready=true. Read-only status checkpoint: pending_count=0, delivered_count=0.
+`package-dmg.sh --output dist/packages/2026-10-07-release-preview` завершился exit 0. Созданы versioned DMG/ZIP, manifest и SHA256SUMS; codesign integrity, ZIP round trip, `hdiutil verify`, readonly mount, Applications shortcut и resources проверены. Finder Computer Use показал приложение, Applications и инструкцию. Hidden files могут отображаться согласно личной настройке Finder; она не менялась.
 
-Один явный запуск `--notification-test` завершился exit 0: scheduled=1, own_notification_delivered=true. Приложение запланировало ровно одно уведомление с уникальным synthetic ID; macOS подтвердила его присутствие в Центре уведомлений. Это не доказательство видимого баннера: ответ владельца запрошен отдельно. Разрешение не запрашивалось повторно, сторонние уведомления не удалялись.
+Реальный bundle из mounted DMG установлен в собственный private `/private/tmp/g-calendar-native-install-20261007-*` destination. Из установленного пути запущен `--demo`; Calendar/Tasks видны. После закрытия проверены две разные бинарные версии, установка/upgrade, backup hash, rollback hash и uninstall. Synthetic data sentinel побайтно неизменен, backup сохранён, только собственный mount размонтирован. Основные Applications, пользовательский cache/journal/reminders/settings и credentials не изменялись.
 
-## Открытая приёмка
+26 installer fixtures покрывают atomic install/upgrade/rollback, interrupted replacement/recovery, lock/concurrency, foreign/running bundle, archive traversal/symlink/special files, bad checksum/signature, spaces/permissions, platform/architecture/minOS, actual Mach-O и host без CLT. macOS 13 compatible fallback использует flock через доступный Perl; проверки внешних attributes и ad-hoc signatures выполнялись на реальных маленьких Mach-O fixtures.
 
-Продолжить [единый план](plans/2026-10-05-final-product-completion.md) и [OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md). Остались текущая сборка после explicit-ledger правки, code + visual spacing pass, state/keyboard/appearance/resize matrix, GUI baseline, ответ о видимом notification banner . OS prompts подтверждает человек; TCC не сбрасывается. Лицензия/публичный релиз не входят в этот этап. Коммитов и публикации нет.
+Локальные artifacts **ad-hoc, not notarized**. Developer ID/notarization/stapling/Gatekeeper scripts реализованы и документированы, но credentials не предоставлены, signed downloaded release/clean Mac не тестировались. Public pinned one-command installer contract существует; реальный публичный pin появится после отдельно разрешённого release. Fake SHA/version/Team ID и обход Gatekeeper не предлагаются. Из текущего checkout работает `./scripts/install-source.sh`.
 
-## Privacy review
+## Live Google и уведомления — ранее выполненный scope
 
-Проверены 70 текстовых tracked/untracked файлов: private keys, token literals, Google API keys и OAuth client IDs не обнаружены. Единственный адрес в tests использует example.invalid; пять остальных regex совпадений — icon filenames @2x.png. Приватные live ledgers остаются вне repo. design содержит только два approved PNG и DESIGN/README; существующий .DS_Store сохранён и ignored. Пустой пользовательский download.html не изменялся. Staged content отсутствует; коммитов/публикации нет. Regex scan дополняет code review и не заявляется универсальным secrets detector.
+5 октября два actual-app synthetic Google lifecycle завершили по 11 read-back verified шагов; в каждом удалены все три собственных объекта и подтверждён read-only restart cleanup. Fresh timeout до первой записи оставил created=0. IDs и личные данные не публикуются. После межпроцессного fix live не повторялся; его regression fixtures и current demo recovery прошли. Чужие объекты не использовались.
 
-## Текущий checkpoint перед коммитом
+Actual bundle notification authorization, alert/sound settings и доставка одного собственного уведомления в Notification Center подтверждены ранее. Человеческое наблюдение видимого баннера отдельно не получено; доставка не выдаётся за подтверждение баннера.
 
-Владелец разрешил коммит и пуш текущего состояния, затем продолжение цели. Последний optimized suite прошёл 268 assertions, exit 0. Предшествующий запуск имел один timeout synthetic GUI-path launcher с лимитом 2 секунды; повтор без правок прошёл. Это известная нестабильность тестового окружения, а не доказанный дефект adapter. Текущие UI guard changes ещё не включены в полный bundle; все GUI результаты выше относятся к предыдущей сборке. Ничто в этом checkpoint не закрывает оставшиеся acceptance tasks.
+## Scope и сохранность данных
 
-Read-only ревью выявило P2 в MutationJournal.begin/clear: два независимых normal instances могут использовать устаревшее in-memory состояние общего journal. NSLock защищает один экземпляр, но не разные процессы. Задача 7.2 вновь открыта; требуется межпроцессная сериализация с повторным чтением и fixture на два journal instances с одним файлом. До исправления live writes не возобновляются.
+[OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) фиксирует завершённую локальную реализацию/приёмку; [ExecPlan](plans/2026-10-05-final-product-completion.md) содержит итог и причины решений. Внешние release/VoiceOver/banner условия сохранены в [PENDING_DECISIONS](PENDING_DECISIONS.md). checkpoint 62f153f исторический; текущее продолжение без коммитов, push или публикации.
 
-Контроль блокировки 2026-10-05: повторное getApp по точному пути actual bundle снова завершилось «Sky Computer Use native pipe closed before response». Эта внешняя блокировка сохраняется три последовательных goal turns; оставшаяся приёмка требует восстановления native helper. Разрешение на current-source build после отказа automatic approval review также ещё не получено. Independent code/fixture работа выполнена; 17 задач остаются открытыми по конкретным build/UI/acceptance gates. Цель отмечается blocked, не complete. Для продолжения нужны разрешение на scripts/build-app.sh и восстановленный Computer Use; перезапуск Codex выполняет владелец.
+Design содержит два утверждённых PNG и DESIGN/README. Личный пустой download.html не изменён. Private ledgers/profile/raw captures остаются вне repo; baseline содержит только разрешённые синтетические агрегаты. `.hermes`, `.codegraph`, dist, credentials и `.DS_Store` не добавляются в Git. Regex privacy scan и diff check выполняются отдельно; scan не гарантирует отсутствие любого возможного секрета.
 
-Повторная проверка 2026-10-05 после сообщения владельца «дал доступ»: REPL reset + getState прошли; getApp(System Settings), click «Конфиденциальность и безопасность» и click «Запись экрана и системного звука» прошли с подтверждённой AX сменой страницы. Codex Computer Use.app screen recording toggle=on. Native clicks работают для macOS Settings. getApp(dist/g-calendar.app) всё ещё падает; bundle-ID lookup сообщает множество зарегистрированных старых копий. Name lookup запустил старую обычную сборку, с ней Google mutations/снимки не выполнялись. Cmd-Q этой копии отклонил automatic approval review из-за риска несохранённого состояния и недоказанного ownership; запрос закрытия отправлен владельцу, обхода отказа нет. Нельзя считать общую блокировку native clicks актуальной, но current demo binding/внешняя приёмка ещё не подтверждены. Разрешение на current-source build остаётся отдельным pending запросом.
+Финальный контроль 2026-10-07: strict OpenSpec `valid=true`, `issues=[]`, exit 0; `git diff --check` exit 0. SHA256SUMS для финальных ZIP/DMG/manifest: все OK. Ни один Swift source не новее финального executable. Privacy scan 92 текстовых файлов: credential-pattern flagged paths=[], личный download.html остаётся 0 bytes. Existing ignored design/.DS_Store сохранён.

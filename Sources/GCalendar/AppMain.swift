@@ -18,14 +18,14 @@ final class WorkspaceViewModel: ObservableObject {
 
     @Published var snapshot: WorkspaceSnapshot
     @Published var section: Section = .calendar
-    @Published var calendarMode: CalendarMode = .week
-    @Published var taskFilter: TaskFilter = .all
+    @Published var calendarMode: CalendarMode = .week { willSet { if newValue != calendarMode { DemoPerformanceProbe.shared.begin(.range) } } }
+    @Published var taskFilter: TaskFilter = .all { willSet { if newValue != taskFilter { DemoPerformanceProbe.shared.begin(.filter) } } }
     @Published var selectedCalendarID: String?
     @Published var visibleCalendarIDs: Set<String>?
-    @Published var selectedTaskListID: String?
+    @Published var selectedTaskListID: String? { willSet { if newValue != selectedTaskListID { DemoPerformanceProbe.shared.begin(.taskList) } } }
     @Published var activeDate = Date()
     @Published private(set) var localToday = DateOnly(date: Date())
-    @Published var searchText = ""
+    @Published var searchText = "" { willSet { if newValue != searchText { DemoPerformanceProbe.shared.begin(.search) } } }
     @Published var syncState: SyncState = .idle
     @Published var statusMessage = ""
     @Published var gwsPath: String
@@ -33,6 +33,7 @@ final class WorkspaceViewModel: ObservableObject {
     @Published var mutationInFlight = false
     @Published private(set) var pendingMutation: PendingMutation?
     @Published private(set) var mutationRecoveryProblem: String?
+    @Published private(set) var mutationJournalBusy = false
     @Published var notificationPermission: ReminderPermission = .notDetermined
     @Published var notificationRuntimeStatus: NotificationRuntimeStatus?
     @Published var searchFocusRequestID = 0
@@ -57,8 +58,10 @@ final class WorkspaceViewModel: ObservableObject {
         let journalURL = mode == .normal ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("g-calendar/pending-verification.json") : nil
         mutationJournal = MutationJournal(fileURL: journalURL)
-        pendingMutation = mutationJournal.pending
-        mutationRecoveryProblem = mutationJournal.isBlocked && mutationJournal.pending == nil ? MutationRecoveryFailure.corruptJournal.errorDescription : nil
+        let journalState = mutationJournal.review()
+        pendingMutation = journalState.pending
+        mutationRecoveryProblem = journalState.pending == nil ? journalState.failure?.errorDescription : nil
+        mutationJournalBusy = journalState.failure == .journalBusy
         let defaults = suppliedDefaults ?? (mode == .normal
             ? .standard
             : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
@@ -135,7 +138,7 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     var presentationDefaults: UserDefaults { defaults }
-    var mutationsBlocked: Bool { mutationInFlight || mutationJournal.isBlocked }
+    var mutationsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
 
     var selectedCalendar: CalendarInfo? { snapshot.calendars.first(where: { $0.id == selectedCalendarID }) }
     var selectedTaskList: TaskList? { snapshot.taskLists.first(where: { $0.id == selectedTaskListID }) }
@@ -175,6 +178,7 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     func refresh() {
+        refreshMutationRecoveryState()
         if launchMode == .demo {
             guard let demoAdapter else { return }
             snapshot = demoAdapter.snapshot()
@@ -187,11 +191,14 @@ final class WorkspaceViewModel: ObservableObject {
             case .offline: syncState = .offline; statusMessage = "ДЕМО · нет связи с Google; сохранённые данные доступны."
             case .stale: syncState = .stale; statusMessage = "ДЕМО · данные требуют обновления."
             case .failed: syncState = .failed; statusMessage = "ДЕМО · ответ не удалось прочитать; сохранённые данные доступны."
-            case .empty: snapshot = .empty; snapshot.fetchedAt = Date(); statusMessage = "ДЕМО · синхронизация завершена, данных нет."
+            case .empty: snapshot = .empty; snapshot.fetchedAt = Date(); selectedTaskListID = nil; selectedCalendarID = nil; statusMessage = "ДЕМО · синхронизация завершена, данных нет."
+            case .busy:
+                mutationJournalBusy = true
+                mutationRecoveryProblem = "Другая копия приложения проверяет изменение. Дождитесь завершения и проверьте журнал."
             case .recovery:
                 if !mutationJournal.isBlocked, let invocation = try? GWSCommandFactory(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
                     .taskInsert(taskListID: "demo-task-list", title: "Демо: сохранённый черновик", notes: "Длинные синтетические заметки для проверки отступов и восстановления. \(String(repeating: "Содержимое черновика. ", count: 60))", due: nil, authorization: .userSave) {
-                    try? mutationJournal.begin(invocation)
+                    _ = try? mutationJournal.begin(invocation)
                     pendingMutation = mutationJournal.pending
                 }
             }
@@ -370,7 +377,7 @@ final class WorkspaceViewModel: ObservableObject {
     func performMutation(_ invocation: ProcessInvocation, thenRefresh: Bool = true,
                          onSuccess: (() -> Void)? = nil, onFailure: ((String) -> Void)? = nil) {
         if launchMode == .demo {
-            guard !mutationJournal.isBlocked else { onFailure?(MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка."); return }
+            guard !mutationsBlocked else { onFailure?(mutationRecoveryProblem ?? MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка."); return }
             do {
                 try demoAdapter?.perform(invocation)
                 if let demoAdapter {
@@ -398,7 +405,8 @@ final class WorkspaceViewModel: ObservableObject {
         }
         guard !mutationInFlight else { return }
         guard !mutationJournal.isBlocked else {
-            onFailure?(MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка изменения.")
+            refreshMutationRecoveryState()
+            onFailure?(mutationJournal.blockingFailure?.errorDescription ?? "Требуется проверка изменения.")
             return
         }
         mutationInFlight = true
@@ -415,7 +423,7 @@ final class WorkspaceViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.mutationInFlight = false
-                self.pendingMutation = self.mutationJournal.pending
+                self.refreshMutationRecoveryState()
                 switch outcome {
                 case .success(let result) where result.isReadBackVerified:
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
@@ -454,17 +462,18 @@ final class WorkspaceViewModel: ObservableObject {
         let path = gwsPath
         let journal = mutationJournal
         let pendingOperation = pendingMutation?.operation
+        let expectedPendingID = pendingMutation?.id
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result: Result<GWSMutationResult, Error>
             do {
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                result = .success(try RecoverableMutationService(runner: runner, journal: journal).recheck(reader: reader))
+                result = .success(try RecoverableMutationService(runner: runner, journal: journal).recheck(reader: reader, expectedID: expectedPendingID))
             } catch { result = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.mutationInFlight = false
-                self.pendingMutation = journal.pending
+                self.refreshMutationRecoveryState()
                 switch result {
                 case .success(let verified):
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
@@ -479,12 +488,21 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    func acknowledgeManuallyReconciledMutation() {
+    func refreshMutationRecoveryState() {
         guard !mutationInFlight else { return }
+        let state = mutationJournal.review()
+        pendingMutation = state.pending
+        mutationRecoveryProblem = state.pending == nil ? state.failure?.errorDescription : nil
+        mutationJournalBusy = state.failure == .journalBusy
+    }
+
+    func acknowledgeManuallyReconciledMutation() {
+        guard !mutationInFlight, !mutationJournalBusy else { return }
         do {
-            try mutationJournal.releaseAfterManualReview()
+            try mutationJournal.releaseAfterManualReview(expectedID: pendingMutation?.id)
             pendingMutation = nil
             mutationRecoveryProblem = nil
+            mutationJournalBusy = false
             statusMessage = "Проверка вручную отмечена пользователем. Автоматическое подтверждение Google не заявляется."
             refresh()
         } catch { mutationRecoveryProblem = "Не удалось обновить журнал проверки. Запись остаётся заблокированной." }
@@ -626,19 +644,22 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     func setAppearance(_ value: Appearance) {
+        DemoPerformanceProbe.shared.begin(.appearance)
         appearance = value
         saveSettings()
     }
 
     func setSection(_ value: Section) {
+        DemoPerformanceProbe.shared.begin(.section)
         section = value
         searchText = ""
     }
 
     func requestSearchFocus() { searchFocusRequestID += 1 }
-    func requestNewItem() { newItemRequestID += 1 }
+    func requestNewItem() { guard !mutationsBlocked else { return }; newItemRequestID += 1 }
 
     func moveDate(_ amount: Int) {
+        DemoPerformanceProbe.shared.begin(.range)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = selectedTimeZone
         let component: Calendar.Component = calendarMode == .week ? .weekOfYear : .day
@@ -732,6 +753,7 @@ struct GCalendarApp: App {
     init() {
         let mode = AppLaunchMode.parse(arguments: ProcessInfo.processInfo.arguments)
         launchMode = mode
+        DemoPerformanceProbe.shared.startIfRequested(arguments: ProcessInfo.processInfo.arguments, mode: mode)
         _model = StateObject(wrappedValue: WorkspaceViewModel(mode: mode))
     }
 
@@ -759,7 +781,7 @@ struct GCalendarApp: App {
             CommandGroup(replacing: .appTermination) {
                 Button("Завершить g-calendar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             }
-            CommandGroup(after: .newItem) {
+            CommandGroup(replacing: .newItem) {
                 Button("Поиск") { model.requestSearchFocus() }.keyboardShortcut("f", modifiers: .command)
                 Button("Сегодня") { model.goToToday() }.keyboardShortcut("t", modifiers: .command)
                 Button("Новое событие или задача") { model.requestNewItem() }.keyboardShortcut("n", modifiers: .command)

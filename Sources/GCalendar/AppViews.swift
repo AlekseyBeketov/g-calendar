@@ -3,17 +3,19 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     @StateObject private var local = ViewLocalState()
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationSplitView(columnVisibility: $local.columnVisibility) {
             SidebarView(showTaskLists: $local.showTaskLists)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 245, max: 310)
         } detail: {
+            GeometryReader { viewport in
             VStack(spacing: 0) {
                 SyncStatusBar(onOpenSettings: { local.showSettings = true })
+                    .fixedSize(horizontal: false, vertical: true)
                 if model.pendingMutation != nil || model.mutationRecoveryProblem != nil {
                     MutationRecoveryPanel()
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Group {
                     if model.snapshot.fetchedAt == .distantPast && model.syncState == .syncing {
@@ -28,7 +30,10 @@ struct RootView: View {
                     } else if model.section == .calendar { CalendarWorkspaceView() }
                     else { TaskWorkspaceView() }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+            }
+            .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
+            .clipped()
             }
             .background(AppTheme.surface)
             .toolbar {
@@ -42,10 +47,10 @@ struct RootView: View {
                 ToolbarItem(placement: .automatic) {
                     HStack(spacing: 7) {
                         Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.textSecondary)
-                        TextField(model.section == .calendar ? "Поиск событий" : "Поиск задач", text: $model.searchText)
-                            .textFieldStyle(.plain)
-                            .focused($searchFocused)
-                            .onExitCommand { model.searchText = "" }
+                        WorkspaceSearchField(text: $model.searchText,
+                                             label: model.section == .calendar ? "Поиск событий" : "Поиск задач",
+                                             focusRequest: model.searchFocusRequestID,
+                                             onFocusChange: { local.searchFocused = $0 })
                             .frame(width: 180)
                             .accessibilityLabel(model.section == .calendar ? "Поиск событий" : "Поиск задач")
                             .accessibilityIdentifier("workspace-search-field")
@@ -59,7 +64,9 @@ struct RootView: View {
                     .padding(.horizontal, 8)
                     .frame(height: 28)
                     .background(AppTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(searchFocused ? AppTheme.accent : AppTheme.outline.opacity(0.4), lineWidth: searchFocused ? 2 : 1))
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(local.searchFocused ? AppTheme.accent : AppTheme.outline.opacity(0.4), lineWidth: local.searchFocused ? 2 : 1)
+                        .allowsHitTesting(false).accessibilityHidden(true))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { model.refresh() } label: {
@@ -70,7 +77,7 @@ struct RootView: View {
                     .help("Обновить Calendar и Tasks")
                 }
                 ToolbarItem(placement: .automatic) {
-                    Button { local.showSettings = true } label: { Image(systemName: "gearshape") }
+                    Button { DemoPerformanceProbe.shared.begin(.form); local.showSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Настройки")
                         .help("Настройки")
                 }
@@ -80,8 +87,8 @@ struct RootView: View {
         .tint(AppTheme.accent)
         .sheet(isPresented: $local.showSettings) { SettingsView() }
         .sheet(isPresented: $local.showTaskLists) { TaskListManagerView() }
-        .onChange(of: model.searchFocusRequestID) { _ in searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refreshMutationRecoveryState()
             model.updateLocalDate()
             model.reconcileLocalReminders(trigger: .appActivation)
         }
@@ -205,18 +212,20 @@ struct SyncStatusBar: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 8, height: 8)
-            Text(model.statusMessage).font(.caption).foregroundStyle(AppTheme.textSecondary).lineLimit(2)
-                .help(model.statusMessage)
-                .accessibilityLabel("Состояние синхронизации: \(model.statusMessage)")
-                .accessibilityAddTraits(.updatesFrequently)
-            if let date = model.cacheDateText {
-                Text("· Кэш: \(date)").font(.caption).foregroundStyle(AppTheme.textSecondary).lineLimit(1)
-            }
-            Spacer()
-            if model.cacheDateText != nil && [.stale, .offline, .failed].contains(model.syncState) {
-                Label("Показаны сохранённые данные", systemImage: "externaldrive.badge.exclamationmark")
-                    .font(.caption).foregroundStyle(AppTheme.warning)
-            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.statusMessage).font(.caption).foregroundStyle(AppTheme.textSecondary).lineLimit(2)
+                    .help(model.statusMessage)
+                    .accessibilityLabel("Состояние синхронизации: \(model.statusMessage)")
+                    .accessibilityAddTraits(.updatesFrequently)
+                if let date = model.cacheDateText {
+                    Text("Кэш: \(date)").font(.caption2).foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1).help(date)
+                }
+                if model.cacheDateText != nil && [.stale, .offline, .failed].contains(model.syncState) {
+                    Label("Показаны сохранённые данные", systemImage: "externaldrive.badge.exclamationmark")
+                        .font(.caption).foregroundStyle(AppTheme.warning)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
             if model.syncState == .setupRequired {
                 Button("Настройки", action: onOpenSettings)
             } else if [.stale, .offline, .failed].contains(model.syncState) {
