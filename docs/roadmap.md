@@ -1,6 +1,6 @@
 # Roadmap
 
-Обновлено: **2026-10-07**. Актуальные задачи и их доказательства находятся в [ExecPlan](plans/2026-10-05-final-product-completion.md), [OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) и [STATUS](STATUS.md).
+Обновлено: **2026-10-08**. Завершённый продуктовый объём и его доказательства находятся в [историческом ExecPlan](plans/2026-10-05-final-product-completion.md) и [OpenSpec](../openspec/changes/g-calendar-mvp/); текущие follow-up задачи — ниже и в [STATUS](STATUS.md).
 
 ## Текущий этап — локальный нативный клиент
 
@@ -13,6 +13,7 @@
 
 ## Следующие продуктовые доработки
 
+- Применить pointer cursor к подходящим кликабельным affordances, сохраняя native behavior и не затрагивая text-selectable/draggable/non-actionable areas. План и критерии: [Pointer cursor](plans/2026-10-08-pointer-cursor.md). Пока не реализовано.
 - Месячный календарь и более полная работа с повторениями после timezone/DST и event-scope проверок.
 - Полный ручной VoiceOver проход, дополнительные клавиатурные сценарии и проверка доступности на пользовательской системе.
 - Более удобная диагностика настройки `gws` и проверенная матрица поддерживаемых версий адаптера.

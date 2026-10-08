@@ -1,5 +1,7 @@
 # Завершение g-calendar с утверждённым Pixel Paper
 
+> **Исторический ExecPlan.** Основной продуктовый объём и локальная приёмка завершены 2026-10-07; этот файл сохранён как журнал решений и доказательств и не является текущим рабочим планом. Его исторические checkpoints не описывают текущие Git/remote state. Актуальные follow-up задачи перечислены в [roadmap](../roadmap.md); pointer-cursor follow-up описан в [отдельном плане](2026-10-08-pointer-cursor.md).
+
 **Goal:** Последовательно завершить открытые задачи приложения, надёжность Google-записей и Pixel Paper UI с task metadata из Color Atlas, подтвердив результат тестами и computer use.
 
 **Architecture:** Сохранить SwiftUI/AppKit, allowlisted gws process, exact read-back, date-only Tasks, независимые Calendar/Tasks refresh, локальные reminders и синтетический demo. Обновлять существующие границы; не вводить backend, UI packages или offline write queue.
