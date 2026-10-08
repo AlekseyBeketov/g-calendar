@@ -37,50 +37,16 @@ struct RootView: View {
             }
             .background(AppTheme.surface)
             .toolbar {
-                ToolbarItemGroup(placement: .automatic) {
-                    if model.section == .calendar {
-                    Button { model.moveDate(-1) } label: { Image(systemName: "chevron.left") }.help("Назад · ⌘[").accessibilityLabel("Предыдущий период")
-                    Button { model.goToToday() } label: { Text("Сегодня") }
-                    Button { model.moveDate(1) } label: { Image(systemName: "chevron.right") }.help("Вперёд · ⌘]").accessibilityLabel("Следующий период")
-                    }
-                }
-                ToolbarItem(placement: .automatic) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.textSecondary)
-                        WorkspaceSearchField(text: $model.searchText,
-                                             label: model.section == .calendar ? "Поиск событий" : "Поиск задач",
-                                             focusRequest: model.searchFocusRequestID,
-                                             onFocusChange: { local.searchFocused = $0 })
-                            .frame(width: 180)
-                            .accessibilityLabel(model.section == .calendar ? "Поиск событий" : "Поиск задач")
-                            .accessibilityIdentifier("workspace-search-field")
-                        if !model.searchText.isEmpty {
-                            Button { model.searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Очистить поиск")
-                                .help("Очистить поиск")
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 28)
-                    .background(AppTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(local.searchFocused ? AppTheme.accent : AppTheme.outline.opacity(0.4), lineWidth: local.searchFocused ? 2 : 1)
-                        .allowsHitTesting(false).accessibilityHidden(true))
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { model.refresh() } label: {
-                        if model.syncState == .syncing { ProgressView().controlSize(.small) }
-                        else { Label("Синхронизировать", systemImage: "arrow.clockwise") }
-                    }
-                    .disabled(model.syncState == .syncing || model.mutationInFlight)
-                    .help("Обновить Calendar и Tasks")
-                }
-                ToolbarItem(placement: .automatic) {
-                    Button { DemoPerformanceProbe.shared.begin(.form); local.showSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Настройки")
-                        .help("Настройки")
-                }
+                WorkspaceToolbar(isCalendar: model.section == .calendar,
+                                 searchText: $model.searchText,
+                                 focusRequest: model.searchFocusRequestID,
+                                 searchFocused: $local.searchFocused,
+                                 isSyncing: model.syncState == .syncing,
+                                 mutationInFlight: model.mutationInFlight,
+                                 moveDate: { model.moveDate($0) },
+                                 goToToday: { model.goToToday() },
+                                 refresh: { model.refresh() },
+                                 openSettings: { DemoPerformanceProbe.shared.begin(.form); local.showSettings = true })
             }
         }
         .navigationSplitViewStyle(.balanced)

@@ -18,5 +18,10 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/TaskKeyboardFocusView.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceSearchField.swift" \
   "$ROOT/Sources/GCalendar/CalendarScrollOffsetObserver.swift" \
+  "$ROOT/Sources/GCalendar/ThemePalette.swift" \
+  "$ROOT/Sources/GCalendar/AppTheme.swift" \
+  "$ROOT/Sources/GCalendar/WorkspaceToolbar.swift" \
+  "$ROOT/Tests/WorkspaceToolbarNativeTests.swift" \
   "$ROOT/Tests/NativeUIInvariantTests.swift" -o "$BUILD_DIR/native-ui-tests"
+# Optional: G_CALENDAR_NATIVE_EVIDENCE_DIR writes synthetic toolbar PNGs and bounds.txt.
 "$BUILD_DIR/native-ui-tests"

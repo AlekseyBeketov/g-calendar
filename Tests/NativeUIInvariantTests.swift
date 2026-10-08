@@ -85,6 +85,7 @@ struct NativeUIInvariantTests {
         expect(searchValue.isEmpty && editor.string.isEmpty && field.stringValue.isEmpty, "search Escape clears binding and editor")
         expect(!coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))),
                "search retains other native text commands")
+        assertions += WorkspaceToolbarNativeTests.run()
         window.close()
         print("PASS native-clip-observation-and-scoped-keyboard")
         print("NATIVE_UI_ASSERTIONS=\(assertions)")
