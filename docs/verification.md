@@ -1,6 +1,6 @@
 # Проверки g-calendar
 
-Обновлено: **2026-10-07**. Локальная разработка и приёмка утверждённого UI завершены. Внешние условия публичного выпуска перечислены отдельно; этот документ не подтверждает подписанный релиз или голосовой проход VoiceOver.
+Обновлено: **2026-10-08**. Локальная разработка и приёмка утверждённого UI завершены. Внешние условия публичного выпуска перечислены отдельно; этот документ не подтверждает подписанный релиз или голосовой проход VoiceOver.
 
 ## Сборка и автоматические проверки
 
@@ -78,9 +78,48 @@ Source palette и fixtures используют общий sRGB ThemePalette. П
 
 Actual bundle notification authorization, alert/sound settings и доставка одного собственного уведомления в Notification Center подтверждены ранее. Человеческое наблюдение видимого баннера отдельно не получено; доставка не выдаётся за подтверждение баннера.
 
+## Repository hygiene — изолированный проход 2026-10-07
+
+Следующие результаты относятся к отдельному documentation-only проходу в worktree от checkpoint **a406d3b**. Они сохранены как датированная история; при переносе в main полезное содержание сверено с текущими исходниками и устаревшие утверждения о Git заменены. Проверки ниже не выдаются за повторный прогон 2026-10-08.
+
+Scope того прохода: `.gitignore`, README и документация; Swift, runtime, build/release scripts, resources, подпись и публикация не менялись. Тогдашняя verification секция фиксировала именно тот worktree, не текущий main checkout.
+
+Первоначальные `.build/`, `.swiftpm/`, `DerivedData/`, `.codegraph/`, `.hermes/`, `dist/` и `.DS_Store` исключают local artifacts; их назначение сохранено. Строка `:-` — обычный literal ignore pattern, не comment/negative rule. Документационный worktree 2026-10-07 не содержал такой path и тогда удалил правило; при интеграции в основной checkout обнаружен существующий ignored текстовый файл `:-` с локальной signing/designated-requirement заметкой (mtime 2026-10-02). Файл не удалялся и не добавляется в Git; pattern восстановлен, чтобы не раскрыть локальное значение. Проверки `./:-` из исторического прохода трактовали путь как pathspec magic, а `GIT_LITERAL_PATHSPECS=1` не поддерживался тогдашним `check-ignore`; эти попытки не считались успешными ignore-проверками.
+
+Добавленные тогда правила были ограничены build/debug/Xcode artifacts, user IDE state, macOS metadata, agent caches/worktrees и типичными private auth/app-data exports. Root-only JSON rules не скрывали `Tests/Fixtures`; `.env.example`/`.env.template`, shared Xcode/IDE configuration и обычный JSON оставались видимыми. Ignore не защищает уже tracked файлы и не заменяет privacy review.
+
+Из необходимой repository guidance был добавлен только [CONTRIBUTING](../CONTRIBUTING.md). `.editorconfig` не требовался для точечной docs-задачи; `LICENSE`, security contact/SLA, CI и release metadata не создавались без утверждённой политики. Выбор лицензии, signing/notarization, signed downloaded release/clean Mac, VoiceOver/banner и compatibility/support decisions остаются открыты в [PENDING_DECISIONS](PENDING_DECISIONS.md).
+
+### Проверки, выполненные в worktree 2026-10-07
+
+| Проверка/команда | Фактический результат того прохода |
+|---|---|
+| `git ls-files -z` + `git check-ignore --no-index --stdin` для tracked paths | 100 tracked paths, ни один не игнорировался; exit 1 у `check-ignore` ожидался для полного отсутствия matches |
+| `git ls-files -ci --exclude-standard` | exit 0, пустой вывод |
+| `git check-ignore -v --no-index --stdin`, representative matrix | 41 artifact path игнорировался, 33 source/docs/fixture/config/template path оставались видимыми; retained original rules проверялись отдельно |
+| Relative Markdown links/anchors в README, CONTRIBUTING и пяти связанных docs | 44 ссылки/anchors разрешались в существующие paths/headings |
+| Script references и shell examples в тех же docs | 12 существующих script paths, 10 напрямую вызываемых executable scripts, 13 shell blocks проходили `bash -n`; sourced helper не обязан быть executable |
+| `bash -n` отдельно для каждого `scripts/*.sh` | все 14 shell scripts проходили, exit 0 |
+| `OPENSPEC_TELEMETRY=0 openspec validate g-calendar-mvp --strict --json` | exit 0, `valid=true`, `issues=[]`; tasks/specs не менялись и внешние gates не закрывались |
+| `git diff --check` и diff scope review | exit 0; изменялись только `.gitignore`/Markdown; Swift, tests, scripts, resources, OpenSpec, AGENTS и download.html были неизменны; tracked deletions отсутствовали |
+| Credential-pattern scan tracked text + CONTRIBUTING | 98 текстовых файлов, flagged paths=[]; новые строки проверялись на личные home paths/email; это не гарантия отсутствия любых секретов |
+| Public GitHub REST read-only: repository, releases, source installer/helper на `main` | HTTP 200; repo public/default branch `main`, releases=[]; blobs installer/helper совпадали с локальными tracked версиями |
+
+Тогдашний local acceptance harness запускался как `python3 .hermes/verification/repository-hygiene.py`, exit 0. Это была ignored одноразовая проверка в task worktree, не штатный скрипт приложения; harness не переносился как проектный файл.
+
+Source install из public `main` описан как уже доступный workflow, а не будущая публикация скриптов. Это mutable source checkout, **не** опубликованный signed release; release version/SHA/Team ID не подставлялись. GitHub проверялся без authenticated mutation, push или загрузки assets.
+
+Внешние ссылки из проверенных тогда файлов открывались в upstream/Apple pages. Apple Developer pages отдавали JavaScript shell: проверялась доступность/названия, не содержательная валидация всего notarization workflow. README upstream `gws` подтверждал отдельные Google Cloud/OAuth prerequisites и предупреждение о breaking changes; Calendar/Tasks authorization не выполнялась.
+
+Full build, invariant/native UI/installer suites, GUI, live Google и notification acceptance в том проходе не повторялись: runtime и scripts не менялись. Основной checkout, ignored artifacts и пользовательские данные не менялись; commit, push, Developer ID signing, notarization и публикация не выполнялись.
+
+## Сборка после объединения утверждённой иконки — 2026-10-08
+
+`./scripts/build-app.sh` завершился успешно на исходнике `7657db81f0cc3ca5bf670ddb854113452b0c5e4b` (`feat: use approved calendar app icon`). Bundle: `/Users/alexbeketov/g-calendar/dist/g-calendar.app`; executable arm64, размер 4,512,640 bytes, mtime 2026-10-08 21:21:09 MSK. Повторная `codesign --verify --deep --strict --verbose=2 dist/g-calendar.app` завершилась exit 0: `valid on disk`, `satisfies its Designated Requirement`. Это проверка bundle после текущей сборки, а не публичная подпись/notarization. В рамках последующих документационных изменений продуктовые suites и сборка повторно не запускались.
+
 ## Scope и сохранность данных
 
-[OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) фиксирует завершённую локальную реализацию/приёмку; [ExecPlan](plans/2026-10-05-final-product-completion.md) содержит итог и причины решений. Внешние release/VoiceOver/banner условия сохранены в [PENDING_DECISIONS](PENDING_DECISIONS.md). checkpoint 62f153f исторический; текущее продолжение без коммитов, push или публикации.
+[OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) фиксирует завершённую локальную реализацию/приёмку; [исторический ExecPlan](plans/2026-10-05-final-product-completion.md) сохраняет итог и причины решений. Внешние release/VoiceOver/banner условия сохранены в [PENDING_DECISIONS](PENDING_DECISIONS.md). Checkpoint 62f153f — исторический; его Git-записи не являются текущей проверкой remote или публикации. Source commit/push требует явного owner approval и сам по себе не означает выпуск приложения.
 
 Design содержит два утверждённых PNG и DESIGN/README. Личный пустой download.html не изменён. Private ledgers/profile/raw captures остаются вне repo; baseline содержит только разрешённые синтетические агрегаты. `.hermes`, `.codegraph`, dist, credentials и `.DS_Store` не добавляются в Git. Regex privacy scan и diff check выполняются отдельно; scan не гарантирует отсутствие любого возможного секрета.
 

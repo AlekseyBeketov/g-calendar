@@ -1,9 +1,55 @@
+# Local build products and SwiftPM state
 .build/
 .swiftpm/
 DerivedData/
+/build/
+dist/
+*.dSYM/
+*.xcresult/
+
+# Per-user Xcode/IDE state (shared project/editor configuration stays visible)
+xcuserdata/
+*.xcuserstate
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+.idea/httpRequests/
+*.swp
+*.swo
+*~
+
+# Local agent/index caches and linked worktrees
 .codegraph/
 .hermes/
-.worktrees/
-dist/
+/.worktrees/
+
+# macOS Finder and AppleDouble metadata
 .DS_Store
+._*
+
+# Local environment/auth exports; never ignore all JSON or config files
+.env
+.env.*
+!.env.example
+!.env.template
+/.config/gws/
+/credentials.json
+/client_secret*.json
+/token.json
+/tokens.json
+/service-account*.json
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+
+# Accidental app-data exports at checkout root (fixtures stay visible)
+/snapshot.json
+/local-task-metadata.json
+/local-event-reminders.json
+/pending-verification.json
+/pending-verification.json.lock
+/reviewed-attempt-*.json
+
+# Local signing/designated-requirement note; never publish it
 :-

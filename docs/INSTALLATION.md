@@ -1,10 +1,10 @@
 # Установка g-calendar
 
-Поддерживается **macOS 13+ на Apple Silicon (arm64)**. Intel-сборки пока нет. Установка не требует `sudo`, системных служб или изменения Gatekeeper. Основной каталог — `~/Applications`.
+Целевая платформа — **macOS 13+ на Apple Silicon (arm64)**. Intel/universal-сборки нет. Текущая локальная приёмка выполнена на macOS 27.0.1; target 13.0 в bundle/Mach-O не означает тестирование на каждой версии macOS. Установка не требует `sudo`, системных служб или изменения Gatekeeper. Основной каталог — `~/Applications`.
 
 ## Из текущих исходников
 
-Нужны Git и Apple Command Line Tools. Для уже скачанного checkout:
+Нужны Git и Apple Command Line Tools (при отсутствии установите через `xcode-select --install`). `gws` и Google-аккаунт для сборки не нужны. Все команды ниже выполняются из корня уже скачанного checkout, если явно не указано иное:
 
 ```bash
 ./scripts/install-source.sh
@@ -16,13 +16,13 @@
 ./scripts/install-source.sh --app "$PWD/dist/g-calendar.app"
 ```
 
-После публикации этих скриптов в основной ветке установка из Git выполняется одной командой:
+Source installer и его helper доступны в публичной основной ветке `main` (проверено 2026-10-07). Находясь вне существующего каталога `g-calendar`, для установки из Git выполните:
 
 ```bash
 git clone https://github.com/AlekseyBeketov/g-calendar.git && ./g-calendar/scripts/install-source.sh
 ```
 
-Команда использует текущую основную ветку: её исходники следует проверить перед запуском. Для воспроизводимой установки используйте собственный проверенный commit: `git checkout <проверенный commit>`, затем installer. Публичный commit с этим установщиком пока не объявлен; инструкция не подставляет выдуманный SHA.
+Команда использует изменяемую основную ветку: запускайте её только если доверяете текущим исходникам. Для review перед выполнением разделите clone и запуск installer. Для воспроизводимой установки выберите и проверьте конкретный commit, выполните `git checkout <проверенный commit>` внутри clone, затем installer. Это source workflow, не закреплённый подписанный release; лицензия и условия публичного распространения остаются открытым решением владельца.
 
 Запуск установленной программы:
 
@@ -71,7 +71,15 @@ Homebrew tap/cask будет дополнительным каналом пос�
 
 ## Google Workspace отдельно
 
-Установщик не включает `gws`, не запускает OAuth и не отправляет Google-запросы. Установите и настройте `gws` по [официальной документации Google Workspace CLI](https://github.com/googleworkspace/cli), затем укажите его абсолютный путь в настройках g-calendar. Calendar/Tasks доступ подтверждается отдельно. Первый sync приложения — read-only; записи происходят только по явным действиям в интерфейсе.
+Установщик не включает `gws`, не запускает OAuth и не отправляет Google-запросы. Установите и настройте `gws` по [документации проекта Google Workspace CLI](https://github.com/googleworkspace/cli) под тем же пользователем macOS; Calendar/Tasks доступ подтверждается отдельно. Затем укажите абсолютный путь к доверенному executable в настройках g-calendar. При пустом поле проверяются `~/.local/bin/gws`, `/opt/homebrew/bin/gws` и `/usr/local/bin/gws`, а не произвольный PATH оболочки. Нажмите «Синхронизировать»: первый sync — read-only; записи происходят только по явным действиям в интерфейсе. Поддерживаемый диапазон версий `gws` пока не закреплён; не считать любую будущую версию автоматически совместимой.
+
+Для новой OAuth-настройки `gws` требуется Google Cloud project и доступ аккаунта по его инструкции. Уже рабочую авторизацию не нужно менять ради установки g-calendar. Upstream `gws` предупреждает, что это не официально поддерживаемый продукт Google и возможны breaking changes; его installation/auth prerequisites отдельны от prerequisites сборки g-calendar.
+
+Без настройки Google можно предварительно посмотреть синтетический UI после сборки: завершите обычный экземпляр и выполните `open dist/g-calendar.app --args --demo`. Этот режим не вызывает `gws`, не читает пользовательский кэш и не запрашивает разрешения уведомлений.
+
+## Локальные данные
+
+`~/Library/Application Support/g-calendar/` содержит `snapshot.json`, `local-task-metadata.json`, `local-event-reminders.json`, журнал `pending-verification.json` с lock и возможные `reviewed-attempt-*.json`. Настройки хранятся в UserDefaults. Эти JSON-файлы не шифруются приложением и могут содержать личные Calendar/Tasks данные или draft; не переносите их в checkout и не прикладывайте к публичным отчётам. Credentials остаются под управлением `gws`. Installer/uninstaller сохраняют все эти данные; очистка данных или OAuth не входит в удаление bundle.
 
 ## Удаление
 
@@ -85,7 +93,9 @@ Homebrew tap/cask будет дополнительным каналом пос�
 ## Проверки установщика
 
 ```bash
-bash -n scripts/install-common.sh scripts/install-source.sh scripts/install-release.sh scripts/uninstall.sh scripts/test-installers.sh
+for script in scripts/install-common.sh scripts/install-source.sh scripts/install-release.sh scripts/uninstall.sh scripts/test-installers.sh; do
+  bash -n "$script" || exit
+done
 ./scripts/test-installers.sh
 ```
 
