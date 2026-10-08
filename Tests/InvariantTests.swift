@@ -199,6 +199,7 @@ struct InvariantTests {
         run("local-task-projection-performance-baseline", testTaskProjectionBaseline)
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
         run("calendar-time-grid-all-day-overlap-identity", testCalendarTimeGridLayout)
+        run("calendar-timed-card-policy", testCalendarTimedCardPolicy)
         run("calendar-time-grid-stress-profile", testCalendarTimeGridStress)
         run("task-layout-breakpoint-and-event-accessibility-time", testResponsiveAndAccessibilityText)
         run("refresh-coordinator-keeps-latest-range", testRefreshCoordinatorLatestRange)
@@ -594,15 +595,13 @@ struct InvariantTests {
             }
         }
         try check(white.contrast(against: ThemePalette.color(.accent, dark: false)) >= 4.5, "light primary blue supports white action text")
-        // Google supplies arbitrary calendar colors. Both title and calendar
-        // subtitle use primary ink over the two composited timed-event tints.
+        // Google supplies arbitrary calendar colors: one tint over surface, primary ink.
         for dark in [false, true] {
-            for hex: UInt32 in [0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0x00FFFF, 0xFF00FF] {
+            for hex: UInt32 in [0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0x00FFFF, 0xFF00FF, 0xB2EBF2, 0x0B57D0, 0x188038, 0x7986CB, 0x33B679, 0x8E24AA, 0xE67C73, 0xF6BF26, 0xF4511E, 0x039BE5, 0x616161, 0x3F51B5, 0x0B8043, 0xD50000] {
                 let tint = ThemePalette.RGB(hex: hex)
                 let outer = tint.blended(over: ThemePalette.color(.surface, dark: dark), opacity: 0.16)
-                let inner = tint.blended(over: outer, opacity: 0.13)
-                try check(ThemePalette.color(.textPrimary, dark: dark).contrast(against: inner) >= 4.5,
-                          "event title/subtitle must remain readable over both calendar tint layers, dark=\(dark)")
+                try check(ThemePalette.color(.textPrimary, dark: dark).contrast(against: outer) >= 4.5,
+                          "event title must remain readable over the single calendar tint layer, dark=\(dark)")
             }
         }
     }
@@ -1068,6 +1067,40 @@ struct InvariantTests {
                   "fall shared axis must distinguish both repeated local hours")
     }
 
+    static func testCalendarTimedCardPolicy() throws {
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let day = DateOnly(rawValue: "2026-10-08")!.startOfDay(in: zone)!
+        func event(_ id: String, _ minute: Double, calendarID: String = "a") -> CalendarEvent {
+            let start = day.addingTimeInterval(minute * 60)
+            let end = start.addingTimeInterval(5 * 60)
+            return syntheticTimedEvent(id: id, calendarID: calendarID, start: ISO8601.format(start), end: ISO8601.format(end))
+        }
+        let events = [event("same", 600), event("same", 610, calendarID: "b"), event("boundary", 630)]
+        for minimum in [24.0, 32.0, 48.0] {
+            let placements = CalendarTimeGridLayout.timedPlacements(events, on: day, timeZone: zone, minimumEventHeight: minimum)
+            try check(placements[0].laneIndex != placements[1].laneIndex, "nearby short cards reserve different lanes")
+            try check(placements[0].durationMinutes == 5 && placements[1].startOffsetMinutes == 610, "visual height never changes actual placement duration/start")
+            try check(placements == CalendarTimeGridLayout.timedPlacements(Array(events.reversed()), on: day, timeZone: zone, minimumEventHeight: minimum), "permutations and composite identities are deterministic")
+            try check((placements[0].laneIndex == placements[2].laneIndex) == (minimum == 24), "lane reuse at exactly 30 minutes depends on shared minimum")
+            let exact = [event("first", 600), event("second", 600 + minimum / CalendarGridLayout.pointsPerMinute)]
+            let boundary = CalendarTimeGridLayout.timedPlacements(exact, on: day, timeZone: zone, minimumEventHeight: minimum)
+            try check(boundary.allSatisfy { $0.laneIndex == 0 && $0.laneCount == 1 }, "custom minimum releases lane at exact visual boundary")
+            let late = CalendarTimeGridLayout.timedPlacements([event("late", 1435)], on: day, timeZone: zone, minimumEventHeight: minimum)[0]
+            let visibleEnd = late.startOffsetMinutes * CalendarGridLayout.pointsPerMinute + CalendarTimedCardLayout.displayHeight(durationMinutes: late.durationMinutes, minimumHeight: minimum)
+            try check(late.startOffsetMinutes == 1435 && late.durationMinutes == 5 && visibleEnd <= 1440 * CalendarGridLayout.pointsPerMinute + CalendarTimedCardLayout.bottomPadding(minimumHeight: minimum), "shared bottom padding contains end-day card without shifting start")
+        }
+        let nearBoundary = CalendarTimeGridLayout.timedPlacements([event("early", 600), event("near-boundary", 625)], on: day, timeZone: zone)
+        try check(nearBoundary[0].laneIndex != nearBoundary[1].laneIndex, "25-minute separation must reserve the 24pt card; legacy 18pt would release too early")
+        let policy = CalendarTimedCardLayout()
+        for height in [24.0, 39, 40, 55, 56, 96] {
+            let budget = policy.contentBudget(height: height)
+            try check(budget.titleLines == (height >= 40 ? 2 : 1) && budget.showsTime == (height >= 56), "boundary content budgets are title-first")
+        }
+        let grown = CalendarTimedCardLayout(titleLineHeight: 28, timeLineHeight: 24)
+        try check(grown.minimumHeight == 34 && grown.twoLineThreshold == 62 && grown.timeThreshold == 88, "font growth raises all shared line budgets")
+        try check(CalendarTimedCardLayout.displayHeight(durationMinutes: 1) == 24 && CalendarTimedCardLayout.displayHeight(durationMinutes: 120) == 96, "display height retains scale and default minimum")
+    }
+
     static func testCalendarTimeGridStress() throws {
         let zone = TimeZone(secondsFromGMT: 0)!
         let date = DateOnly(rawValue: "2026-06-01")!
@@ -1082,6 +1115,7 @@ struct InvariantTests {
         let placements = CalendarTimeGridLayout.timedPlacements(events, on: day, timeZone: zone)
         let elapsedMilliseconds = (Date.timeIntervalSinceReferenceDate - startedAt) * 1_000
 
+        try check(placements == CalendarTimeGridLayout.timedPlacements(Array(events.reversed()), on: day, timeZone: zone), "stress layout remains deterministic under permutation")
         try check(placements.count == eventCount && Set(placements.map(\.identity)).count == eventCount,
                   "stress overlap layout must retain each distinct event exactly once")
         try check(Set(placements.map(\.laneIndex)).count == eventCount && placements.allSatisfy({ $0.laneCount == eventCount }),

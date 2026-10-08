@@ -100,6 +100,35 @@ enum CalendarGridLayout {
     }
 }
 
+/// Pure geometry and complete-line budgets; native font metrics are supplied by the view.
+struct CalendarTimedCardLayout {
+    static let defaultMinimumHeight = 24.0
+    let titleLineHeight: Double
+    let timeLineHeight: Double
+    let minimumHeight: Double
+    let twoLineThreshold: Double
+    let timeThreshold: Double
+
+    init(titleLineHeight: Double = 16, timeLineHeight: Double = 14) {
+        self.titleLineHeight = max(1, titleLineHeight)
+        self.timeLineHeight = max(1, timeLineHeight)
+        minimumHeight = max(Self.defaultMinimumHeight, self.titleLineHeight + 6)
+        twoLineThreshold = max(40, self.titleLineHeight * 2 + 6)
+        timeThreshold = max(56, self.titleLineHeight * 2 + self.timeLineHeight + 8)
+    }
+
+    static func displayHeight(durationMinutes: Double, minimumHeight: Double = defaultMinimumHeight) -> Double {
+        max(max(1, minimumHeight), durationMinutes * CalendarGridLayout.pointsPerMinute)
+    }
+
+    /// Existing 8pt grid + 14pt workspace padding form ONE shared bottom budget.
+    static func bottomPadding(minimumHeight: Double) -> Double { max(22, minimumHeight) }
+
+    func contentBudget(height: Double) -> (titleLines: Int, showsTime: Bool) {
+        (height >= twoLineThreshold ? 2 : 1, height >= timeThreshold)
+    }
+}
+
 enum CalendarEventAccessibilityText {
     static func timeDescription(for event: CalendarEvent, fallbackTimeZone: TimeZone) -> String {
         guard !event.isAllDay, let start = event.start.instant, let end = event.end.instant else { return "весь день" }
@@ -193,14 +222,15 @@ enum CalendarTimeGridLayout {
         }.sorted { $0.id < $1.id }
     }
 
-    static func timedPlacements(_ events: [CalendarEvent], on date: Date, timeZone: TimeZone) -> [CalendarTimedPlacement] {
+    static func timedPlacements(_ events: [CalendarEvent], on date: Date, timeZone: TimeZone,
+                                minimumEventHeight: Double = CalendarTimedCardLayout.defaultMinimumHeight) -> [CalendarTimedPlacement] {
         guard let day = dayInterval(containing: date, timeZone: timeZone) else { return [] }
         let intervals = events.compactMap { event -> TimedInterval? in
             guard !event.isAllDay, let start = event.start.instant, let end = event.end.instant, start < end else { return nil }
             let clippedStart = max(start, day.start)
             let clippedEnd = min(end, day.endExclusive)
             guard clippedStart < clippedEnd else { return nil }
-            let minimumLaneEnd = clippedStart.addingTimeInterval(22.5 * 60)
+            let minimumLaneEnd = clippedStart.addingTimeInterval(CalendarTimedCardLayout.displayHeight(durationMinutes: 0, minimumHeight: minimumEventHeight) / CalendarGridLayout.pointsPerMinute * 60)
             return TimedInterval(identity: event.identity, start: clippedStart, end: clippedEnd,
                                  laneEnd: min(day.endExclusive, max(clippedEnd, minimumLaneEnd)))
         }.sorted {

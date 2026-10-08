@@ -9,6 +9,7 @@ configure_swift_compiler "$BUILD_DIR"
   -framework SwiftUI -framework AppKit -framework UserNotifications \
   "$ROOT/Sources/GCalendar/Models.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
+  "$ROOT/Sources/GCalendar/CalendarTimeGrid.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \
   "$ROOT/Sources/GCalendar/DemoPerformanceProbe.swift" \
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
@@ -22,6 +23,7 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/AppTheme.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceToolbar.swift" \
   "$ROOT/Tests/WorkspaceToolbarNativeTests.swift" \
+  "$ROOT/Tests/CalendarTimedCardNativeTests.swift" \
   "$ROOT/Tests/NativeUIInvariantTests.swift" -o "$BUILD_DIR/native-ui-tests"
 # Optional: G_CALENDAR_NATIVE_EVIDENCE_DIR writes synthetic toolbar PNGs and bounds.txt.
 "$BUILD_DIR/native-ui-tests"

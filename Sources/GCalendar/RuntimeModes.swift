@@ -272,11 +272,32 @@ final class DemoWorkspaceAdapter {
         }
         let alternateTask = GoogleTask(id: "demo-task-alternate", taskListID: "demo-second-list", title: "Демо: проверить другой список",
                                        notes: "Синтетические заметки для проверки редактора", due: tomorrowDue, completed: false, deleted: false, updated: nil)
+        let readabilityEvents = [1, 5, 10, 15, 30, 60, 120].enumerated().map { index, minutes -> CalendarEvent in
+            let instant = start.addingTimeInterval(Double(index * 90) * 60)
+            let finish = instant.addingTimeInterval(Double(minutes) * 60)
+            return CalendarEvent(id: "demo-readable-\(minutes)", calendarID: calendarID,
+                                 title: index.isMultiple(of: 2) ? "Короткая встреча · \(minutes) мин" : "Длинное нейтральное название события для проверки переноса и многоточия · \(minutes) мин",
+                                 start: EventTime(rawValue: ISO8601.format(instant), instant: instant, dateOnly: nil, timeZoneID: timeZone.identifier),
+                                 end: EventTime(rawValue: ISO8601.format(finish), instant: finish, dateOnly: nil, timeZoneID: timeZone.identifier),
+                                 recurring: false, status: "confirmed")
+        }
+        let closeStart = start.addingTimeInterval(10 * 60)
+        let closeEnd = closeStart.addingTimeInterval(5 * 60)
+        let closeEvent = CalendarEvent(id: "demo-readable-near", calendarID: readOnlyID, title: "Короткий повторяющийся обзор",
+                                      start: EventTime(rawValue: ISO8601.format(closeStart), instant: closeStart, dateOnly: nil, timeZoneID: timeZone.identifier),
+                                      end: EventTime(rawValue: ISO8601.format(closeEnd), instant: closeEnd, dateOnly: nil, timeZoneID: timeZone.identifier),
+                                      recurring: true, status: "confirmed")
+        let lateStart = calendar.date(bySettingHour: 23, minute: 55, second: 0, of: today)!
+        let lateEnd = lateStart.addingTimeInterval(4 * 60)
+        let lateEvent = CalendarEvent(id: "demo-readable-late", calendarID: readOnlyID, title: "Завершение дня",
+                                     start: EventTime(rawValue: ISO8601.format(lateStart), instant: lateStart, dateOnly: nil, timeZoneID: timeZone.identifier),
+                                     end: EventTime(rawValue: ISO8601.format(lateEnd), instant: lateEnd, dateOnly: nil, timeZoneID: timeZone.identifier),
+                                     recurring: false, status: "confirmed")
         var snapshot = WorkspaceSnapshot(calendars: [CalendarInfo(id: calendarID, title: "Демо-календарь", accessRole: "writer",
                                                                     timeZoneID: timeZone.identifier, colorHex: "#0B57D0"),
                                                     CalendarInfo(id: readOnlyID, title: "Демо: календарь только для просмотра с длинным названием",
                                                                  accessRole: "reader", timeZoneID: timeZone.identifier, colorHex: "#188038")],
-                                         events: [event, readOnlyEvent] + allDayEvents,
+                                         events: [event, readOnlyEvent] + allDayEvents + readabilityEvents + [closeEvent, lateEvent],
                                          taskLists: [TaskList(id: listID, title: "Демо-список", updated: nil),
                                                      TaskList(id: "demo-second-list", title: "Демо: второй список с длинным названием", updated: nil)],
                                          tasks: [datedTask, timelessTask] + overflowTasks + [alternateTask],

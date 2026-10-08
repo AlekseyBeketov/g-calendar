@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CalendarWorkspaceView: View {
+    @Environment(\.sizeCategory) private var sizeCategory
     @EnvironmentObject private var model: WorkspaceViewModel
     @StateObject private var local = ViewLocalState()
     @AppStorage("calendarUndatedTasksCollapsed") private var undatedTasksCollapsed = true
@@ -69,7 +70,8 @@ struct CalendarWorkspaceView: View {
                         let headerHeight = CGFloat(CalendarGridLayout.headerHeight)
                         let dateOnlyHeight = sharedDateOnlyHeight
                         let axisDayMinutes = visibleDays.compactMap { CalendarTimeGridLayout.dayInterval(containing: $0, timeZone: model.selectedTimeZone)?.durationMinutes }.max() ?? 1_440
-                        let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute) + 8
+                        let bottomPadding = CalendarTimedCardLayout.bottomPadding(minimumHeight: CalendarTimedCardTypography(sizeCategory: sizeCategory).policy.minimumHeight)
+                        let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute + bottomPadding)
                         let documentWidth = CGFloat(visibleDays.count) * columnWidth + CGFloat(max(0, visibleDays.count - 1)) * 10
                         let axisDay = visibleDays.first ?? model.currentRange().start
                         let initialMinutes = CalendarTimeGridLayout.dayInterval(containing: axisDay, timeZone: model.selectedTimeZone)
@@ -88,11 +90,11 @@ struct CalendarWorkspaceView: View {
                             }),
                             days: AnyView(HStack(alignment: .top, spacing: 10) {
                                 ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth) }
-                            }.padding(.bottom, 14)),
+                            }),
                             axisWidth: timeAxisWidth,
                             headerHeight: headerHeight + dateOnlyHeight + 1,
                             documentWidth: documentWidth,
-                            documentHeight: axisContentHeight + 14,
+                            documentHeight: axisContentHeight,
                             initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute)
                         )
                         .padding(.horizontal, 24)

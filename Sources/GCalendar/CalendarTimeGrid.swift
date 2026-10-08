@@ -1,6 +1,98 @@
 import SwiftUI
+import AppKit
+
+/// The same resolved semantic font supplies rendering and the pure layout policy.
+struct CalendarTimedCardTypography {
+    let titleFont: NSFont
+    let timeFont: NSFont
+    let policy: CalendarTimedCardLayout
+
+    init(sizeCategory: ContentSizeCategory = .large) {
+        let scale: CGFloat
+        switch sizeCategory {
+        case .extraLarge: scale = 1.12
+        case .extraExtraLarge: scale = 1.24
+        case .extraExtraExtraLarge: scale = 1.36
+        case .accessibilityMedium: scale = 1.5
+        case .accessibilityLarge: scale = 1.65
+        case .accessibilityExtraLarge: scale = 1.8
+        case .accessibilityExtraExtraLarge: scale = 2
+        case .accessibilityExtraExtraExtraLarge: scale = 2.2
+        default: scale = 1
+        }
+        titleFont = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize * scale, weight: .medium)
+        timeFont = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize * scale)
+        policy = CalendarTimedCardLayout(titleLineHeight: Double(ceil(titleFont.ascender - titleFont.descender + titleFont.leading)),
+                                         timeLineHeight: Double(ceil(timeFont.ascender - timeFont.descender + timeFont.leading)))
+    }
+}
+
+struct CalendarTimedEventCard: View {
+    let event: CalendarEvent
+    let calendar: CalendarInfo?
+    let timeZone: TimeZone
+    let placement: CalendarTimedPlacement
+    let width: CGFloat
+    let height: CGFloat
+    let typography: CalendarTimedCardTypography
+    let onEdit: (CalendarEvent) -> Void
+
+    var detailText: String {
+        let writable = calendar?.isWritable == true && !event.recurring
+        return "Событие: \(event.title), \(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: calendar?.timeZoneID.flatMap(TimeZone.init(identifier:)) ?? timeZone)), календарь \(calendar?.title ?? "неизвестен")\(event.recurring ? ", повторяется" : "")\(writable ? ", редактировать" : ", только просмотр")"
+    }
+
+    var body: some View {
+        let budget = typography.policy.contentBudget(height: Double(height))
+        let color = Color(hex: calendar?.colorHex) ?? AppTheme.event
+        let writable = calendar?.isWritable == true && !event.recurring
+        return Button { onEdit(event) } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .center, spacing: 4) {
+                    Text(event.title)
+                        .font(Font(typography.titleFont))
+                        .foregroundStyle(AppTheme.textPrimary)
+                        .lineLimit(budget.titleLines)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !writable && width >= 120 {
+                        Image(systemName: "lock.fill").font(Font(typography.timeFont))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .accessibilityHidden(true).allowsHitTesting(false)
+                    }
+                }
+                if budget.showsTime {
+                    Text(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: timeZone))
+                        .font(Font(typography.timeFont)).foregroundStyle(AppTheme.textPrimary)
+                        .lineLimit(1).truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.leading, 9).padding(.trailing, 6).padding(.vertical, 3)
+            .frame(width: width, height: height, alignment: budget.titleLines == 1 ? .leading : .topLeading)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).fill(AppTheme.surface)
+                    RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.16))
+                }.allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 2)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("calendar-timed-\(event.identity.stableKey)")
+        .accessibilityLabel(detailText)
+        .accessibilityValue("\(Int(placement.startOffsetMinutes)) минут от начала дня, длительность \(Int(placement.durationMinutes)) минут, полоса \(placement.laneIndex + 1) из \(placement.laneCount)")
+        .help(detailText)
+    }
+}
 
 struct CalendarTimeGridDay: View {
+    @Environment(\.sizeCategory) private var sizeCategory
     let day: Date
     let events: [CalendarEvent]
     let tasks: [GoogleTask]
@@ -12,7 +104,7 @@ struct CalendarTimeGridDay: View {
     let onToggleTask: (GoogleTask) -> Void
 
     private let pointsPerMinute = CGFloat(CalendarGridLayout.pointsPerMinute)
-    private let minimumEventHeight: CGFloat = 18
+    private var typography: CalendarTimedCardTypography { CalendarTimedCardTypography(sizeCategory: sizeCategory) }
 
     private var calendarByID: [String: CalendarInfo] {
         Dictionary(calendars.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -27,7 +119,7 @@ struct CalendarTimeGridDay: View {
     }
 
     private var placements: [CalendarTimedPlacement] {
-        CalendarTimeGridLayout.timedPlacements(timedEvents, on: day, timeZone: timeZone)
+        CalendarTimeGridLayout.timedPlacements(timedEvents, on: day, timeZone: timeZone, minimumEventHeight: typography.policy.minimumHeight)
     }
 
     private var dayInterval: CalendarDayInterval? {
@@ -141,21 +233,13 @@ struct CalendarTimeGridDay: View {
                                 let availableWidth = max(0, geometry.size.width - 4)
                                 let laneWidth = availableWidth / CGFloat(max(placement.laneCount, 1))
                                 let calendar = calendarByID[event.calendarID]
-                                let color = Color(hex: calendar?.colorHex) ?? AppTheme.event
-                                eventButton(event, compact: false)
-                                    .frame(width: max(8, laneWidth - 2),
-                                           height: max(minimumEventHeight, CGFloat(placement.durationMinutes) * pointsPerMinute),
-                                           alignment: .topLeading)
-                                    .background(color.opacity(0.16), in: RoundedRectangle(cornerRadius: 5))
-                                    .overlay(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 2)
-                                            .allowsHitTesting(false).accessibilityHidden(true)
-                                    }
-                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                                CalendarTimedEventCard(event: event, calendar: calendar, timeZone: timeZone,
+                                    placement: placement, width: max(8, laneWidth - 2),
+                                    height: CGFloat(CalendarTimedCardLayout.displayHeight(durationMinutes: placement.durationMinutes, minimumHeight: typography.policy.minimumHeight)),
+                                    typography: typography, onEdit: onEdit)
                                     .offset(x: CGFloat(placement.laneIndex) * laneWidth,
                                             y: CGFloat(placement.startOffsetMinutes) * pointsPerMinute)
                                     .zIndex(Double(placement.laneIndex + 1))
-                                    .accessibilityValue("\(Int(placement.startOffsetMinutes)) минут от начала дня, длительность \(Int(placement.durationMinutes)) минут, полоса \(placement.laneIndex + 1) из \(placement.laneCount)")
                             }
                         }
                     }
@@ -165,7 +249,7 @@ struct CalendarTimeGridDay: View {
                 .padding(.horizontal, 3)
             }
         }
-        .padding(.bottom, 8)
+        .padding(.bottom, CGFloat(CalendarTimedCardLayout.bottomPadding(minimumHeight: typography.policy.minimumHeight)))
     }
 
 

@@ -216,18 +216,3 @@ struct SyncStatusBar: View {
         }
     }
 }
-
-extension Color {
-    init?(hex: String?) {
-        guard let hex else { return nil }
-        let value = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        guard let number = UInt64(value, radix: 16) else { return nil }
-        let red, green, blue: Double
-        if value.count == 6 {
-            red = Double((number >> 16) & 0xff) / 255
-            green = Double((number >> 8) & 0xff) / 255
-            blue = Double(number & 0xff) / 255
-        } else { return nil }
-        self.init(red: red, green: green, blue: blue)
-    }
-}

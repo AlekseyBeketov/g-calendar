@@ -86,6 +86,7 @@ struct NativeUIInvariantTests {
         expect(!coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))),
                "search retains other native text commands")
         assertions += WorkspaceToolbarNativeTests.run()
+        assertions += CalendarTimedCardNativeTests.run()
         window.close()
         print("PASS native-clip-observation-and-scoped-keyboard")
         print("NATIVE_UI_ASSERTIONS=\(assertions)")
