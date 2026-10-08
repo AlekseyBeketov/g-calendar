@@ -24,12 +24,7 @@ if [[ -e "$APP" && ! -f "$APP/Contents/Resources/g-calendar-build-origin.txt" ]]
   exit 2
 fi
 
-ICONSET="$BUILD_DIR/AppIcon.iconset"
-ICON_GENERATOR="$BUILD_DIR/GenerateAppIcon"
-"${G_CALENDAR_SWIFT[@]}" -parse-as-library -target arm64-apple-macosx13.0 -framework AppKit \
-  "$ROOT/scripts/GenerateAppIcon.swift" -o "$ICON_GENERATOR"
-"$ICON_GENERATOR" "$ICONSET"
-iconutil -c icns "$ICONSET" -o "$STAGE/Contents/Resources/AppIcon.icns"
+cp "$ROOT/resources/AppIcon.icns" "$STAGE/Contents/Resources/AppIcon.icns"
 
 SOURCE_FILES=("$ROOT"/Sources/GCalendar/*.swift)
 OPTIMIZATION="-O"

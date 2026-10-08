@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="64 59.5 352 352" role="img" aria-labelledby="title">
+	<title id="title">Календарь с цветной складкой и выполненной задачей</title>
+	<defs>
+		<linearGradient id="frame" x1="140" y1="70" x2="263" y2="300" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#538FFF"/>
+			<stop offset="0.45" stop-color="#0786FF"/>
+			<stop offset="1" stop-color="#009BEE"/>
+		</linearGradient>
+		<linearGradient id="header" x1="118" y1="77" x2="372" y2="118" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#5895FF"/>
+			<stop offset="1" stop-color="#2874F2"/>
+		</linearGradient>
+		<linearGradient id="binding" x1="0" y1="33" x2="0" y2="99" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#1979FF"/>
+			<stop offset="1" stop-color="#1262EA"/>
+		</linearGradient>
+		<linearGradient id="green" x1="209" y1="272" x2="326" y2="280" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#159C49"/>
+			<stop offset="0.62" stop-color="#43C16D"/>
+			<stop offset="1" stop-color="#1DA650"/>
+		</linearGradient>
+		<linearGradient id="yellow" x1="272" y1="240" x2="384" y2="66" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#FFD547"/>
+			<stop offset="0.55" stop-color="#FFC500"/>
+			<stop offset="1" stop-color="#FFA900"/>
+		</linearGradient>
+		<linearGradient id="badge" x1="310" y1="207" x2="404" y2="307" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#438AFF"/>
+			<stop offset="1" stop-color="#2D76F5"/>
+		</linearGradient>
+		<linearGradient id="blueCell" x1="157" y1="151" x2="194" y2="188" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#70A4FF"/>
+			<stop offset="1" stop-color="#6798F6"/>
+		</linearGradient>
+		<linearGradient id="yellowCell" x1="214" y1="151" x2="251" y2="188" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#FFCE33"/>
+			<stop offset="1" stop-color="#FFD53C"/>
+		</linearGradient>
+		<linearGradient id="greenCell" x1="157" y1="207" x2="194" y2="244" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#28B257"/>
+			<stop offset="1" stop-color="#1B9F48"/>
+		</linearGradient>
+		<clipPath id="calendarClip">
+			<rect x="108" y="66" width="276" height="235" rx="48"/>
+		</clipPath>
+	</defs>
+	<g transform="translate(-26 58)">
+		<g clip-path="url(#calendarClip)">
+			<rect x="108" y="66" width="276" height="235" fill="url(#frame)"/>
+			<path d="M132 126H360V253A24 24 0 0 1 336 277H156A24 24 0 0 1 132 253Z" fill="#FFFFFF"/>
+			<rect x="108" y="66" width="276" height="60" fill="url(#header)"/>
+			<path d="M336 66H384V245L318 245Z" fill="url(#yellow)"/>
+			<rect x="157" y="151" width="37" height="37" rx="8" fill="url(#blueCell)"/>
+			<rect x="214" y="151" width="37" height="37" rx="8" fill="url(#yellowCell)"/>
+			<rect x="157" y="207" width="37" height="37" rx="8" fill="url(#greenCell)"/>
+			<rect x="214" y="207" width="37" height="37" rx="8" fill="#CED4D9"/>
+		</g>
+		<rect x="159" y="33" width="29" height="66" rx="14.5" fill="url(#binding)"/>
+		<rect x="307" y="33" width="29" height="66" rx="14.5" fill="url(#binding)"/>
+		<circle cx="357" cy="257" r="67" fill="url(#badge)"/>
+		<path d="M327 257L347 277L386 238" fill="none" stroke="#FFFFFF" stroke-width="18.5" stroke-linecap="round" stroke-linejoin="round"/>
+	</g>
+</svg>

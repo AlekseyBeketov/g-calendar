@@ -3,6 +3,7 @@
 DerivedData/
 .codegraph/
 .hermes/
+.worktrees/
 dist/
 .DS_Store
 :-
