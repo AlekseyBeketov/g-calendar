@@ -23,7 +23,7 @@
 - [x] 3: Запуск при входе.
 - [x] 4: Сортировка календарей и доступный для записи контекст по умолчанию.
 - [x] 5: Стрелки вниз/вверх для списка задач над календарём.
-- [ ] 6: Pointer на всей области действия и правило в AGENTS.md.
+- [x] 6: Pointer на всей области действия и правило в AGENTS.md.
 - [ ] 7: Все доски по умолчанию, колонки по доскам и исправление геометрии.
 - [ ] 8: Перенос задачи в другую доску с проверкой результата.
 
@@ -108,3 +108,5 @@ OpenSpec validate g-calendar-mvp --strict должен завершиться у
 Этап 4 завершён: 526 assertions, typecheck exit 0. Сортировка writable/name/ID, cache/refresh default и сохранение явного выбора проверены синтетически.
 
 Этап 5 завершён: down/up disclosure, typecheck exit 0. Действие и accessibility сохранены; визуальную приёмку делает пользователь.
+
+Этап 6 завершён: Swift typecheck/source audit/shell syntax exit 0. Enabled action bounds покрыты hand cursor, disabled ancestor и clip исключены; native text/menu поведение сохранено. UI приёмка остаётся ручной.

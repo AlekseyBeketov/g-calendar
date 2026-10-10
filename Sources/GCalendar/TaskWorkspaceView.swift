@@ -21,7 +21,7 @@ struct TaskWorkspaceView: View {
                                     .padding(.horizontal, 12).frame(height: 32)
                                     .background(model.taskFilter == filter ? AppTheme.selection : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
                                     .contentShape(.interaction, Rectangle())
-                            }
+                            }.pointingHandCursor()
                             .buttonStyle(.plain)
                             .foregroundStyle(model.taskFilter == filter ? AppTheme.accent : AppTheme.textSecondary)
                             .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
@@ -63,7 +63,7 @@ struct TaskWorkspaceView: View {
                                                         Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
                                                         Spacer()
                                                     }.frame(minHeight: 32).contentShape(.interaction, Rectangle())
-                                                }.buttonStyle(.plain).accessibilityLabel("\(title), \(tasks.count), \(local.collapsedGroups.contains(title) ? "свёрнуто" : "развёрнуто")")
+                                                }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("\(title), \(tasks.count), \(local.collapsedGroups.contains(title) ? "свёрнуто" : "развёрнуто")")
                                                 if !local.collapsedGroups.contains(title) {
                                                     LazyVStack(spacing: 0) { ForEach(tasks, id: \.selectionIdentity) { task in taskRow(task) } }
                                                 }
@@ -157,7 +157,7 @@ struct TaskWorkspaceView: View {
             Button("Управлять списками…") { local.showTaskLists = true }
         } label: {
             Text(model.selectedTaskList?.title ?? "Задачи").font(.title2.weight(.semibold)).lineLimit(1)
-        }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+        }.pointingHandCursor().menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
         .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "не выбран")")
     }
 
@@ -168,11 +168,11 @@ struct TaskWorkspaceView: View {
                     ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
                         Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue)
                     }
-                }.labelsHidden().pickerStyle(.menu).frame(width: 112)
+                }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 112)
                 .accessibilityIdentifier("task-presentation-picker")
                 .help("Список по умолчанию. Колонки доступны в широком окне.")
             }
-            Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }
+            Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }.pointingHandCursor()
                 .buttonStyle(.borderedProminent).disabled(model.selectedTaskList == nil || model.mutationsBlocked)
                 .help("Создать задачу")
         }
@@ -330,7 +330,7 @@ private struct TaskRowView: View {
                     Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16)).foregroundStyle(task.completed ? AppTheme.success : AppTheme.textSecondary)
                         .frame(width: 44, height: 44).contentShape(.interaction, Rectangle())
-                }.buttonStyle(.plain).disabled(model.mutationsBlocked)
+                }.pointingHandCursor().buttonStyle(.plain).disabled(model.mutationsBlocked)
                 .help(task.completed ? "Вернуть задачу в работу" : "Завершить задачу")
                 .accessibilityLabel(task.completed ? "Снять отметку выполнения: \(task.title)" : "Завершить задачу: \(task.title)")
                 Button { onSelect(task); local.showEditor = true } label: {
@@ -340,7 +340,7 @@ private struct TaskRowView: View {
                             .padding(.vertical, 6)
                     }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     .contentShape(.interaction, Rectangle())
-                }.buttonStyle(.plain)
+                }.pointingHandCursor().buttonStyle(.plain)
                 .accessibilityLabel("Открыть задачу: \(task.title), список \(listTitle), срок \(dueText), \(isOverdue ? "просрочена, " : "")\(task.completed ? "выполнена" : "не выполнена")")
                 .accessibilityValue(metadataAccessibilityValue)
                 Menu {
@@ -349,7 +349,7 @@ private struct TaskRowView: View {
                     Button(metadata.favorite ? "Убрать из избранного" : "В избранное", systemImage: "star") { toggleFavorite() }
                     Divider()
                     Button("Удалить…", systemImage: "trash", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked)
-                } label: { Image(systemName: "ellipsis").frame(width: 36, height: 44).contentShape(Rectangle()) }
+                } label: { Image(systemName: "ellipsis").frame(width: 36, height: 44).contentShape(Rectangle()) }.pointingHandCursor()
                 .menuStyle(.borderlessButton).fixedSize()
                 .accessibilityLabel("Действия задачи: \(task.title)")
                 .help("Действия задачи")

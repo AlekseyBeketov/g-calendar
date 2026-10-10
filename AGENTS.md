@@ -12,6 +12,7 @@
 
 ## Key Conventions
 - Preserve native macOS/SwiftUI interaction and accessibility.
+- Enabled action controls must show the pointing-hand cursor across their full click region, including clickable label padding. Use `.pointingHandCursor()` on SwiftUI actions before `.disabled(...)`; native action buttons use the window cursor bridge. Preserve I-beam for editable text, system menu behavior, and the native cursor for disabled controls and non-actionable areas. Do not change hit testing or accessibility to add a cursor.
 - Keep Google mutations explicit, narrowly scoped, and read-back verified; tests use synthetic fixtures.
 - Keep Calendar Tasks due dates date-only; local reminders are device-local.
 - Treat `.hermes/plans/` as local planning artifacts, not repository content.

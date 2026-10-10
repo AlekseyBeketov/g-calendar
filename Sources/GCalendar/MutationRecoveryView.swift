@@ -17,10 +17,10 @@ struct MutationRecoveryPanel: View {
             }
             Spacer(minLength: 4)
             if model.mutationJournalBusy {
-                Button("Проверить журнал") { model.refreshMutationRecoveryState() }
+                Button("Проверить журнал") { model.refreshMutationRecoveryState() }.pointingHandCursor()
             } else if model.pendingMutation != nil || model.mutationRecoveryProblem != nil {
-                Button("Черновик") { local.showEditor = true }
-                Button(model.mutationInFlight ? "Проверяем…" : "Проверить") { model.recheckPendingMutation() }
+                Button("Черновик") { local.showEditor = true }.pointingHandCursor()
+                Button(model.mutationInFlight ? "Проверяем…" : "Проверить") { model.recheckPendingMutation() }.pointingHandCursor()
                     .disabled(model.pendingMutation?.resourceID == nil || model.mutationInFlight)
             }
         }
@@ -40,11 +40,11 @@ struct MutationRecoveryPanel: View {
                     Text("Журнал повреждён. Перед снятием блокировки самостоятельно проверьте последнее изменение в Google. Копия журнала будет сохранена на этом Mac.")
                         .font(.callout).foregroundStyle(AppTheme.warning).fixedSize(horizontal: false, vertical: true)
                 }
-                    Button("Результат сверён вручную…") { local.showingDeleteConfirmation = true }
+                    Button("Результат сверён вручную…") { local.showingDeleteConfirmation = true }.pointingHandCursor()
                         .disabled(model.mutationInFlight)
                     }
                 }
-                HStack { Spacer(); Button("Закрыть") { local.showEditor = false }.keyboardShortcut(.cancelAction) }
+                HStack { Spacer(); Button("Закрыть") { local.showEditor = false }.pointingHandCursor().keyboardShortcut(.cancelAction) }
             }
             .padding(AppTheme.editorInset)
             .frame(width: 460)

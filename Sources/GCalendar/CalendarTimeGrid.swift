@@ -82,7 +82,7 @@ struct CalendarTimedEventCard: View {
                     .allowsHitTesting(false).accessibilityHidden(true)
             }
             .contentShape(Rectangle())
-        }
+        }.pointingHandCursor()
         .buttonStyle(.plain)
         .accessibilityIdentifier("calendar-timed-\(event.identity.stableKey)")
         .accessibilityLabel(detailText)
@@ -171,7 +171,7 @@ struct CalendarTimeGridDay: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                             .contentShape(Rectangle())
-                        }
+                        }.pointingHandCursor()
                         .buttonStyle(.plain)
                         .accessibilityLabel("Задача: \(task.title), срок \(task.due?.description ?? "без срока"), \(task.completed ? "выполнена" : "не выполнена")")
                     }
@@ -209,7 +209,7 @@ struct CalendarTimeGridDay: View {
             .frame(maxWidth: .infinity, minHeight: compact ? 26 : 18, alignment: .leading)
             .background((Color(hex: calendar?.colorHex) ?? AppTheme.event).opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
-        }
+        }.pointingHandCursor()
         .buttonStyle(.plain)
         .accessibilityLabel("Событие: \(event.title), \(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: calendar?.timeZoneID.flatMap(TimeZone.init(identifier:)) ?? timeZone)), календарь \(calendar?.title ?? "неизвестен")\(event.recurring ? ", повторяется" : "")\(writable ? ", редактировать" : ", только просмотр")")
         .help(writable ? "Редактировать событие" : "Открыть событие для просмотра")
@@ -309,7 +309,7 @@ struct CalendarUndatedTaskRegion: View {
                 .foregroundStyle(AppTheme.task)
                 .frame(minHeight: 28)
                 .contentShape(Rectangle())
-            }
+            }.pointingHandCursor()
             .buttonStyle(.plain)
             .accessibilityIdentifier("calendar-undated-task-toggle")
             .accessibilityLabel("Задачи без срока, \(tasks.count)")
@@ -334,7 +334,7 @@ struct CalendarUndatedTaskRegion: View {
                                 .frame(minHeight: 40)
                                 .contentShape(Rectangle())
                                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 8))
-                            }
+                            }.pointingHandCursor()
                             .buttonStyle(.plain)
                             .accessibilityLabel("Задача: \(task.title), без срока, \(task.completed ? "выполнена" : "не выполнена")")
                             .accessibilityHint("Изменить состояние выполнения")

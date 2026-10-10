@@ -22,11 +22,11 @@ struct CalendarWorkspaceView: View {
                 Spacer()
                 Picker("Вид календаря", selection: $model.calendarMode) {
                     ForEach(WorkspaceViewModel.CalendarMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
-                }
+                }.pointingHandCursor()
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .frame(width: 150)
-                Button { local.showingEventEditor = true; local.selectedEvent = nil } label: { Label("Событие", systemImage: "plus") }
+                Button { local.showingEventEditor = true; local.selectedEvent = nil } label: { Label("Событие", systemImage: "plus") }.pointingHandCursor()
                     .disabled(model.selectedCalendar?.isWritable != true || model.mutationsBlocked)
                     .help(model.selectedCalendar?.isWritable == true ? "Создать событие" : "Выберите календарь с правом записи")
             }
@@ -241,18 +241,18 @@ struct EventEditorView: View {
             HStack {
                 Text(event == nil ? "Новое событие" : (canEdit ? "Редактирование события" : "Просмотр события")).font(.title2.weight(.semibold))
                 Spacer()
-                if event != nil && canEdit { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked) }
+                if event != nil && canEdit { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.pointingHandCursor().disabled(model.mutationsBlocked) }
             }
             EditorBody {
             VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
                 if canEdit {
                     EditorField(title: "Название") { TextField("Название события", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
-                    Toggle("Весь день", isOn: $local.allDay)
+                    Toggle("Весь день", isOn: $local.allDay).pointingHandCursor()
                     DatePicker("Начало", selection: $local.start, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute])
                     DatePicker(local.allDay ? "Последний день (включительно)" : "Окончание", selection: $local.end, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute])
                     Picker("Часовой пояс", selection: $local.timeZoneID) {
                         ForEach(timeZoneChoices, id: \.self) { id in Text(id).tag(id) }
-                    }
+                    }.pointingHandCursor()
                 } else {
                     EditorField(title: "Название") { Text(local.title).textSelection(.enabled).foregroundStyle(AppTheme.textPrimary) }
                     LabeledContent("Формат", value: local.allDay ? "Весь день" : "Со временем")
@@ -263,23 +263,23 @@ struct EventEditorView: View {
                 if event == nil {
                     Picker("Календарь", selection: $local.contextID) {
                         ForEach(model.sortedCalendars.filter(\.isWritable)) { Text($0.title).tag($0.id) }
-                    }
+                    }.pointingHandCursor()
                 } else if let calendar { LabeledContent("Календарь", value: calendar.title) }
                 if let event {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Локальное напоминание на этом Mac").font(.callout.weight(.medium))
                         if event.isAllDay || event.recurring {
-                            Toggle("Напомнить локально", isOn: $local.enabled).disabled(true)
+                            Toggle("Напомнить локально", isOn: $local.enabled).pointingHandCursor().disabled(true)
                             Text(event.isAllDay ? "Для событий на весь день локальное напоминание недоступно." : "Для повторяющихся событий выбор серии не поддерживается.")
                                 .font(.callout).foregroundStyle(AppTheme.textSecondary)
                         } else {
-                            Toggle("Напомнить локально", isOn: $local.enabled)
+                            Toggle("Напомнить локально", isOn: $local.enabled).pointingHandCursor()
                             if local.enabled {
                                 DatePicker("Точное время", selection: $local.fireDate, displayedComponents: [.date, .hourAndMinute])
                             }
                             Button(local.enabled ? "Сохранить локальное напоминание" : "Удалить локальное напоминание") {
                                 saveEventReminder()
-                            }
+                            }.pointingHandCursor()
                             Text("Хранится только на этом Mac и не меняет Google event.reminders.")
                                 .font(.caption).foregroundStyle(AppTheme.textSecondary)
                         }
@@ -303,7 +303,7 @@ struct EventEditorView: View {
             .disabled(model.mutationsBlocked)
             HStack {
                 Spacer()
-                Button(canEdit ? "Отмена" : "Закрыть") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(canEdit ? "Отмена" : "Закрыть") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction)
                 if canEdit {
                     MutationSaveControl(pendingMutationID: local.pendingMutationID, disabled: local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, save: save, verified: { dismiss() })
                 }

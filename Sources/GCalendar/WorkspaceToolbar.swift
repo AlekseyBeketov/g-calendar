@@ -16,9 +16,9 @@ struct WorkspaceToolbar: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             if isCalendar {
-                Button { moveDate(-1) } label: { Image(systemName: "chevron.left") }.help("Назад").accessibilityLabel("Предыдущий период")
-                Button { goToToday() } label: { Text("Сегодня") }
-                Button { moveDate(1) } label: { Image(systemName: "chevron.right") }.help("Вперёд").accessibilityLabel("Следующий период")
+                Button { moveDate(-1) } label: { Image(systemName: "chevron.left") }.pointingHandCursor().help("Назад").accessibilityLabel("Предыдущий период")
+                Button { goToToday() } label: { Text("Сегодня") }.pointingHandCursor()
+                Button { moveDate(1) } label: { Image(systemName: "chevron.right") }.pointingHandCursor().help("Вперёд").accessibilityLabel("Следующий период")
             }
         }
         ToolbarItem(placement: .automatic) {
@@ -32,7 +32,7 @@ struct WorkspaceToolbar: ToolbarContent {
                     .accessibilityLabel(isCalendar ? "Поиск событий" : "Поиск задач")
                     .accessibilityIdentifier("workspace-search-field")
                 if !searchText.isEmpty {
-                    Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }.pointingHandCursor()
                         .buttonStyle(.plain)
                         .accessibilityLabel("Очистить поиск")
                         .help("Очистить поиск")
@@ -51,12 +51,12 @@ struct WorkspaceToolbar: ToolbarContent {
             Button { refresh() } label: {
                 if isSyncing { ProgressView().controlSize(.small) }
                 else { Label("Синхронизировать", systemImage: "arrow.clockwise") }
-            }
+            }.pointingHandCursor()
             .disabled(isSyncing || mutationInFlight)
             .help("Обновить Calendar и Tasks")
         }
         ToolbarItem(placement: .automatic) {
-            Button { openSettings() } label: { Image(systemName: "gearshape") }
+            Button { openSettings() } label: { Image(systemName: "gearshape") }.pointingHandCursor()
                 .accessibilityLabel("Настройки")
                 .help("Настройки")
         }

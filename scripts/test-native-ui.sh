@@ -15,6 +15,8 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \
   "$ROOT/Sources/GCalendar/Reminders.swift" \
+  "$ROOT/Sources/GCalendar/MutationService.swift" \
+  "$ROOT/Sources/GCalendar/PointerCursor.swift" \
   "$ROOT/Sources/GCalendar/TaskKeyboardNavigation.swift" \
   "$ROOT/Sources/GCalendar/TaskKeyboardFocusView.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceSearchField.swift" \

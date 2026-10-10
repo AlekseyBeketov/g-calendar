@@ -89,7 +89,7 @@ private struct SidebarView: View {
                             .frame(minHeight: 36)
                             .contentShape(.interaction, Rectangle())
                             .background(model.section == section ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                    }
+                    }.pointingHandCursor()
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(section == .tasks ? "workspace-section-tasks" : "workspace-section-calendar")
                     .accessibilityAddTraits(model.section == section ? .isSelected : [])
@@ -110,7 +110,7 @@ private struct SidebarView: View {
                                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                                 .contentShape(.interaction, Rectangle())
                                 .background(model.selectedCalendarID == calendar.id ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                            }
+                            }.pointingHandCursor()
                             .buttonStyle(.plain)
                             .accessibilityLabel("Выбрать календарь: \(calendar.title), \(calendar.isWritable ? "доступна запись" : "только просмотр")")
                             .accessibilityAddTraits(model.selectedCalendarID == calendar.id ? .isSelected : [])
@@ -119,7 +119,7 @@ private struct SidebarView: View {
                             Toggle("Показывать календарь \(calendar.title)", isOn: Binding(
                                 get: { model.isCalendarVisible(calendar.id) },
                                 set: { model.setCalendarVisible(calendar.id, isVisible: $0) }
-                            ))
+                            )).pointingHandCursor()
                             .labelsHidden()
                             .toggleStyle(.checkbox)
                             .controlSize(.small)
@@ -138,7 +138,7 @@ private struct SidebarView: View {
                                 .frame(minHeight: 36)
                                 .contentShape(.interaction, Rectangle())
                                 .background(model.selectedTaskListID == list.id ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                        }
+                        }.pointingHandCursor()
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("sidebar-task-list-option")
                         .accessibilityAddTraits(model.selectedTaskListID == list.id ? .isSelected : [])
@@ -150,7 +150,7 @@ private struct SidebarView: View {
                     HStack {
                         Text("Списки задач").accessibilityIdentifier("sidebar-task-list-selector")
                         Spacer()
-                        Button { showTaskLists = true } label: { Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityLabel("Управлять списками задач").help("Создать и управлять списками")
+                        Button { showTaskLists = true } label: { Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle()) }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("Управлять списками задач").help("Создать и управлять списками")
                     }
                 }
 
@@ -196,9 +196,9 @@ struct SyncStatusBar: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             if model.syncState == .setupRequired {
-                Button("Настройки", action: onOpenSettings)
+                Button("Настройки", action: onOpenSettings).pointingHandCursor()
             } else if [.stale, .offline, .failed].contains(model.syncState) {
-                Button("Повторить") { model.refresh() }.disabled(model.mutationInFlight)
+                Button("Повторить") { model.refresh() }.pointingHandCursor().disabled(model.mutationInFlight)
             }
         }
         .padding(.horizontal, 18)

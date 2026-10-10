@@ -52,11 +52,11 @@ struct MutationSaveControl: View {
                 Button(model.mutationInFlight ? "Проверяем…" : "Проверить сохранение") {
                     model.recheckPendingMutation(onSuccess: verifiedResult == nil ? verified : nil,
                                                  thenRefresh: verifiedResult == nil, onVerified: verifiedResult)
-                }
+                }.pointingHandCursor()
                 .keyboardShortcut(.defaultAction)
                 .disabled(disabled || model.mutationInFlight || model.pendingMutation?.resourceID == nil)
             } else {
-                Button(model.mutationInFlight ? "Сохраняем…" : "Сохранить", action: save)
+                Button(model.mutationInFlight ? "Сохраняем…" : "Сохранить", action: save).pointingHandCursor()
                     .keyboardShortcut(.defaultAction).disabled(disabled || model.mutationsBlocked)
             }
         }
@@ -83,7 +83,7 @@ struct WorkspaceEmptyState: View {
             Image(systemName: symbol).font(.system(size: 32)).foregroundStyle(.secondary)
             Text(title).font(.headline)
             Text(description).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            if let actionTitle { Button(actionTitle, action: action).padding(.top, 4) }
+            if let actionTitle { Button(actionTitle, action: action).pointingHandCursor().padding(.top, 4) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(28)
@@ -114,14 +114,14 @@ struct TaskEditorView: View {
             HStack {
                 Text(task == nil ? "Новая задача" : "Редактирование задачи").font(.title2.weight(.semibold))
                 Spacer()
-                if task != nil { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked || reminder.isSaving || !reminder.saveState.needsGoogleSave) }
+                if task != nil { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.pointingHandCursor().disabled(model.mutationsBlocked || reminder.isSaving || !reminder.saveState.needsGoogleSave) }
             }
             EditorBody {
             VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
                 Group {
                 EditorField(title: "Название") { TextField("Название задачи", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
                 EditorField(title: "Заметки") { TextField("Необязательно", text: $local.notes, axis: .vertical).lineLimit(2...5).textFieldStyle(.roundedBorder) }
-                Toggle("Указать срок", isOn: $local.dueEnabled)
+                Toggle("Указать срок", isOn: $local.dueEnabled).pointingHandCursor()
                 if local.dueEnabled {
                     DatePicker("Срок (дата)", selection: $local.dueDate, displayedComponents: [.date])
                 }
@@ -129,7 +129,7 @@ struct TaskEditorView: View {
                     EditorField(title: "Список") {
                         Picker("Список задач", selection: $local.contextID) {
                             ForEach(model.snapshot.taskLists) { Text($0.title).tag($0.id) }
-                        }.labelsHidden()
+                        }.pointingHandCursor().labelsHidden()
                     }
                 } else {
                     LabeledContent("Список", value: model.snapshot.taskLists.first(where: { $0.id == taskListID })?.title ?? "Не выбран")
@@ -138,7 +138,7 @@ struct TaskEditorView: View {
                 .disabled(!reminder.saveState.needsGoogleSave)
                 Text("Google Tasks API сохраняет срок только как дату. Время ниже относится к локальному напоминанию на этом Mac.")
                     .font(.caption).foregroundStyle(AppTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                Toggle("Локальное напоминание", isOn: $reminder.enabled)
+                Toggle("Локальное напоминание", isOn: $reminder.enabled).pointingHandCursor()
                     .disabled(task?.completed == true)
                 if reminder.enabled {
                     DatePicker("Напомнить", selection: $reminder.fireDate, displayedComponents: [.date, .hourAndMinute])
@@ -161,14 +161,14 @@ struct TaskEditorView: View {
             .disabled(model.mutationsBlocked || reminder.isSaving)
             HStack {
                 Spacer()
-                Button(reminder.saveState.needsGoogleSave ? "Отмена" : "Закрыть") { dismiss() }
+                Button(reminder.saveState.needsGoogleSave ? "Отмена" : "Закрыть") { dismiss() }.pointingHandCursor()
                     .keyboardShortcut(.cancelAction).disabled(reminder.isSaving)
                 if reminder.saveState.needsGoogleSave {
                     MutationSaveControl(pendingMutationID: local.pendingMutationID,
                                         disabled: reminder.isSaving || local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || local.contextID.isEmpty,
                                         save: save, verified: {}, verifiedResult: taskVerified)
                 } else {
-                    Button(reminder.isSaving ? "Сохраняем напоминание…" : "Сохранить напоминание", action: saveLocalReminder)
+                    Button(reminder.isSaving ? "Сохраняем напоминание…" : "Сохранить напоминание", action: saveLocalReminder).pointingHandCursor()
                         .keyboardShortcut(.defaultAction).disabled(reminder.isSaving)
                 }
             }
@@ -294,7 +294,7 @@ struct TaskListManagerView: View {
             HStack {
                 Text("Списки задач").font(.title2.weight(.semibold))
                 Spacer()
-                Button { local.listForm = .create } label: { Label("Новый список", systemImage: "plus") }
+                Button { local.listForm = .create } label: { Label("Новый список", systemImage: "plus") }.pointingHandCursor()
             }
             if model.snapshot.taskLists.isEmpty {
                 VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
@@ -310,12 +310,12 @@ struct TaskListManagerView: View {
                             Label("Изменить", systemImage: "pencil").foregroundStyle(AppTheme.accent)
                         }.frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                             .contentShape(.interaction, Rectangle())
-                    }.buttonStyle(.plain).accessibilityLabel("Изменить список: \(list.title)")
+                    }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("Изменить список: \(list.title)")
                     .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
                 }
                 .frame(height: CGFloat(min(model.snapshot.taskLists.count, 6)) * 44 + 16)
             }
-            HStack { Spacer(); Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { Spacer(); Button("Готово") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction) }
         }
         .padding(AppTheme.editorInset)
         .frame(width: 500)
@@ -346,7 +346,7 @@ private struct TaskListEditorView: View {
             HStack {
                 Text(list == nil ? "Новый список" : "Переименовать список").font(.title2.weight(.semibold))
                 Spacer()
-                if list != nil { Button("Удалить…", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked) }
+                if list != nil { Button("Удалить…", role: .destructive) { local.showingDeleteConfirmation = true }.pointingHandCursor().disabled(model.mutationsBlocked) }
             }
             EditorBody {
             VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
@@ -360,7 +360,7 @@ private struct TaskListEditorView: View {
             .disabled(model.mutationsBlocked)
             HStack {
                 Spacer()
-                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Отмена") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction)
                 MutationSaveControl(pendingMutationID: local.pendingMutationID, disabled: local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, save: save, verified: { dismiss() })
             }
         }
@@ -415,7 +415,7 @@ struct ReminderEditorView: View {
                 VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
             Text("Для «\(task.title)». Время хранится только на этом устройстве и не отправляется в Google Tasks.")
                 .font(.callout).foregroundStyle(.secondary)
-            Toggle("Напомнить в выбранное время", isOn: $local.enabled)
+            Toggle("Напомнить в выбранное время", isOn: $local.enabled).pointingHandCursor()
             if local.enabled { DatePicker("Время", selection: $local.fireDate, displayedComponents: [.date, .hourAndMinute]) }
             Text("Показ зависит от разрешения macOS, Focus и настроек уведомлений. Спящий Mac может показать уведомление позже; после явного завершения приложения доставка не гарантируется.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -424,8 +424,8 @@ struct ReminderEditorView: View {
             }
             HStack {
                 Spacer()
-                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(local.isSaving ? "Сохраняется…" : (local.enabled ? "Включить и сохранить" : "Удалить напоминание")) { save() }
+                Button("Отмена") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction)
+                Button(local.isSaving ? "Сохраняется…" : (local.enabled ? "Включить и сохранить" : "Удалить напоминание")) { save() }.pointingHandCursor()
                     .keyboardShortcut(.defaultAction).disabled(local.isSaving)
             }
         }
@@ -498,7 +498,7 @@ struct SettingsView: View {
                                 model.saveSettings()
                                 do { _ = try model.commandFactory(); local.pathStatus = "gws доступен. Выполните синхронизацию для чтения данных." }
                                 catch { local.pathStatus = (error as? LocalizedError)?.errorDescription ?? "gws недоступен." }
-                            }
+                            }.pointingHandCursor()
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -506,7 +506,7 @@ struct SettingsView: View {
                     SettingsSection(title: "Внешний вид") {
                         Picker("Тема", selection: Binding(get: { model.appearance }, set: { model.setAppearance($0) })) {
                             ForEach(WorkspaceViewModel.Appearance.allCases) { Text($0.rawValue).tag($0) }
-                        }
+                        }.pointingHandCursor()
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -514,7 +514,7 @@ struct SettingsView: View {
                         Toggle("Запускать при входе в систему", isOn: Binding(
                             get: { loginItems.isRegistered },
                             set: { enabled in Task { await loginItems.setEnabled(enabled) } }
-                        ))
+                        )).pointingHandCursor()
                         .disabled(!loginItems.isAvailable || loginItems.isUpdating)
                         Text(loginItems.statusMessage).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -522,7 +522,7 @@ struct SettingsView: View {
                             Text(message).font(.caption).foregroundStyle(AppTheme.overdue)
                                 .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
                         }
-                        Button("Объекты входа в macOS") { loginItems.openSystemSettings() }
+                        Button("Объекты входа в macOS") { loginItems.openSystemSettings() }.pointingHandCursor()
                             .disabled(!loginItems.isAvailable || loginItems.isUpdating)
                     }
 
@@ -532,7 +532,7 @@ struct SettingsView: View {
 
                     SettingsSection(title: "Локальные уведомления") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Button(notificationActionTitle, action: inspectOrRequestNotificationAccess)
+                            Button(notificationActionTitle, action: inspectOrRequestNotificationAccess).pointingHandCursor()
                                 .disabled(model.launchMode != .normal || model.notificationRuntimeStatus == nil ||
                                           model.notificationRuntimeStatus?.authorization == "authorized")
                             if model.launchMode == .demo || model.launchMode == .ledgerAcceptance {
@@ -558,7 +558,7 @@ struct SettingsView: View {
                                 if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
                                     NSWorkspace.shared.open(url)
                                 }
-                            }
+                            }.pointingHandCursor()
                             Text("Чтобы уведомления оставались до закрытия, выберите g-calendar в уведомлениях macOS и стиль «Предупреждения» (постоянный). Системный выбор имеет приоритет.")
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -574,7 +574,7 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            HStack { Spacer(); Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { Spacer(); Button("Готово") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction) }
         }
         .padding(AppTheme.editorInset)
         .frame(minWidth: 400, idealWidth: 500, minHeight: 430)
@@ -646,7 +646,7 @@ private struct WorkspaceShortcutSettingsView: View {
             Button("Сбросить горячие клавиши") {
                 model.resetShortcuts()
                 local.resetGeneration += 1
-            }
+            }.pointingHandCursor()
         }
     }
 }
@@ -668,7 +668,7 @@ private struct WorkspaceShortcutEditor: View {
                 modifier("⌃", value: $local.draft.control, name: "Control")
                 modifier("⇧", value: $local.draft.shift, name: "Shift")
                 Spacer(minLength: 0)
-                Button("Применить") { local.problem = model.updateShortcut(local.draft, for: action) }
+                Button("Применить") { local.problem = model.updateShortcut(local.draft, for: action) }.pointingHandCursor()
             }
             if let problem = local.problem {
                 Text(problem).font(.caption).foregroundStyle(.red)
@@ -684,7 +684,7 @@ private struct WorkspaceShortcutEditor: View {
     }
 
     private func modifier(_ symbol: String, value: Binding<Bool>, name: String) -> some View {
-        Toggle(symbol, isOn: value).toggleStyle(.checkbox)
+        Toggle(symbol, isOn: value).pointingHandCursor().toggleStyle(.checkbox)
             .accessibilityLabel(name + ": " + action.title)
     }
 }
