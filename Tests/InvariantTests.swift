@@ -67,6 +67,7 @@ final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
     private var currentPermission: ReminderPermission
     private var resultOfRequest: ReminderPermission
     private let requestFailure: NotificationAuthorizationFailure?
+    private var scheduleFailuresRemaining: Int
     private var storedRequests: [ReminderRequest] = []
     private var storedEventRequests: [EventReminderRequest] = []
     private var pendingRequestsByID: [String: ReminderRequest] = [:]
@@ -75,10 +76,11 @@ final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
     private var storedPermissionRequests = 0
 
     init(permission: ReminderPermission, requestResult: ReminderPermission = .authorized,
-         requestFailure: NotificationAuthorizationFailure? = nil) {
+         requestFailure: NotificationAuthorizationFailure? = nil, scheduleFailures: Int = 0) {
         currentPermission = permission
         resultOfRequest = requestResult
         self.requestFailure = requestFailure
+        scheduleFailuresRemaining = scheduleFailures
     }
 
     func permission() async -> ReminderPermission {
@@ -103,11 +105,20 @@ final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
     }
 
     func schedule(_ reminder: ReminderRequest) async throws {
+        try rejectFailedSchedule()
         recordSchedule(reminder)
     }
 
     func schedule(_ reminder: EventReminderRequest) async throws {
         recordSchedule(reminder)
+    }
+
+    private func rejectFailedSchedule() throws {
+        lock.lock(); defer { lock.unlock() }
+        if scheduleFailuresRemaining > 0 {
+            scheduleFailuresRemaining -= 1
+            throw TestFailure(description: "Synthetic scheduling failure")
+        }
     }
 
     private func recordSchedule(_ reminder: ReminderRequest) {
@@ -212,6 +223,7 @@ struct InvariantTests {
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
         run("exact-resource-get-and-mutation-read-back", testExactResourceReadAndMutationReadback)
         await runAsync("reminder-permission-schedule-cancel-reschedule-dedup", testReminderLifecycle)
+        await runAsync("verified-task-reminder-local-retry-and-denied-metadata", testVerifiedTaskReminderSave)
         await runAsync("notification-authorization-error-and-readback-status", testNotificationAuthorizationOutcome)
         await runAsync("reminder-reconciles-on-wake-and-activation-without-duplicates", testLifecycleReconciliation)
         await runAsync("full-sync-removes-remote-deleted-reminder", testFullSyncRemovesRemoteDeletedReminder)
@@ -644,6 +656,14 @@ struct InvariantTests {
             try check(!copy.contains(access) && !copy.contains("foreground") && !copy.contains("delegate"), "settings must explain notification state without raw API/debug identifiers")
             try check(copy.contains("Ожидают доставки: 2") && copy.contains("в Центре уведомлений: 3"), "user-facing counts must distinguish scheduled from delivered notifications")
             try check(status.safeSummary.contains("authorization=\(access)") && status.safeSummary.contains("foreground_delegate_ready=true"), "CLI diagnostic summary must retain exact machine-readable status")
+        }
+        for (style, expected) in [("alert", "остаются до закрытия"), ("banner", "закрываются автоматически"),
+                                  ("none", "без всплывающих"), ("not_queried", "ещё не проверен"), ("unknown", "неизвестен")] {
+            let status = NotificationRuntimeStatus(authorization: "authorized", pendingCount: 0, deliveredCount: 0,
+                                                  alertSetting: "enabled", soundSetting: "enabled", foregroundDelegateReady: true,
+                                                  alertStyle: style)
+            try check(status.alertStyleMessage.contains(expected) && status.safeSummary.contains("alert_style=\(style)"),
+                      "notification style must explain actual system persistence")
         }
         let unavailable = NotificationRuntimeStatus(authorization: "unknown", pendingCount: 0, deliveredCount: 0,
                                                    alertSetting: "not_supported", soundSetting: "not_queried", foregroundDelegateReady: false)
@@ -1781,6 +1801,66 @@ struct InvariantTests {
         ], "task insert argument vector or JSON body changed")
 
         try expectForbidden({ _ = try factory.eventInsert(calendar: writable, body: ["summary": "Synthetic", "attendees": [["email": "fixture@example.invalid"]]], authorization: .userSave) }, "attendee/invitation payload")
+    }
+
+    static func testVerifiedTaskReminderSave() async throws {
+        let now = Date()
+        let future = now.addingTimeInterval(600)
+        let past = now.addingTimeInterval(-600)
+        try check(TaskReminderSaveState.validationMessage(enabled: true, fireDate: past, now: now) != nil,
+                  "new past reminder must be rejected before Google mutation")
+        try check(TaskReminderSaveState.validationMessage(enabled: true, fireDate: past, unchangedDate: past, now: now) == nil,
+                  "unchanged expired reminder must not block title editing")
+        try check(TaskReminderSaveState.validationMessage(enabled: true, fireDate: past, completed: true, now: now) == nil,
+                  "completed task edits must not demand a future reminder")
+        try check(TaskReminderSaveState.validationMessage(enabled: false, fireDate: past, now: now) == nil &&
+                  TaskReminderSaveState.validationMessage(enabled: true, fireDate: future, now: now) == nil,
+                  "disabled and future reminders must validate")
+
+        let factory = GWSCommandFactory(executableURL: executable)
+        let task = GoogleTask(id: "verified-reminder-fixture", taskListID: "list-fixture", title: "Synthetic reminder",
+                              notes: nil, due: nil, completed: false, deleted: false, updated: nil)
+        let runner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .taskInsert:
+                return ProcessResult(exitCode: 0, stdout: Data("{\"id\":\"verified-reminder-fixture\"}".utf8), stderr: Data())
+            case .taskGet:
+                return ProcessResult(exitCode: 0, stdout: Data("{\"id\":\"verified-reminder-fixture\",\"title\":\"Synthetic reminder\",\"status\":\"needsAction\"}".utf8), stderr: Data())
+            default: throw TestFailure(description: "Unexpected synthetic operation")
+            }
+        }
+        var state = TaskReminderSaveState()
+        try check(!state.accept(.requestAccepted) && state.needsGoogleSave && state.verifiedTask == nil,
+                  "unverified task cannot enter the local reminder stage")
+        let insert = try factory.taskInsert(taskListID: task.taskListID, title: task.title, notes: nil, due: nil, authorization: .userSave)
+        let verified = try GWSMutationService(runner: runner).perform(insert, reader: GWSReadClient(factory: factory, runner: runner))
+        try check(state.accept(verified) && !state.needsGoogleSave && state.verifiedTask?.id == task.id,
+                  "exact readback must preserve the confirmed task ID for local retries")
+        let store = MemoryMetadataStore()
+        let scheduler = RecordingScheduler(permission: .authorized, scheduleFailures: 1)
+        let suite = "g-calendar-reminder-stage-test-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let coordinator = ReminderCoordinator(store: store, scheduler: scheduler, defaults: defaults)
+        do {
+            _ = try await coordinator.saveReminder(task: state.verifiedTask!, title: task.title, at: future, explicitEnableAction: true, now: now)
+            throw TestFailure(description: "Synthetic scheduling failure should propagate")
+        } catch let failure as TestFailure {
+            try check(failure.description == "Synthetic scheduling failure", "scheduler failure must propagate without replacing confirmed task")
+        }
+        try check(store.metadata(for: task.id).reminderAt == future && !state.needsGoogleSave,
+                  "local failure must retain metadata and never re-enter Google insert stage")
+        _ = try await coordinator.saveReminder(task: state.verifiedTask!, title: task.title, at: future, explicitEnableAction: true, now: now)
+        try check(scheduler.requests.count == 1 && scheduler.requests.first?.taskID == task.id,
+                  "local retry must schedule the confirmed ID once")
+        try check(runner.invocations.filter { $0.operation == .taskInsert }.count == 1 && runner.invocations.count == 2,
+                  "local retry must not repeat Google insert or readback")
+        let deniedStore = MemoryMetadataStore()
+        let deniedScheduler = RecordingScheduler(permission: .denied)
+        let denied = try await ReminderCoordinator(store: deniedStore, scheduler: deniedScheduler, defaults: defaults)
+            .saveReminder(task: task, title: task.title, at: future, explicitEnableAction: true, now: now)
+        try check(denied.status == .denied && deniedStore.metadata(for: task.id).reminderAt == future && deniedScheduler.requests.isEmpty,
+                  "denied delivery must still preserve the local reminder time without claiming scheduling")
     }
 
     static func testReminderLifecycle() async throws {

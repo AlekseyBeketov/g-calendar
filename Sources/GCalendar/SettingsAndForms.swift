@@ -36,6 +36,7 @@ struct MutationSaveControl: View {
     let disabled: Bool
     let save: () -> Void
     let verified: () -> Void
+    var verifiedResult: ((GWSMutationResult) -> Void)? = nil
 
     private var ownsPendingAttempt: Bool {
         pendingMutationID != nil && pendingMutationID == model.pendingMutation?.id
@@ -49,10 +50,11 @@ struct MutationSaveControl: View {
                      : "Запрос уже отправлен. Проверка повторно прочитает объект.")
                     .font(.caption).foregroundStyle(AppTheme.warning).fixedSize(horizontal: false, vertical: true)
                 Button(model.mutationInFlight ? "Проверяем…" : "Проверить сохранение") {
-                    model.recheckPendingMutation(onSuccess: verified)
+                    model.recheckPendingMutation(onSuccess: verifiedResult == nil ? verified : nil,
+                                                 thenRefresh: verifiedResult == nil, onVerified: verifiedResult)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.mutationInFlight || model.pendingMutation?.resourceID == nil)
+                .disabled(disabled || model.mutationInFlight || model.pendingMutation?.resourceID == nil)
             } else {
                 Button(model.mutationInFlight ? "Сохраняем…" : "Сохранить", action: save)
                     .keyboardShortcut(.defaultAction).disabled(disabled || model.mutationsBlocked)
@@ -97,6 +99,7 @@ struct TaskEditorView: View {
 
     @StateObject private var local: ViewLocalState
     @FocusState private var titleFocused: Bool
+    @StateObject private var reminder = TaskEditorReminderState()
 
     init(task: GoogleTask?, taskListID: String?) {
         self.task = task
@@ -111,10 +114,11 @@ struct TaskEditorView: View {
             HStack {
                 Text(task == nil ? "Новая задача" : "Редактирование задачи").font(.title2.weight(.semibold))
                 Spacer()
-                if task != nil { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked) }
+                if task != nil { Button("Удалить", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked || reminder.isSaving || !reminder.saveState.needsGoogleSave) }
             }
             EditorBody {
             VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
+                Group {
                 EditorField(title: "Название") { TextField("Название задачи", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
                 EditorField(title: "Заметки") { TextField("Необязательно", text: $local.notes, axis: .vertical).lineLimit(2...5).textFieldStyle(.roundedBorder) }
                 Toggle("Указать срок", isOn: $local.dueEnabled)
@@ -130,28 +134,60 @@ struct TaskEditorView: View {
                 } else {
                     LabeledContent("Список", value: model.snapshot.taskLists.first(where: { $0.id == taskListID })?.title ?? "Не выбран")
                 }
-                Text("Срок — дата без времени. Локальное напоминание можно добавить после сохранения.")
+                }
+                .disabled(!reminder.saveState.needsGoogleSave)
+                Text("Google Tasks API сохраняет срок только как дату. Время ниже относится к локальному напоминанию на этом Mac.")
                     .font(.caption).foregroundStyle(AppTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                Toggle("Локальное напоминание", isOn: $reminder.enabled)
+                    .disabled(task?.completed == true)
+                if reminder.enabled {
+                    DatePicker("Напомнить", selection: $reminder.fireDate, displayedComponents: [.date, .hourAndMinute])
+                        .disabled(task?.completed == true)
+                }
+                if task?.completed == true {
+                    Text("Для выполненной задачи уведомление не планируется.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let message = reminder.message {
+                    Text(message).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
                 if let message = local.errorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.overdue).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
                 }
             }
             }
-            .disabled(model.mutationsBlocked)
+            .disabled(model.mutationsBlocked || reminder.isSaving)
             HStack {
                 Spacer()
-                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                MutationSaveControl(pendingMutationID: local.pendingMutationID,
-                                    disabled: local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || local.contextID.isEmpty,
-                                    save: save, verified: { dismiss() })
+                Button(reminder.saveState.needsGoogleSave ? "Отмена" : "Закрыть") { dismiss() }
+                    .keyboardShortcut(.cancelAction).disabled(reminder.isSaving)
+                if reminder.saveState.needsGoogleSave {
+                    MutationSaveControl(pendingMutationID: local.pendingMutationID,
+                                        disabled: reminder.isSaving || local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || local.contextID.isEmpty,
+                                        save: save, verified: {}, verifiedResult: taskVerified)
+                } else {
+                    Button(reminder.isSaving ? "Сохраняем напоминание…" : "Сохранить напоминание", action: saveLocalReminder)
+                        .keyboardShortcut(.defaultAction).disabled(reminder.isSaving)
+                }
             }
         }
         .padding(AppTheme.editorInset)
         .frame(width: 500)
         .fixedSize(horizontal: false, vertical: true)
         .defaultFocus($titleFocused, true)
-        .onAppear { if local.contextID.isEmpty { local.contextID = model.snapshot.taskLists.first?.id ?? "" } }
+        .onAppear {
+            if local.contextID.isEmpty { local.contextID = model.snapshot.taskLists.first?.id ?? "" }
+            if !reminder.initialized {
+                if let task, let date = model.metadataStore.metadata(for: task.id).reminderAt {
+                    reminder.enabled = true
+                    reminder.fireDate = date
+                    reminder.originalFireDate = date
+                }
+                reminder.initialized = true
+            }
+        }
         .confirmationDialog("Удалить задачу?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить задачу", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
@@ -159,6 +195,14 @@ struct TaskEditorView: View {
     }
 
     private func save() {
+        guard !reminder.isSaving else { return }
+        if !reminder.saveState.needsGoogleSave { saveLocalReminder(); return }
+        if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
+                                                                     unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
+            local.errorMessage = problem
+            return
+        }
+        local.errorMessage = nil
         let taskListID = task?.taskListID ?? local.contextID
         guard !taskListID.isEmpty else { local.errorMessage = "Сначала выберите список задач."; return }
         do {
@@ -172,8 +216,63 @@ struct TaskEditorView: View {
                 invocation = try factory.taskInsert(taskListID: taskListID, title: local.title.trimmingCharacters(in: .whitespacesAndNewlines),
                                                     notes: local.notes, due: due, authorization: .userSave)
             }
-            model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id })
+            model.performMutation(invocation, thenRefresh: false,
+                                  onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id },
+                                  onVerified: taskVerified)
         } catch { local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Сохранение не выполнено." }
+    }
+
+    private func taskVerified(_ result: GWSMutationResult) {
+        if case .resourceDeleted = result {
+            model.refreshTasksAfterSave()
+            dismiss()
+            return
+        }
+        guard reminder.saveState.accept(result) else {
+            local.errorMessage = "Результат сохранения задачи не подтверждён."
+            return
+        }
+        local.pendingMutationID = nil
+        local.errorMessage = nil
+        saveLocalReminder()
+    }
+
+    private func saveLocalReminder() {
+        guard !reminder.isSaving, let verifiedTask = reminder.saveState.verifiedTask else { return }
+        if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
+                                                                     unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
+            local.errorMessage = "Задача сохранена. " + problem
+            model.refreshTasksAfterSave()
+            return
+        }
+        reminder.isSaving = true
+        reminder.message = nil
+        local.errorMessage = nil
+        let date = reminder.enabled ? reminder.fireDate : nil
+        Task { @MainActor in
+            defer {
+                reminder.isSaving = false
+                model.refreshTasksAfterSave()
+            }
+            do {
+                let authorization = try await model.reminderCoordinator.saveReminder(task: verifiedTask, title: verifiedTask.title,
+                                                                                     at: date, explicitEnableAction: reminder.enabled)
+                if date == nil {
+                    dismiss()
+                } else if verifiedTask.completed || (date == reminder.originalFireDate && reminder.fireDate <= Date()) {
+                    // Keep a pre-existing expired reminder without blocking ordinary task edits.
+                    dismiss()
+                } else if authorization.status == .authorized && reminder.fireDate > Date() && !verifiedTask.deleted {
+                    dismiss()
+                } else {
+                    let delivery = verifiedTask.completed ? "Для выполненной задачи уведомление не планируется." : authorization.userMessage
+                    reminder.message = "Задача сохранена. Время локального напоминания сохранено. " + delivery
+                }
+                await model.refreshNotificationStatus()
+            } catch {
+                local.errorMessage = "Задача сохранена. Не удалось сохранить или запланировать локальное напоминание. Можно повторить только сохранение напоминания или закрыть форму."
+            }
+        }
     }
 
     private func delete() {
@@ -438,6 +537,14 @@ struct SettingsView: View {
                                 Text(reminderStatus).font(.caption).fixedSize(horizontal: false, vertical: true)
                                     .accessibilityAddTraits(.updatesFrequently)
                             }
+                            Button("Открыть настройки уведомлений macOS") {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                            Text("Чтобы уведомления оставались до закрытия, выберите g-calendar в уведомлениях macOS и стиль «Предупреждения» (постоянный). Системный выбор имеет приоритет.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text("Показы зависят от Focus и системных настроек. Во время сна уведомление может задержаться; после явного завершения приложения доставка не гарантируется.")
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -563,4 +670,15 @@ private final class WorkspaceShortcutEditorState: ObservableObject {
     @Published var resetGeneration = 0
     @Published var draft = WorkspaceShortcutBinding(key: "")
     @Published var problem: String?
+}
+
+@MainActor
+private final class TaskEditorReminderState: ObservableObject {
+    @Published var initialized = false
+    @Published var enabled = false
+    @Published var fireDate = Date().addingTimeInterval(3600)
+    var originalFireDate: Date?
+    @Published var isSaving = false
+    @Published var message: String?
+    @Published var saveState = TaskReminderSaveState()
 }

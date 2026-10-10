@@ -24,7 +24,7 @@ if [[ -e "$APP" && ! -f "$APP/Contents/Resources/g-calendar-build-origin.txt" ]]
   exit 2
 fi
 
-cp "$ROOT/resources/AppIcon.icns" "$STAGE/Contents/Resources/AppIcon.icns"
+cp "$ROOT/resources/AppIcon.icns" "$STAGE/Contents/Resources/WorkspaceIcon.icns"
 
 SOURCE_FILES=("$ROOT"/Sources/GCalendar/*.swift)
 OPTIMIZATION="-O"

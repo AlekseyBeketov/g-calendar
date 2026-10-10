@@ -378,10 +378,12 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     func performMutation(_ invocation: ProcessInvocation, thenRefresh: Bool = true,
-                         onSuccess: (() -> Void)? = nil, onFailure: ((String) -> Void)? = nil) {
+                         onSuccess: (() -> Void)? = nil, onFailure: ((String) -> Void)? = nil,
+                         onVerified: ((GWSMutationResult) -> Void)? = nil) {
         if launchMode == .demo {
             guard !mutationsBlocked else { onFailure?(mutationRecoveryProblem ?? MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка."); return }
             do {
+                let existingTaskIDs = Set(snapshot.tasks.map(\.id))
                 try demoAdapter?.perform(invocation)
                 if let demoAdapter {
                     snapshot = demoAdapter.snapshot()
@@ -394,6 +396,18 @@ final class WorkspaceViewModel: ObservableObject {
                     visibleCalendarIDs = Set(snapshot.calendars.map(\.id))
                 }
                 statusMessage = "ДЕМО · действие обработано локальным fixture-адаптером; Google не вызывался."
+                if let onVerified {
+                    let verifiedTask: GoogleTask?
+                    if invocation.operation == .taskInsert {
+                        verifiedTask = snapshot.tasks.first { !existingTaskIDs.contains($0.id) }
+                    } else if invocation.operation == .taskPatch {
+                        let taskID = Self.argument("task", in: invocation)
+                        let listID = Self.argument("tasklist", in: invocation)
+                        verifiedTask = snapshot.tasks.first { $0.id == taskID && $0.taskListID == listID }
+                    } else { verifiedTask = nil }
+                    guard let verifiedTask else { throw GWSFailure.mutationNotVerified }
+                    onVerified(.taskVerified(verifiedTask))
+                }
                 onSuccess?()
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "Демо-действие не выполнено."
@@ -430,7 +444,7 @@ final class WorkspaceViewModel: ObservableObject {
                 switch outcome {
                 case .success(let result) where result.isReadBackVerified:
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
-                    if case .taskVerified(let task) = result {
+                    if onVerified == nil, case .taskVerified(let task) = result {
                         Task { await self.reminderCoordinator.reconcile(tasks: [task]) }
                     }
                     if case .resourceDeleted = result {
@@ -443,6 +457,7 @@ final class WorkspaceViewModel: ObservableObject {
                             Task { try? await self.eventReminderCoordinator.remove(identity: identity) }
                         }
                     }
+                    onVerified?(result)
                     onSuccess?()
                     if thenRefresh { self.refreshAfterMutation(invocation.operation) }
                 case .success:
@@ -458,7 +473,8 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    func recheckPendingMutation(onSuccess: (() -> Void)? = nil) {
+    func recheckPendingMutation(onSuccess: (() -> Void)? = nil, thenRefresh: Bool = true,
+                                onVerified: ((GWSMutationResult) -> Void)? = nil) {
         guard !mutationInFlight, pendingMutation?.resourceID != nil, let runner else { return }
         mutationInFlight = true
         statusMessage = "Проверяем сохранение…"
@@ -480,10 +496,11 @@ final class WorkspaceViewModel: ObservableObject {
                 switch result {
                 case .success(let verified):
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
-                    if case .taskVerified(let task) = verified { Task { await self.reminderCoordinator.reconcile(tasks: [task]) } }
+                    if onVerified == nil, case .taskVerified(let task) = verified { Task { await self.reminderCoordinator.reconcile(tasks: [task]) } }
+                    onVerified?(verified)
                     onSuccess?()
                     // A domain refresh reconciles deletion reminders using complete, confirmed data.
-                    if let pendingOperation { self.refreshAfterMutation(pendingOperation) }
+                    if thenRefresh, let pendingOperation { self.refreshAfterMutation(pendingOperation) }
                 case .failure(let error):
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Проверка пока не завершена."
                 }
@@ -510,6 +527,8 @@ final class WorkspaceViewModel: ObservableObject {
             refresh()
         } catch { mutationRecoveryProblem = "Не удалось обновить журнал проверки. Запись остаётся заблокированной." }
     }
+
+    func refreshTasksAfterSave() { refreshAfterMutation(.taskPatch) }
 
     private func refreshAfterMutation(_ operation: GWSOperation) {
         guard launchMode == .normal else { refresh(); return }

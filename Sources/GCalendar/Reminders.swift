@@ -9,6 +9,24 @@ struct ReminderRequest: Equatable {
     let fireDate: Date
 }
 
+/// Once Google confirms a task, retries belong exclusively to the device-local stage.
+struct TaskReminderSaveState {
+    private(set) var verifiedTask: GoogleTask?
+    var needsGoogleSave: Bool { verifiedTask == nil }
+
+    mutating func accept(_ result: GWSMutationResult) -> Bool {
+        guard case .taskVerified(let task) = result else { return false }
+        verifiedTask = task
+        return true
+    }
+
+    static func validationMessage(enabled: Bool, fireDate: Date, unchangedDate: Date? = nil,
+                                  completed: Bool = false, now: Date = Date()) -> String? {
+        enabled && !completed && fireDate != unchangedDate && fireDate <= now
+            ? "Выберите будущее время локального напоминания." : nil
+    }
+}
+
 enum NotificationAcceptance {
     /// Explicit test mode only. Never requests permission, reads cache or changes reminders.
     static func scheduleOneTest(using scheduler: ReminderScheduling, now: Date = Date()) async throws -> ReminderRequest {
@@ -123,6 +141,7 @@ struct NotificationRuntimeStatus: Equatable {
     let alertSetting: String
     let soundSetting: String
     let foregroundDelegateReady: Bool
+    var alertStyle: String = "not_queried"
 
     var userFacingLines: [String] {
         let access: String
@@ -145,11 +164,22 @@ struct NotificationRuntimeStatus: Equatable {
         }
         return [access,
                 "Показ уведомлений: \(setting(alertSetting)) · звук: \(setting(soundSetting)).",
+                alertStyleMessage,
                 "Ожидают доставки: \(pendingCount) · в Центре уведомлений: \(deliveredCount)."]
     }
 
+    var alertStyleMessage: String {
+        switch alertStyle {
+        case "alert": return "Стиль: предупреждения — остаются до закрытия."
+        case "banner": return "Стиль: баннеры — закрываются автоматически."
+        case "none": return "Стиль: без всплывающих уведомлений."
+        case "not_queried": return "Стиль уведомлений ещё не проверен."
+        default: return "Стиль уведомлений неизвестен. Обновите статус позже."
+        }
+    }
+
     var safeSummary: String {
-        "authorization=\(authorization) alert_setting=\(alertSetting) sound_setting=\(soundSetting) pending_count=\(pendingCount) delivered_count=\(deliveredCount) foreground_delegate_ready=\(foregroundDelegateReady)"
+        "authorization=\(authorization) alert_setting=\(alertSetting) alert_style=\(alertStyle) sound_setting=\(soundSetting) pending_count=\(pendingCount) delivered_count=\(deliveredCount) foreground_delegate_ready=\(foregroundDelegateReady)"
     }
 }
 
@@ -385,7 +415,17 @@ final class UserNotificationScheduler: ReminderScheduling, NotificationStatusPro
                                          deliveredCount: delivered,
                                          alertSetting: alertSetting,
                                          soundSetting: soundSetting,
-                                         foregroundDelegateReady: center.delegate === foregroundPresenter)
+                                         foregroundDelegateReady: center.delegate === foregroundPresenter,
+                                         alertStyle: Self.styleIdentifier(settings.alertStyle))
+    }
+
+    private static func styleIdentifier(_ style: UNAlertStyle) -> String {
+        switch style {
+        case .none: return "none"
+        case .banner: return "banner"
+        case .alert: return "alert"
+        @unknown default: return "unknown"
+        }
     }
 
     private static func settingIdentifier(_ setting: UNNotificationSetting) -> String {
