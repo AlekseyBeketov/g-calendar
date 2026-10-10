@@ -99,7 +99,7 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 12.2 Inline local reminder time, current notification icon and alert preference; verify, commit and push main.
 - [x] 12.3 Login at system start with real macOS status; verify, commit and push main.
 - [x] 12.4 Writable-first calendar ordering and default selection; verify, commit and push main.
-- [ ] 12.5 Down/up calendar task disclosure; verify, commit and push main.
+- [x] 12.5 Down/up calendar task disclosure; verify, commit and push main.
 - [ ] 12.6 Pointer cursor on full interactive hit regions and repository rule; verify, commit and push main.
 - [ ] 12.7 All boards by default and columns grouped by board; verify, commit and push main.
 - [ ] 12.8 Verified move to another board from task editor; verify, commit and push main.

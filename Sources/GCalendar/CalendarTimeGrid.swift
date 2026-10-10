@@ -303,7 +303,7 @@ struct CalendarUndatedTaskRegion: View {
                     Label("Без срока", systemImage: "tray")
                     Spacer()
                     Text("\(tasks.count)").monospacedDigit()
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
                 }
                 .font(.headline)
                 .foregroundStyle(AppTheme.task)
