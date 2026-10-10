@@ -67,3 +67,10 @@ The system MUST allow an explicit user action to attach a local-only notificatio
 #### Scenario: Retain second-level trigger precision
 - **WHEN** an authorized reminder is scheduled for a future instant that is not minute-aligned
 - **THEN** the calendar trigger retains seconds and its next trigger date does not move earlier or to the next minute
+
+### Requirement: Inline local reminder time and native alerts
+The task editor MUST allow selecting local reminder date/time separately from Google due date. The app MUST request alert presentation preference and use the current app icon; it MUST explain the user-controlled macOS style.
+
+#### Scenario: Save reminder with task
+- **WHEN** A task save is read-back verified
+- **THEN** The reminder is saved for that verified task ID locally; a local failure never repeats the Google mutation

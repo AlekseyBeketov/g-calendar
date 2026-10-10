@@ -91,3 +91,15 @@ Current evidence (2026-10-07): optimized current app run-54154 built and externa
 ## External distribution acceptance — explicitly outside local completion
 
 Developer ID credentials, license/publication approval, real published installer SHA/tag and downloaded clean-Mac acceptance remain open. No public signed/notarized distribution has been claimed or published. This is the credential/release gate already required by task 9.4 and the app-installation specification; tasks 9.1–9.5 mark implemented scripts, fixtures and local-bundle acceptance. Full spoken VoiceOver and visible notification banner remain human checks. See docs/PENDING_DECISIONS.md and docs/RELEASING.md.
+
+
+## 12. Workspace improvements (2026-10-10)
+
+- [ ] 12.1 Configurable shortcuts and Command-B sidebar toggle; verify, commit and push main.
+- [ ] 12.2 Inline local reminder time, current notification icon and alert preference; verify, commit and push main.
+- [ ] 12.3 Login at system start with real macOS status; verify, commit and push main.
+- [ ] 12.4 Writable-first calendar ordering and default selection; verify, commit and push main.
+- [ ] 12.5 Down/up calendar task disclosure; verify, commit and push main.
+- [ ] 12.6 Pointer cursor on full interactive hit regions and repository rule; verify, commit and push main.
+- [ ] 12.7 All boards by default and columns grouped by board; verify, commit and push main.
+- [ ] 12.8 Verified move to another board from task editor; verify, commit and push main.

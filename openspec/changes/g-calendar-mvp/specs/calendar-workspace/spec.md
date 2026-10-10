@@ -128,3 +128,24 @@ The week-level undated region MUST be compact and collapsible. Its collapsed sta
 #### Scenario: Expand undated tasks
 - **WHEN** the user expands the timeless region
 - **THEN** each scoped undated task and its supported completion action is shown once
+
+### Requirement: Writable-first calendar navigation
+Calendars MUST sort writable first then by localized title and stable ID. Missing selection MUST prefer a writable calendar, preserving explicit valid selections and independent visibility. Locks MUST reflect Google access roles.
+
+#### Scenario: Refresh without selected calendar
+- **WHEN** The refreshed calendars contain a writer and a reader
+- **THEN** The writer is chosen by default and appears before the reader
+
+### Requirement: Calendar task disclosure direction
+Collapsed calendar task disclosure MUST show chevron.down and expanded disclosure MUST show chevron.up.
+
+#### Scenario: Expand tasks
+- **WHEN** The user activates collapsed task disclosure
+- **THEN** The list opens and the chevron points up
+
+### Requirement: Pointer interaction regions
+Enabled actionable controls MUST show a pointing hand across the complete hit area including padding. Disabled controls and text entry MUST preserve their native cursor.
+
+#### Scenario: Hover padding
+- **WHEN** The pointer enters clickable padding around a button
+- **THEN** The cursor becomes a pointing hand without changing hit testing

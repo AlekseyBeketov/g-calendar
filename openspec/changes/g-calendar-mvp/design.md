@@ -55,3 +55,23 @@ No existing application data is migrated. On first run, show a setup state that 
 - Is direct `swiftc` adequate for both focused tests and repeatable app bundling while the SwiftPM defect persists? Must be demonstrated with actual commands.
 - Exact minimum macOS deployment target and recurrence boundaries should follow successful SDK compile and fixture tests; no unsupported target should be hard-coded before validation.
 - Synthetic Google write/read-back smoke is explicitly owner-authorized for this completion run but remains not-run until documented. Production writes, visible notification permission/banner, signing/notarization, and login behavior remain human approval/verification gates.
+
+
+## Workspace improvements (2026-10-10)
+
+
+Этап 1: добавить модель сочетаний, сохранение в UserDefaults, проверку конфликтов и сброс. Настройки редактируют все команды рабочего пространства; ⌘B меняет NavigationSplitViewVisibility через запрос модели. Фиксированные ⌘Q, Return/Escape и навигацию стрелками не переназначать. Проверить сохранение, конфликты и defaults.
+
+Этап 2: редактор задачи получает отдельный переключатель и DatePicker локального напоминания. После read-back успешной записи сохранить напоминание для полученного task ID; сбой напоминания не повторяет Google запись. Задать Info.plist alert style и уникальное актуальное имя icon resource. Показать системный стиль и путь к настройкам. Не изменять глобальные настройки macOS.
+
+Этап 3: новый сервис LoginItemSettings на SMAppService.mainApp. Настройки читают реальный статус enabled/requiresApproval/notRegistered/notFound, показывают ошибку и ссылку на системные настройки; demo не регистрирует автозапуск.
+
+Этап 4: чистая сортировка writable first, затем локализованное имя и ID; контекст по умолчанию выбирает writable. Существующий явный выбор сохраняется пока присутствует, видимость календарей независима. Проверить пустой список и только read-only.
+
+Этап 5: заменить только иконку раскрытия календарных задач на down/up; сохранить действие, счётчик и accessibility.
+
+Этап 6: общий AppKit cursor rect для SwiftUI и нативных интерактивных контролов. Область совпадает с hit region, disabled исключаются, текстовые поля сохраняют I-beam. Проверить cleanup курсора; добавить правило в AGENTS.md и docs/ui.md.
+
+Этап 7: nil selectedTaskListID означает все доски и является default. Сохранить nil после refresh и удаления выбранной доски. В sidebar и selector добавить Все доски. Колонки показываются только в этом scope и группируются по TaskList с устойчивыми составными task identity; фильтры применяются ко всем доскам. Конкретная доска всегда список. Задать явную ширину колонок и один вертикальный scroll внутри каждой колонки без перекрытия. Проверить фильтры, scope, сортировку, keyboard identities и узкое окно.
+
+Этап 8: редактор всегда показывает Picker доски. Новый taskMove invocation с source tasklist/task и destinationTasklist, пустым body, авторизацией userSave. Проверить точное чтение целевой и отсутствие в исходной доске, сохранить ID и локальные metadata. Добавить поддержку demo, refresh scope, journal recovery. Проверить успешный перенос, неподтверждённый результат и recheck без повторной записи.

@@ -132,3 +132,17 @@ The app MUST distinguish initial loading, setup-required, empty, no-match, offli
 #### Scenario: Initial empty scope
 - **WHEN** the current range or selected task list has no data and no prior snapshot
 - **THEN** the app presents an empty/setup state rather than a no-match or stale-data message
+
+### Requirement: Configurable workspace shortcuts
+The application MUST persist user-configured shortcuts, reject conflicts, offer reset, and default sidebar toggle to Command-B.
+
+#### Scenario: Change a shortcut
+- **WHEN** The user saves a valid non-conflicting shortcut
+- **THEN** The corresponding command uses it across restarts and Command-B toggles sidebar visibility by default
+
+### Requirement: Launch at login
+The application MUST expose launch-at-login registration with actual system status, approval and errors; isolated demo MUST NOT register.
+
+#### Scenario: Toggle launch at login
+- **WHEN** The user enables launch at login
+- **THEN** SMAppService registers the main app and settings show the resulting status

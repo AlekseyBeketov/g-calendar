@@ -88,7 +88,7 @@ Task filters MUST use the current local calendar date and Google's date-only due
 - **THEN** it appears only in the Without due filter or timeless calendar region, never in Upcoming
 
 ### Requirement: Task list is the default presentation and columns are explicit
-The task workspace MUST default to a vertical list. Users MUST be able to explicitly switch to a column presentation and back without losing the selected task list or filter. When the available detail width is too small for readable columns, the column mode MUST fall back to one vertical column while preserving the selected mode and task actions.
+The task workspace MUST default to a vertical list. Users MUST be able to explicitly switch to board columns and back while all boards are selected without losing the filter. A specific board MUST always use list presentation. When the available detail width is too small for readable columns, the column mode MUST fall back to one vertical column while preserving the selected mode and task actions.
 
 #### Scenario: Open the task workspace
 - **WHEN** the user opens Tasks without a saved view preference
@@ -101,3 +101,17 @@ The task workspace MUST default to a vertical list. Users MUST be able to explic
 #### Scenario: Resize columns to a narrow workspace
 - **WHEN** the user narrows the detail area while columns are selected
 - **THEN** the same groups and actions remain reachable in a single vertical column
+
+### Requirement: All-board task scope and board columns
+The task workspace MUST default to all boards, preserve that scope during refresh, and offer explicit individual board selection. Columns MUST be available only for all boards and group tasks by board, applying search and filters consistently. Columns MUST NOT overlap or truncate action reachability.
+
+#### Scenario: Select columns across boards
+- **WHEN** All boards is selected and the user chooses columns
+- **THEN** Each board gets a readable column with its own tasks; selecting one board shows a list
+
+### Requirement: Native verified cross-board move
+Editing a task MUST allow selecting a destination board. Moves MUST use tasks.move destinationTasklist and confirm destination membership and source absence using exact reads; uncertain results MUST remain recoverable without repeated writes.
+
+#### Scenario: Move task while editing
+- **WHEN** The user saves edited fields and a different board
+- **THEN** The fields and move are separately verified; the editor tracks the confirmed identity and local metadata remains attached

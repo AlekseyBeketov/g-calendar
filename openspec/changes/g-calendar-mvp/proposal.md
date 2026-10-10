@@ -29,3 +29,8 @@ None.
 - New Swift sources, tests, scripts, resources and app bundle in `dist/`; repository-owned docs and repo-local OpenSpec change.
 - Current local `gws` configuration is reused by subprocess; no token access/export, OAuth changes, hosted backend, paid key, public release, or Apple signing. Production/personal Google objects are never mutated. The owner has separately authorized a tightly-scoped live acceptance lifecycle using only this run's synthetic event/task objects through the actual app UI/adapter, with exact GET verification before and after every operation and IDs kept in a private ledger.
 - CLI compatibility and currently broken SwiftPM manifest linking are explicit risks. If SPM cannot be repaired without changing/installing system tools, use a reproducible direct-`swiftc` path only if tests and bundle can be built and truthfully reported; never claim failing SwiftPM passed.
+
+
+## Follow-up scope: 2026-10-10
+
+Add configurable workspace shortcuts, inline local reminder time, persistent notification preference/current icon, login-at-system-start option, writable-first calendar ordering/default, intuitive disclosure, pointer hit regions, all-board task scope and board columns, and verified native task moves. See docs/plans/2026-10-10-workspace-improvements.md.
