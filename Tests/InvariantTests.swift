@@ -193,6 +193,7 @@ struct InvariantTests {
         run("calendar-undated-tasks-once-and-search-scope", testCalendarUndatedTasks)
         run("task-date-filters-and-groups", testTaskFilters)
         run("task-keyboard-selection-scope-and-commands", testTaskKeyboardNavigation)
+        run("workspace-shortcut-defaults-persistence-conflicts-reset", testWorkspaceShortcuts)
         run("theme-srgb-text-and-control-contrast", testThemeContrast)
         run("notification-status-user-facing-copy", testNotificationStatusCopy)
         run("sync-failure-recovery-category", testSyncFailureState)
@@ -534,6 +535,35 @@ struct InvariantTests {
         let ordered = TaskWorkspaceLayout.filteredTasks(unordered, filter: .upcoming, selectedTaskListID: "synthetic-list", searchText: "", today: today)
         try check(ordered.map(\.id) == ["same-a", "same-b", "later"], "dated views must sort by due and retain source order for equal dates")
         try check(TaskWorkspaceLayout.groups(unordered, today: today)[3].1.map(\.id) == ["undated-b", "undated-a"], "undated manual order must not change")
+    }
+
+    static func testWorkspaceShortcuts() throws {
+        let suite = "g-calendar-shortcut-test-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var settings = WorkspaceShortcutSettings.load(from: defaults)
+        try require(settings[.toggleSidebar] == WorkspaceShortcutBinding(key: "b"), "sidebar defaults to command B")
+        try require(Set(WorkspaceShortcutAction.allCases.map { settings[$0] }).count == 9, "defaults have no conflicts")
+        let changed = WorkspaceShortcutBinding(key: "K", command: true, option: true)
+        try require(settings.update(changed, for: .toggleSidebar) == nil, "custom shortcut accepted")
+        settings.save(to: defaults)
+        try require(WorkspaceShortcutSettings.load(from: defaults)[.toggleSidebar] == changed.normalized, "shortcut persists normalized")
+        let beforeConflict = settings
+        try require(settings.update(changed, for: .search) != nil && settings == beforeConflict, "duplicate rejected without mutation")
+        for invalid in [WorkspaceShortcutBinding(key: "q"), WorkspaceShortcutBinding(key: "v"),
+                        WorkspaceShortcutBinding(key: "ab"), WorkspaceShortcutBinding(key: ""),
+                        WorkspaceShortcutBinding(key: "ф"), WorkspaceShortcutBinding(key: "b", command: false),
+                        WorkspaceShortcutBinding(key: "b", command: false, shift: true)] {
+            try require(settings.update(invalid, for: .toggleSidebar) != nil, "invalid or reserved shortcut rejected")
+        }
+        settings = WorkspaceShortcutSettings()
+        settings.save(to: defaults)
+        try require(WorkspaceShortcutSettings.load(from: defaults) == settings, "reset persists all defaults")
+        defaults.set(Data("invalid".utf8), forKey: WorkspaceShortcutSettings.storageKey)
+        try require(WorkspaceShortcutSettings.load(from: defaults) == WorkspaceShortcutSettings(), "malformed storage falls back safely")
+        let conflicting = ["search": WorkspaceShortcutBinding(key: "b")]
+        defaults.set(try JSONEncoder().encode(conflicting), forKey: WorkspaceShortcutSettings.storageKey)
+        try require(WorkspaceShortcutSettings.load(from: defaults) == WorkspaceShortcutSettings(), "stored conflicts fall back safely")
     }
 
     static func testTaskKeyboardNavigation() throws {

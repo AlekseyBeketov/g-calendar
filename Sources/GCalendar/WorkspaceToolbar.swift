@@ -16,9 +16,9 @@ struct WorkspaceToolbar: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             if isCalendar {
-                Button { moveDate(-1) } label: { Image(systemName: "chevron.left") }.help("Назад · ⌘[").accessibilityLabel("Предыдущий период")
+                Button { moveDate(-1) } label: { Image(systemName: "chevron.left") }.help("Назад").accessibilityLabel("Предыдущий период")
                 Button { goToToday() } label: { Text("Сегодня") }
-                Button { moveDate(1) } label: { Image(systemName: "chevron.right") }.help("Вперёд · ⌘]").accessibilityLabel("Следующий период")
+                Button { moveDate(1) } label: { Image(systemName: "chevron.right") }.help("Вперёд").accessibilityLabel("Следующий период")
             }
         }
         ToolbarItem(placement: .automatic) {

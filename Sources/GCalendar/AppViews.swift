@@ -49,6 +49,9 @@ struct RootView: View {
                                  openSettings: { DemoPerformanceProbe.shared.begin(.form); local.showSettings = true })
             }
         }
+        .onChange(of: model.sidebarToggleRequestID) { _ in
+            local.columnVisibility = local.columnVisibility == .detailOnly ? .all : .detailOnly
+        }
         .navigationSplitViewStyle(.balanced)
         .tint(AppTheme.accent)
         .sheet(isPresented: $local.showSettings) { SettingsView() }

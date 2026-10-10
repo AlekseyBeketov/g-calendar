@@ -38,6 +38,8 @@ final class WorkspaceViewModel: ObservableObject {
     @Published var notificationRuntimeStatus: NotificationRuntimeStatus?
     @Published var searchFocusRequestID = 0
     @Published var newItemRequestID = 0
+    @Published var sidebarToggleRequestID = 0
+    @Published private(set) var shortcutSettings: WorkspaceShortcutSettings
 
     let launchMode: AppLaunchMode
     let metadataStore: LocalMetadataStoring
@@ -66,6 +68,7 @@ final class WorkspaceViewModel: ObservableObject {
             ? .standard
             : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
         self.defaults = defaults
+        shortcutSettings = WorkspaceShortcutSettings.load(from: defaults)
         gwsPath = mode == .normal ? (defaults.string(forKey: "gwsExecutablePath") ?? "") : ""
         appearance = mode == .normal ? (Appearance(rawValue: defaults.string(forKey: "appAppearance") ?? "Система") ?? .system) : .system
 
@@ -655,6 +658,31 @@ final class WorkspaceViewModel: ObservableObject {
         searchText = ""
     }
 
+    func requestSidebarToggle() { sidebarToggleRequestID += 1 }
+
+    func updateShortcut(_ binding: WorkspaceShortcutBinding, for action: WorkspaceShortcutAction) -> String? {
+        var settings = shortcutSettings
+        if let problem = settings.update(binding, for: action) { return problem }
+        shortcutSettings = settings
+        settings.save(to: defaults)
+        return nil
+    }
+
+    func resetShortcuts() {
+        shortcutSettings = WorkspaceShortcutSettings()
+        shortcutSettings.save(to: defaults)
+    }
+
+    func keyboardShortcut(_ action: WorkspaceShortcutAction) -> KeyboardShortcut {
+        let binding = shortcutSettings[action]
+        var modifiers: EventModifiers = []
+        if binding.command { modifiers.insert(.command) }
+        if binding.option { modifiers.insert(.option) }
+        if binding.control { modifiers.insert(.control) }
+        if binding.shift { modifiers.insert(.shift) }
+        return KeyboardShortcut(KeyEquivalent(binding.key.first!), modifiers: modifiers)
+    }
+
     func requestSearchFocus() { searchFocusRequestID += 1 }
     func requestNewItem() { guard !mutationsBlocked else { return }; newItemRequestID += 1 }
 
@@ -782,18 +810,21 @@ struct GCalendarApp: App {
                 Button("Завершить g-calendar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             }
             CommandGroup(replacing: .newItem) {
-                Button("Поиск") { model.requestSearchFocus() }.keyboardShortcut("f", modifiers: .command)
-                Button("Сегодня") { model.goToToday() }.keyboardShortcut("t", modifiers: .command)
-                Button("Новое событие или задача") { model.requestNewItem() }.keyboardShortcut("n", modifiers: .command)
-                Button("Синхронизировать") { model.refresh() }.keyboardShortcut("r", modifiers: .command)
+                Button("Поиск") { model.requestSearchFocus() }.keyboardShortcut(model.keyboardShortcut(.search))
+                Button("Сегодня") { model.goToToday() }.keyboardShortcut(model.keyboardShortcut(.today))
+                Button("Новое событие или задача") { model.requestNewItem() }.keyboardShortcut(model.keyboardShortcut(.newItem))
+                Button("Синхронизировать") { model.refresh() }.keyboardShortcut(model.keyboardShortcut(.refresh))
                     .disabled(model.syncState == .syncing || model.mutationInFlight)
             }
             CommandMenu("Навигация") {
-                Button("Календарь") { model.setSection(.calendar) }.keyboardShortcut("1", modifiers: .command)
-                Button("Задачи") { model.setSection(.tasks) }.keyboardShortcut("2", modifiers: .command)
+                Button("Свернуть / развернуть боковое меню") { model.requestSidebarToggle() }
+                    .keyboardShortcut(model.keyboardShortcut(.toggleSidebar))
                 Divider()
-                Button("Предыдущий период") { model.moveDate(-1) }.keyboardShortcut("[", modifiers: .command)
-                Button("Следующий период") { model.moveDate(1) }.keyboardShortcut("]", modifiers: .command)
+                Button("Календарь") { model.setSection(.calendar) }.keyboardShortcut(model.keyboardShortcut(.calendar))
+                Button("Задачи") { model.setSection(.tasks) }.keyboardShortcut(model.keyboardShortcut(.tasks))
+                Divider()
+                Button("Предыдущий период") { model.moveDate(-1) }.keyboardShortcut(model.keyboardShortcut(.previousPeriod))
+                Button("Следующий период") { model.moveDate(1) }.keyboardShortcut(model.keyboardShortcut(.nextPeriod))
             }
         }
     }

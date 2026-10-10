@@ -410,6 +410,10 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    SettingsSection(title: "Горячие клавиши") {
+                        WorkspaceShortcutSettingsView()
+                    }
+
                     SettingsSection(title: "Локальные уведомления") {
                         VStack(alignment: .leading, spacing: 8) {
                             Button(notificationActionTitle, action: inspectOrRequestNotificationAccess)
@@ -493,4 +497,70 @@ private struct SettingsSection<Content: View>: View {
             .allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)
     }
+}
+
+private struct WorkspaceShortcutSettingsView: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
+    @StateObject private var local = WorkspaceShortcutEditorState()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
+            Text("Укажите латинскую клавишу и модификаторы, затем нажмите «Применить». Изменения сохраняются сразу. ⌘Q, Return, Escape и стрелки остаются стандартными.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(WorkspaceShortcutAction.allCases) { action in
+                WorkspaceShortcutEditor(action: action)
+            }
+            .id(local.resetGeneration)
+            Button("Сбросить горячие клавиши") {
+                model.resetShortcuts()
+                local.resetGeneration += 1
+            }
+        }
+    }
+}
+
+private struct WorkspaceShortcutEditor: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
+    let action: WorkspaceShortcutAction
+    @StateObject private var local = WorkspaceShortcutEditorState()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(action.title).font(.callout)
+            HStack(spacing: 8) {
+                TextField("Клавиша", text: $local.draft.key)
+                    .textFieldStyle(.roundedBorder).frame(width: 48)
+                    .accessibilityLabel("Клавиша: " + action.title)
+                modifier("⌘", value: $local.draft.command, name: "Command")
+                modifier("⌥", value: $local.draft.option, name: "Option")
+                modifier("⌃", value: $local.draft.control, name: "Control")
+                modifier("⇧", value: $local.draft.shift, name: "Shift")
+                Spacer(minLength: 0)
+                Button("Применить") { local.problem = model.updateShortcut(local.draft, for: action) }
+            }
+            if let problem = local.problem {
+                Text(problem).font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .onAppear { local.draft = model.shortcutSettings[action] }
+        .onChange(of: model.shortcutSettings[action]) { binding in
+            local.draft = binding
+            local.problem = nil
+        }
+    }
+
+    private func modifier(_ symbol: String, value: Binding<Bool>, name: String) -> some View {
+        Toggle(symbol, isOn: value).toggleStyle(.checkbox)
+            .accessibilityLabel(name + ": " + action.title)
+    }
+}
+
+@MainActor
+private final class WorkspaceShortcutEditorState: ObservableObject {
+    @Published var resetGeneration = 0
+    @Published var draft = WorkspaceShortcutBinding(key: "")
+    @Published var problem: String?
 }

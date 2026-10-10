@@ -18,7 +18,7 @@
 
 - [x] 2026-10-10: Изучены исходники, существующая OpenSpec и официальная документация Google/Apple.
 - [x] 2026-10-10: Зафиксированы архитектура, спецификации и последовательный план.
-- [ ] 1: Настраиваемые hotkeys и ⌘B.
+- [x] 1: Настраиваемые hotkeys и ⌘B.
 - [ ] 2: Напоминание в редакторе, актуальная иконка, постоянный стиль уведомлений.
 - [ ] 3: Запуск при входе.
 - [ ] 4: Сортировка календарей и доступный для записи контекст по умолчанию.
@@ -98,3 +98,5 @@ OpenSpec validate g-calendar-mvp --strict должен завершиться у
 Использовать UserDefaults для hotkeys, NavigationSplitViewVisibility для sidebar, ReminderCoordinator.saveReminder для времени, SMAppService.mainApp для автозапуска, CalendarInfo.isWritable для права записи, TaskWorkspaceLayout для scope/grouping, GWSCommandFactory.taskMove и GWSMutationService.verifyAccepted для переноса. Модель данных GoogleTask.due остаётся DateOnly.
 
 Редакция 2026-10-10: план добавлен до реализации по явному требованию пользователя; подтверждения не требуются в рамках указанного scope.
+
+Этап 1 завершён: 496 assertions, Swift typecheck exit 0; dynamic shortcuts и ⌘B реализованы. UI проверяет пользователь.

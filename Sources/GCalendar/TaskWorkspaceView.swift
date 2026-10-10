@@ -174,7 +174,7 @@ struct TaskWorkspaceView: View {
             }
             Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }
                 .buttonStyle(.borderedProminent).disabled(model.selectedTaskList == nil || model.mutationsBlocked)
-                .help("Создать задачу · ⌘N")
+                .help("Создать задачу")
         }
     }
 
