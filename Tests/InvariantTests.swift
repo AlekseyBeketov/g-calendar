@@ -81,6 +81,39 @@ final class MemoryMetadataStore: LocalMetadataStoring {
     }
 }
 
+final class FailingMigrationMetadataStore: LocalMetadataStoring {
+    let backing: MemoryMetadataStore
+    let targetID: String
+    private var setFailures: Int
+    private var removeFailures: Int
+    private let lock = NSLock()
+
+    init(backing: MemoryMetadataStore, targetID: String, setFailures: Int, removeFailures: Int) {
+        self.backing = backing
+        self.targetID = targetID
+        self.setFailures = setFailures
+        self.removeFailures = removeFailures
+    }
+    func metadata(for taskID: String) -> LocalTaskMetadata { backing.metadata(for: taskID) }
+    func reminderTaskIDs() -> Set<String> { backing.reminderTaskIDs() }
+    func set(_ metadata: LocalTaskMetadata, for taskID: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        if taskID == targetID && setFailures > 0 {
+            setFailures -= 1
+            throw TestFailure(description: "Synthetic target persistence failure")
+        }
+        try backing.set(metadata, for: taskID)
+    }
+    func remove(taskID: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        if removeFailures > 0 {
+            removeFailures -= 1
+            throw TestFailure(description: "Synthetic source removal failure")
+        }
+        try backing.remove(taskID: taskID)
+    }
+}
+
 final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
     private let lock = NSLock()
     private var currentPermission: ReminderPermission
@@ -244,6 +277,7 @@ struct InvariantTests {
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
         run("exact-resource-get-and-mutation-read-back", testExactResourceReadAndMutationReadback)
+        await runAsync("native-task-move-exact-verification-recovery-and-metadata", testTaskMoveVerificationAndRecovery)
         await runAsync("reminder-permission-schedule-cancel-reschedule-dedup", testReminderLifecycle)
         await runAsync("verified-task-reminder-local-retry-and-denied-metadata", testVerifiedTaskReminderSave)
         await runAsync("notification-authorization-error-and-readback-status", testNotificationAuthorizationOutcome)
@@ -1892,6 +1926,169 @@ struct InvariantTests {
         ], "task insert argument vector or JSON body changed")
 
         try expectForbidden({ _ = try factory.eventInsert(calendar: writable, body: ["summary": "Synthetic", "attendees": [["email": "fixture@example.invalid"]]], authorization: .userSave) }, "attendee/invitation payload")
+    }
+
+    static func testTaskMoveVerificationAndRecovery() async throws {
+        let factory = GWSCommandFactory(executableURL: executable)
+        let due = DateOnly(rawValue: "2026-10-12")!
+        let task = GoogleTask(id: "synthetic-move-source", taskListID: "synthetic-source-board", title: "Synthetic edited task",
+                              notes: "Synthetic notes", due: due, completed: false, deleted: false, updated: nil)
+        let destination = "synthetic-target-board"
+        let move = try factory.taskMove(task: task, destinationTaskListID: destination, authorization: .userSave)
+        try check(move.arguments == ["tasks", "tasks", "move", "--params", "{\"destinationTasklist\":\"synthetic-target-board\",\"task\":\"synthetic-move-source\",\"tasklist\":\"synthetic-source-board\"}"],
+                  "native cross-board move must carry exact source/destination params and no body")
+        try check(move.expectedTask == task && !move.arguments.contains("--json"), "verification snapshot must stay local")
+        for authorization in [MutationAuthorization.cancelled, .confirmedDelete, .userCompletionToggle] {
+            try expectForbidden({ _ = try factory.taskMove(task: task, destinationTaskListID: destination, authorization: authorization) }, "move authorization")
+        }
+        for target in ["", task.taskListID] {
+            try expectForbidden({ _ = try factory.taskMove(task: task, destinationTaskListID: target, authorization: .userSave) }, "invalid destination")
+        }
+        try check(WorkspaceRefreshScope.afterVerifiedMutation(.taskMove) == .tasks, "move must refresh only task scope")
+        func object(id: String, title: String = "Synthetic edited task", notes: String = "Synthetic notes", due: String = "2026-10-12T00:00:00.000Z", completed: Bool = false) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["id": id, "title": title, "notes": notes, "due": due,
+                                                       "status": completed ? "completed" : "needsAction"])
+        }
+        func response(_ data: Data, code: Int32 = 0) -> ProcessResult {
+            ProcessResult(exitCode: code, stdout: data, stderr: code == 404 ? Data("404 not found".utf8) : Data())
+        }
+        for mismatch in ["none", "title", "notes", "due", "status", "source", "destination-deleted"] {
+            let runner = FakeProcessRunner { invocation in
+                if invocation.operation == .taskMove { return response(Data("{\"id\":\"synthetic-move-source\"}".utf8)) }
+                guard invocation.operation == .taskGet else { throw GWSFailure.forbiddenOperation }
+                if Self.params(invocation)["tasklist"] as? String == destination {
+                    if mismatch == "destination-deleted" { return response(Data("{\"id\":\"synthetic-move-source\",\"deleted\":true}".utf8)) }
+                    return response(try object(id: task.id, title: mismatch == "title" ? "Different" : task.title,
+                                               notes: mismatch == "notes" ? "Different" : "Synthetic notes",
+                                               due: mismatch == "due" ? "2026-10-13T00:00:00.000Z" : "2026-10-12T00:00:00.000Z",
+                                               completed: mismatch == "status"))
+                }
+                if mismatch == "source" { return response(try object(id: task.id)) }
+                return response(Data("{\"id\":\"synthetic-move-source\",\"deleted\":true}".utf8))
+            }
+            do {
+                let result = try GWSMutationService(runner: runner).perform(move, reader: GWSReadClient(factory: factory, runner: runner))
+                try check(mismatch == "none", "move mismatch must not be accepted")
+                guard case .taskVerified(let moved) = result else { throw TestFailure(description: "move result must be typed") }
+                try check(moved.id == task.id && moved.taskListID == destination, "verified move preserves native ID and target membership")
+                try check(runner.invocations.map(\.operation) == [.taskMove, .taskGet, .taskGet], "move must exact-read destination and source")
+            } catch let failure as GWSFailure {
+                try check(mismatch != "none" && failure == .mutationNotVerified, "wrong fields/membership must remain unconfirmed")
+            }
+        }
+
+        var destinationReady = false
+        let changedID = "synthetic-move-returned-id"
+        let runner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .taskPatch: return response(try object(id: task.id))
+            case .taskMove: return response(Data("{\"id\":\"synthetic-move-returned-id\"}".utf8))
+            case .taskGet:
+                if Self.params(invocation)["tasklist"] as? String == destination {
+                    return destinationReady ? response(try object(id: changedID)) : response(Data(), code: 404)
+                }
+                if destinationReady { return response(Data(), code: 404) }
+                return response(try object(id: task.id))
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("g-calendar-move-recovery-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let journal = MutationJournal(fileURL: temporary.appendingPathComponent("pending.json"))
+        let reader = GWSReadClient(factory: factory, runner: runner)
+        let service = RecoverableMutationService(runner: runner, journal: journal)
+        let patch = try factory.taskPatch(task: task, title: task.title, notes: task.notes, due: due, authorization: .userSave, destinationTaskListID: destination)
+        var state = TaskReminderSaveState()
+        try check(state.accept(try service.perform(patch, reader: reader)) && !state.needsGoogleSave && state.needsMove(to: destination),
+                  "verified patch must advance to move without repeating fields or local reminder")
+        do {
+            _ = try service.perform(move, reader: reader)
+            throw TestFailure(description: "uncertain move must remain recoverable")
+        } catch let failure as GWSFailure { try check(failure == .mutationNotVerified, "missing destination must block completion") }
+        let pending = journal.pending!
+        try check(pending.operation == .taskMove && pending.sourceTaskID == task.id && pending.resourceID == changedID,
+                  "move response ID must not replace exact source identity")
+        try check(pending.destinationTaskListID == destination && pending.expectedTask == task,
+                  "reopened recovery must restore destination and patched field snapshot")
+        try check(!state.needsGoogleSave && state.needsMove(to: destination) && journal.isBlocked,
+                  "pending move must retain Google recovery control after patch success")
+        let resumedJournal = MutationJournal(fileURL: temporary.appendingPathComponent("pending.json"))
+        destinationReady = true
+        let before = runner.invocations.count
+        let moved = try RecoverableMutationService(runner: runner, journal: resumedJournal).recheck(reader: reader)
+        try check(state.accept(moved) && !state.needsGoogleSave && !state.needsMove(to: destination), "verified recheck must advance to local stage")
+        try check(state.verifiedTask?.id == changedID && !resumedJournal.isBlocked, "recheck must retain changed destination ID")
+        try check(runner.invocations.dropFirst(before).allSatisfy { $0.operation == .taskGet } &&
+                  runner.invocations.filter { $0.operation == .taskPatch }.count == 1 && runner.invocations.filter { $0.operation == .taskMove }.count == 1,
+                  "recheck/local continuation must not repeat patch or move")
+
+        let future = Date().addingTimeInterval(1200)
+        let backing = MemoryMetadataStore()
+        try backing.set(LocalTaskMetadata(reminderAt: future, favorite: true), for: task.id)
+        let failing = FailingMigrationMetadataStore(backing: backing, targetID: changedID, setFailures: 1, removeFailures: 1)
+        let scheduler = RecordingScheduler(permission: .authorized)
+        let defaults = UserDefaults(suiteName: "g-calendar-move-local-" + UUID().uuidString)!
+        let coordinator = ReminderCoordinator(store: failing, scheduler: scheduler, defaults: defaults)
+        let metadataJournal = MutationJournal(fileURL: temporary.appendingPathComponent("metadata-pending.json"))
+        let metadataService = RecoverableMutationService(runner: runner, journal: metadataJournal, beforeCompletion: { result, pending in
+            guard case .taskVerified(let verified) = result, let sourceID = pending.sourceTaskID else { throw GWSFailure.mutationNotVerified }
+            try coordinator.prepareTaskMetadataMigration(from: sourceID, to: verified.id)
+        })
+        do {
+            _ = try metadataService.perform(move, reader: reader)
+            throw TestFailure(description: "metadata persistence failure must retain journal")
+        } catch let failure as TestFailure { try check(failure.description == "Synthetic target persistence failure", "persist failure must propagate") }
+        try check(metadataJournal.isBlocked && backing.metadata(for: task.id).favorite && backing.metadata(for: changedID).reminderAt == nil,
+                  "target persistence failure must preserve source and durable read-only recovery")
+        let unrelatedID = "synthetic-unrelated-deleted"
+        try backing.set(LocalTaskMetadata(reminderAt: future, favorite: true), for: unrelatedID)
+        let emptyRunner = FakeProcessRunner { invocation in
+            guard invocation.operation == .taskListsList else { throw GWSFailure.forbiddenOperation }
+            return response(Data("{\"items\":[]}".utf8))
+        }
+        let completeTasks = try GWSWorkspaceService(reader: GWSReadClient(factory: factory, runner: emptyRunner), cache: MemorySnapshotStore()).refreshTasks()
+        try await ReminderCoordinator(store: backing, scheduler: scheduler, defaults: defaults)
+            .reconcile(afterSuccessfulTasksSync: completeTasks, preservingTaskIDs: {
+                let pending = metadataJournal.review().pending
+                return pending?.operation == .taskMove ? Set([pending!.sourceTaskID!]) : []
+            })
+        try check(backing.metadata(for: task.id).reminderAt == future && backing.metadata(for: task.id).favorite,
+                  "complete refresh during pending move must protect source metadata until target persists")
+        try check(backing.metadata(for: unrelatedID).reminderAt == nil && scheduler.cancellations.contains(ReminderIdentity.identifier(taskID: task.id)),
+                  "pending move protection must retain only its source metadata while cancelling absent notifications")
+        let restored = MutationJournal(fileURL: temporary.appendingPathComponent("metadata-pending.json"))
+        let beforeMetadataRetry = runner.invocations.count
+        _ = try RecoverableMutationService(runner: runner, journal: restored, beforeCompletion: { result, pending in
+            guard case .taskVerified(let verified) = result, let sourceID = pending.sourceTaskID else { throw GWSFailure.mutationNotVerified }
+            try coordinator.prepareTaskMetadataMigration(from: sourceID, to: verified.id)
+        }).recheck(reader: reader)
+        try check(!restored.isBlocked && backing.metadata(for: changedID).reminderAt == future && backing.metadata(for: changedID).favorite,
+                  "restart recheck must persist target metadata before journal release")
+        try check(runner.invocations.dropFirst(beforeMetadataRetry).allSatisfy { $0.operation == .taskGet }, "metadata retry must not resubmit move")
+        do {
+            try await coordinator.migrateTaskMetadata(from: task.id, to: changedID)
+            throw TestFailure(description: "source cleanup failure must propagate")
+        } catch let failure as TestFailure { try check(failure.description == "Synthetic source removal failure", "cleanup failure must propagate") }
+        try check(backing.metadata(for: changedID).favorite && backing.metadata(for: task.id).favorite, "failed cleanup must keep both persisted copies")
+        try await coordinator.migrateTaskMetadata(from: task.id, to: changedID)
+        let verifiedTask = state.verifiedTask!
+        _ = try await coordinator.saveReminder(task: verifiedTask, title: verifiedTask.title, at: future, explicitEnableAction: true)
+        try check(backing.metadata(for: changedID).favorite && backing.metadata(for: changedID).reminderAt == future && backing.metadata(for: task.id).reminderAt == nil,
+                  "local retry must preserve favorite/time on changed ID and safely retire source")
+        try check(scheduler.requests.last?.taskID == changedID && scheduler.cancellations.contains(ReminderIdentity.identifier(taskID: task.id)),
+                  "changed-ID reminder must cancel source notification and schedule only target")
+
+        let demo = DemoWorkspaceAdapter()
+        let demoTask = demo.snapshot().tasks[0]
+        let demoListInsert = try factory.taskListInsert(title: "Synthetic destination", authorization: .userSave)
+        try demo.perform(demoListInsert)
+        let demoDestination = demo.snapshot().taskLists.first { $0.title == "Synthetic destination" }!.id
+        let demoMove = try factory.taskMove(task: demoTask, destinationTaskListID: demoDestination, authorization: .userSave)
+        try demo.perform(demoMove)
+        let demoMoved = demo.snapshot().tasks.first { $0.id == demoTask.id }!
+        try check(demoMoved.taskListID == demoDestination && demoMoved.title == demoTask.title && demoMoved.due == demoTask.due && demoMoved.notes == demoTask.notes,
+                  "demo move must preserve one native task and its fields")
+        try check(demo.snapshot().tasks.filter { $0.id == demoTask.id }.count == 1, "demo move must never copy/delete task identity")
     }
 
     static func testVerifiedTaskReminderSave() async throws {

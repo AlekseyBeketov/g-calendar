@@ -157,6 +157,19 @@ final class DemoWorkspaceAdapter {
                 throw GWSFailure.invalidInput("task_patch")
             }
             updated.tasks[index].updated = Date()
+        case .taskMove:
+            guard !invocation.arguments.contains("--json") else { throw GWSFailure.forbiddenOperation }
+            let parameters = try Self.dictionaryArgument("--params", in: invocation)
+            let source = try Self.requiredString("tasklist", in: parameters)
+            let taskID = try Self.requiredString("task", in: parameters)
+            let destination = try Self.requiredString("destinationTasklist", in: parameters)
+            guard source != destination, updated.taskLists.contains(where: { $0.id == destination }),
+                  let index = updated.tasks.firstIndex(where: { $0.id == taskID && $0.taskListID == source }) else {
+                throw GWSFailure.resourceNotFound
+            }
+            let task = updated.tasks[index]
+            updated.tasks[index] = GoogleTask(id: task.id, taskListID: destination, title: task.title, notes: task.notes,
+                                              due: task.due, completed: task.completed, deleted: task.deleted, updated: Date())
         case .taskDelete:
             let parameters = try Self.dictionaryArgument("--params", in: invocation)
             let listID = try Self.requiredString("tasklist", in: parameters)
@@ -183,6 +196,7 @@ final class DemoWorkspaceAdapter {
         case .taskListDelete: return ["tasks", "tasklists", "delete"]
         case .taskInsert: return ["tasks", "tasks", "insert"]
         case .taskPatch: return ["tasks", "tasks", "patch"]
+        case .taskMove: return ["tasks", "tasks", "move"]
         case .taskDelete: return ["tasks", "tasks", "delete"]
         default: return nil
         }

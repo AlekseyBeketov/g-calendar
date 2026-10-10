@@ -125,14 +125,10 @@ struct TaskEditorView: View {
                 if local.dueEnabled {
                     DatePicker("Срок (дата)", selection: $local.dueDate, displayedComponents: [.date])
                 }
-                if task == nil {
-                    EditorField(title: "Список") {
-                        Picker("Список задач", selection: $local.contextID) {
-                            ForEach(model.snapshot.taskLists) { Text($0.title).tag($0.id) }
-                        }.pointingHandCursor().labelsHidden()
-                    }
-                } else {
-                    LabeledContent("Список", value: model.snapshot.taskLists.first(where: { $0.id == taskListID })?.title ?? "Не выбран")
+                EditorField(title: "Доска") {
+                    Picker("Доска задач", selection: $local.contextID) {
+                        ForEach(model.snapshot.taskLists) { Text($0.title).tag($0.id) }
+                    }.pointingHandCursor().labelsHidden()
                 }
                 }
                 .disabled(!reminder.saveState.needsGoogleSave)
@@ -163,7 +159,7 @@ struct TaskEditorView: View {
                 Spacer()
                 Button(reminder.saveState.needsGoogleSave ? "Отмена" : "Закрыть") { dismiss() }.pointingHandCursor()
                     .keyboardShortcut(.cancelAction).disabled(reminder.isSaving)
-                if reminder.saveState.needsGoogleSave {
+                if reminder.saveState.needsGoogleSave || reminder.saveState.needsMove(to: local.contextID) || local.pendingMutationID == model.pendingMutation?.id && local.pendingMutationID != nil {
                     MutationSaveControl(pendingMutationID: local.pendingMutationID,
                                         disabled: reminder.isSaving || local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || local.contextID.isEmpty,
                                         save: save, verified: {}, verifiedResult: taskVerified)
@@ -180,7 +176,28 @@ struct TaskEditorView: View {
         .onAppear {
             if local.contextID.isEmpty { local.contextID = model.snapshot.taskLists.first?.id ?? "" }
             if !reminder.initialized {
-                if let task, let date = model.metadataStore.metadata(for: task.id).reminderAt {
+                if let pending = model.pendingMutation,
+                   [.taskPatch, .taskMove].contains(pending.operation),
+                   let task, pending.sourceTaskID == task.id || pending.resourceID == task.id {
+                    local.pendingMutationID = pending.id
+                    local.contextID = pending.destinationTaskListID ?? task.taskListID
+                    if let expected = pending.expectedTask {
+                        _ = reminder.saveState.accept(.taskVerified(expected))
+                        local.title = expected.title
+                        local.notes = expected.notes ?? ""
+                        local.dueEnabled = expected.due != nil
+                        local.dueDate = expected.due?.startOfDay(in: .current) ?? local.dueDate
+                    } else {
+                        local.title = pending.draftTitle
+                        local.notes = pending.draftNotes
+                        local.dueEnabled = pending.body["due"] is String
+                        if let due = pending.body["due"] as? String, let date = DateOnly(rawValue: String(due.prefix(10))) {
+                            local.dueDate = date.startOfDay(in: .current) ?? local.dueDate
+                        }
+                    }
+                }
+                if let metadataTaskID = reminder.saveState.verifiedTask?.id ?? task?.id,
+                   let date = model.metadataStore.metadata(for: metadataTaskID).reminderAt {
                     reminder.enabled = true
                     reminder.fireDate = date
                     reminder.originalFireDate = date
@@ -196,7 +213,11 @@ struct TaskEditorView: View {
 
     private func save() {
         guard !reminder.isSaving else { return }
-        if !reminder.saveState.needsGoogleSave { saveLocalReminder(); return }
+        if !reminder.saveState.needsGoogleSave {
+            if reminder.saveState.needsMove(to: local.contextID) { moveVerifiedTask() }
+            else { saveLocalReminder() }
+            return
+        }
         if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
                                                                      unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
             local.errorMessage = problem
@@ -211,7 +232,7 @@ struct TaskEditorView: View {
             let invocation: ProcessInvocation
             if let task {
                 invocation = try factory.taskPatch(task: task, title: local.title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                   notes: local.notes, due: due, authorization: .userSave)
+                                                   notes: local.notes, due: due, authorization: .userSave, destinationTaskListID: local.contextID)
             } else {
                 invocation = try factory.taskInsert(taskListID: taskListID, title: local.title.trimmingCharacters(in: .whitespacesAndNewlines),
                                                     notes: local.notes, due: due, authorization: .userSave)
@@ -228,21 +249,44 @@ struct TaskEditorView: View {
             dismiss()
             return
         }
+        let previousID = reminder.saveState.verifiedTask?.id ?? task?.id
         guard reminder.saveState.accept(result) else {
             local.errorMessage = "Результат сохранения задачи не подтверждён."
             return
         }
+        if let previousID, previousID != reminder.saveState.verifiedTask?.id { reminder.metadataSourceID = previousID }
         local.pendingMutationID = nil
         local.errorMessage = nil
-        saveLocalReminder()
+        if reminder.saveState.needsMove(to: local.contextID) { moveVerifiedTask() }
+        else { saveLocalReminder() }
+    }
+
+    private func moveVerifiedTask() {
+        guard let verifiedTask = reminder.saveState.verifiedTask, !reminder.isSaving, !model.mutationsBlocked else { return }
+        guard model.snapshot.taskLists.contains(where: { $0.id == local.contextID }) else {
+            local.errorMessage = "Поля задачи сохранены. Выбранная доска больше не доступна."
+            return
+        }
+        do {
+            let invocation = try model.commandFactory().taskMove(task: verifiedTask, destinationTaskListID: local.contextID,
+                                                                 authorization: .userSave)
+            model.performMutation(invocation, thenRefresh: false,
+                                  onFailure: { message in
+                                      local.errorMessage = "Поля задачи сохранены. Перенос ещё не подтверждён. " + message
+                                      local.pendingMutationID = model.pendingMutation?.id
+                                  }, onVerified: taskVerified)
+        } catch {
+            local.errorMessage = "Поля задачи сохранены. Перенос не выполнен: " + ((error as? LocalizedError)?.errorDescription ?? "Не удалось начать перенос.")
+        }
     }
 
     private func saveLocalReminder() {
-        guard !reminder.isSaving, let verifiedTask = reminder.saveState.verifiedTask else { return }
+        guard !reminder.isSaving, !reminder.saveState.needsMove(to: local.contextID), !model.mutationsBlocked,
+              let verifiedTask = reminder.saveState.verifiedTask else { return }
         if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
                                                                      unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
             local.errorMessage = "Задача сохранена. " + problem
-            model.refreshTasksAfterSave()
+            if reminder.metadataSourceID == nil { model.refreshTasksAfterSave() }
             return
         }
         reminder.isSaving = true
@@ -252,9 +296,13 @@ struct TaskEditorView: View {
         Task { @MainActor in
             defer {
                 reminder.isSaving = false
-                model.refreshTasksAfterSave()
+                if reminder.metadataSourceID == nil { model.refreshTasksAfterSave() }
             }
             do {
+                if let sourceID = reminder.metadataSourceID {
+                    try await model.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: verifiedTask.id)
+                    reminder.metadataSourceID = nil
+                }
                 let authorization = try await model.reminderCoordinator.saveReminder(task: verifiedTask, title: verifiedTask.title,
                                                                                      at: date, explicitEnableAction: reminder.enabled)
                 if date == nil {
@@ -702,6 +750,7 @@ private final class TaskEditorReminderState: ObservableObject {
     @Published var enabled = false
     @Published var fireDate = Date().addingTimeInterval(3600)
     var originalFireDate: Date?
+    var metadataSourceID: String?
     @Published var isSaving = false
     @Published var message: String?
     @Published var saveState = TaskReminderSaveState()

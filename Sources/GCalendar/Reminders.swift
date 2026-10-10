@@ -13,6 +13,9 @@ struct ReminderRequest: Equatable {
 struct TaskReminderSaveState {
     private(set) var verifiedTask: GoogleTask?
     var needsGoogleSave: Bool { verifiedTask == nil }
+    func needsMove(to destination: String) -> Bool {
+        verifiedTask.map { $0.taskListID != destination } ?? false
+    }
 
     mutating func accept(_ result: GWSMutationResult) -> Bool {
         guard case .taskVerified(let task) = result else { return false }
@@ -209,11 +212,26 @@ struct EventReminderIdentity {
     }
 }
 
+/// Production metadata stores serialize all access with their own locks. This transfer object
+/// crosses the process-worker boundary without capturing the scheduler or its async UI state.
+struct TaskMetadataMigrationPreparation: @unchecked Sendable {
+    let store: LocalMetadataStoring
+
+    func prepare(from sourceID: String, to destinationID: String) throws {
+        guard sourceID != destinationID else { return }
+        let source = store.metadata(for: sourceID)
+        let destination = store.metadata(for: destinationID)
+        try store.set(LocalTaskMetadata(reminderAt: destination.reminderAt ?? source.reminderAt,
+                                        favorite: destination.favorite || source.favorite), for: destinationID)
+    }
+}
+
 struct ReminderCoordinator {
     let store: LocalMetadataStoring
     let scheduler: ReminderScheduling
     let defaults: UserDefaults
     let enabledKey: String
+    var metadataMigrationPreparation: TaskMetadataMigrationPreparation { TaskMetadataMigrationPreparation(store: store) }
 
     init(store: LocalMetadataStoring,
          scheduler: ReminderScheduling,
@@ -246,6 +264,20 @@ struct ReminderCoordinator {
         }
         try await scheduler.schedule(ReminderRequest(identifier: identifier, taskID: task.id, title: title, fireDate: date))
         return authorization
+    }
+
+    /// Called after exact Google verification and before releasing its durable recovery record.
+    /// Keep the source until its old notification is cancelled, so restart reconciliation can find it.
+    func prepareTaskMetadataMigration(from sourceID: String, to destinationID: String) throws {
+        // Persist the destination first. Retrying after a removal failure preserves target data.
+        try metadataMigrationPreparation.prepare(from: sourceID, to: destinationID)
+    }
+
+    func migrateTaskMetadata(from sourceID: String, to destinationID: String) async throws {
+        guard sourceID != destinationID else { return }
+        try prepareTaskMetadataMigration(from: sourceID, to: destinationID)
+        await scheduler.cancel(identifier: ReminderIdentity.identifier(taskID: sourceID))
+        try store.remove(taskID: sourceID)
     }
 
     func complete(taskID: String) async {
@@ -284,15 +316,17 @@ struct ReminderCoordinator {
         }
     }
 
-    func reconcile(afterSuccessfulFullSync fullSync: GWSCompletedFullSync, now: Date = Date()) async throws {
-        try await reconcile(completedTasks: fullSync.snapshot.tasks, now: now)
+    func reconcile(afterSuccessfulFullSync fullSync: GWSCompletedFullSync, now: Date = Date(),
+                   preservingTaskIDs: () -> Set<String> = { [] }) async throws {
+        try await reconcile(completedTasks: fullSync.snapshot.tasks, now: now, preservingTaskIDs: preservingTaskIDs)
     }
 
-    func reconcile(afterSuccessfulTasksSync tasksSync: GWSCompletedTasksSync, now: Date = Date()) async throws {
-        try await reconcile(completedTasks: tasksSync.snapshot.tasks, now: now)
+    func reconcile(afterSuccessfulTasksSync tasksSync: GWSCompletedTasksSync, now: Date = Date(),
+                   preservingTaskIDs: () -> Set<String> = { [] }) async throws {
+        try await reconcile(completedTasks: tasksSync.snapshot.tasks, now: now, preservingTaskIDs: preservingTaskIDs)
     }
 
-    private func reconcile(completedTasks: [GoogleTask], now: Date) async throws {
+    private func reconcile(completedTasks: [GoogleTask], now: Date, preservingTaskIDs: () -> Set<String>) async throws {
         let reminderTaskIDs = store.reminderTaskIDs()
         guard !reminderTaskIDs.isEmpty else { return }
         let tasksByID = Dictionary(completedTasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -303,12 +337,14 @@ struct ReminderCoordinator {
             let identifier = ReminderIdentity.identifier(taskID: taskID)
             guard let task = tasksByID[taskID] else {
                 await scheduler.cancel(identifier: identifier)
-                try store.remove(taskID: taskID)
+                // Read journal protection after the await: refresh may overlap a new move attempt.
+                if !preservingTaskIDs().contains(taskID) { try store.remove(taskID: taskID) }
                 continue
             }
             if task.deleted {
                 await scheduler.cancel(identifier: identifier)
-                try store.remove(taskID: taskID)
+                // Read journal protection after the await: refresh may overlap a new move attempt.
+                if !preservingTaskIDs().contains(taskID) { try store.remove(taskID: taskID) }
                 continue
             }
             let date = store.metadata(for: taskID).reminderAt

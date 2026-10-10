@@ -276,12 +276,12 @@ final class WorkspaceViewModel: ObservableObject {
                 case .superseded(let latestRequest):
                     if latestRequest.key.scope == .calendarRange,
                        case .success(.full(let completedSync)) = outcome {
-                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedSync) }
+                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
                         self.reconcileEventReminders()
                     }
                     if latestRequest.key.scope == .calendarRange,
                        case .success(.tasks(let completedSync)) = outcome {
-                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedSync) }
+                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
                     }
                     self.startNormalRefresh(latestRequest, runner: runner)
                     return
@@ -294,7 +294,7 @@ final class WorkspaceViewModel: ObservableObject {
                     self.installRefreshedSnapshot(refreshed)
                     self.syncState = .updated
                     self.statusMessage = "Полностью обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
-                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedFullSync) }
+                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedFullSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
                     self.reconcileEventReminders()
                     if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
                 case .success(.calendarRange(let refreshed)):
@@ -311,7 +311,7 @@ final class WorkspaceViewModel: ObservableObject {
                     let tasksDate = (refreshed.tasksFetchedAt ?? refreshed.fetchedAt).formatted(date: .omitted, time: .shortened)
                     let calendarDate = refreshed.calendarFetchedAt?.formatted(date: .omitted, time: .shortened) ?? "не загружен"
                     self.statusMessage = "Задачи обновлены · \(tasksDate) · календарь из кэша от \(calendarDate)"
-                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedTasksSync) }
+                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedTasksSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
                     if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
                 case .failure(let error):
                     self.syncState = .afterFailure(error as? GWSFailure)
@@ -397,9 +397,9 @@ final class WorkspaceViewModel: ObservableObject {
                     let verifiedTask: GoogleTask?
                     if invocation.operation == .taskInsert {
                         verifiedTask = snapshot.tasks.first { !existingTaskIDs.contains($0.id) }
-                    } else if invocation.operation == .taskPatch {
+                    } else if invocation.operation == .taskPatch || invocation.operation == .taskMove {
                         let taskID = Self.argument("task", in: invocation)
-                        let listID = Self.argument("tasklist", in: invocation)
+                        let listID = Self.argument(invocation.operation == .taskMove ? "destinationTasklist" : "tasklist", in: invocation)
                         verifiedTask = snapshot.tasks.first { $0.id == taskID && $0.taskListID == listID }
                     } else { verifiedTask = nil }
                     guard let verifiedTask else { throw GWSFailure.mutationNotVerified }
@@ -426,13 +426,18 @@ final class WorkspaceViewModel: ObservableObject {
         mutationInFlight = true
         statusMessage = "Сохранение…"
         let path = gwsPath
+        let metadataMigration = reminderCoordinator.metadataMigrationPreparation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let outcome: Result<GWSMutationResult, Error>
             do {
                 guard let self, let runner = self.runner else { throw GWSFailure.forbiddenOperation }
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                outcome = .success(try RecoverableMutationService(runner: runner, journal: self.mutationJournal).perform(invocation, reader: reader))
+                outcome = .success(try RecoverableMutationService(runner: runner, journal: self.mutationJournal, beforeCompletion: { result, pending in
+                    if pending.operation == .taskMove, let sourceID = pending.sourceTaskID, case .taskVerified(let task) = result {
+                        try metadataMigration.prepare(from: sourceID, to: task.id)
+                    }
+                }).perform(invocation, reader: reader))
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -442,7 +447,15 @@ final class WorkspaceViewModel: ObservableObject {
                 case .success(let result) where result.isReadBackVerified:
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
                     if onVerified == nil, case .taskVerified(let task) = result {
-                        Task { await self.reminderCoordinator.reconcile(tasks: [task]) }
+                        if invocation.operation == .taskMove, let sourceID = Self.argument("task", in: invocation) {
+                            do { try await self.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: task.id) }
+                            catch {
+                                self.statusMessage = "Перенос задачи подтверждён. Локальные данные сохранены на целевой доске, но обновление уведомлений ещё не завершено."
+                                onFailure?(self.statusMessage)
+                                return
+                            }
+                        }
+                        await self.reminderCoordinator.reconcile(tasks: [task])
                     }
                     if case .resourceDeleted = result {
                         if invocation.operation == .taskDelete, let taskID = Self.argument("task", in: invocation) {
@@ -478,13 +491,19 @@ final class WorkspaceViewModel: ObservableObject {
         let path = gwsPath
         let journal = mutationJournal
         let pendingOperation = pendingMutation?.operation
+        let pendingSourceTaskID = pendingMutation?.sourceTaskID
         let expectedPendingID = pendingMutation?.id
+        let metadataMigration = reminderCoordinator.metadataMigrationPreparation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result: Result<GWSMutationResult, Error>
             do {
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                result = .success(try RecoverableMutationService(runner: runner, journal: journal).recheck(reader: reader, expectedID: expectedPendingID))
+                result = .success(try RecoverableMutationService(runner: runner, journal: journal, beforeCompletion: { result, pending in
+                    if pending.operation == .taskMove, let sourceID = pending.sourceTaskID, case .taskVerified(let task) = result {
+                        try metadataMigration.prepare(from: sourceID, to: task.id)
+                    }
+                }).recheck(reader: reader, expectedID: expectedPendingID))
             } catch { result = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -493,7 +512,16 @@ final class WorkspaceViewModel: ObservableObject {
                 switch result {
                 case .success(let verified):
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
-                    if onVerified == nil, case .taskVerified(let task) = verified { Task { await self.reminderCoordinator.reconcile(tasks: [task]) } }
+                    if onVerified == nil, case .taskVerified(let task) = verified {
+                        if pendingOperation == .taskMove, let sourceID = pendingSourceTaskID {
+                            do { try await self.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: task.id) }
+                            catch {
+                                self.statusMessage = "Перенос задачи подтверждён. Локальные данные сохранены на целевой доске, но обновление уведомлений ещё не завершено."
+                                return
+                            }
+                        }
+                        await self.reminderCoordinator.reconcile(tasks: [task])
+                    }
                     onVerified?(verified)
                     onSuccess?()
                     // A domain refresh reconciles deletion reminders using complete, confirmed data.
@@ -523,6 +551,20 @@ final class WorkspaceViewModel: ObservableObject {
             statusMessage = "Проверка вручную отмечена пользователем. Автоматическое подтверждение Google не заявляется."
             refresh()
         } catch { mutationRecoveryProblem = "Не удалось обновить журнал проверки. Запись остаётся заблокированной." }
+    }
+
+    private var pendingMoveMetadataProtection: () -> Set<String> {
+        let journal = mutationJournal
+        let store = metadataStore
+        return {
+            let review = journal.review()
+            if review.failure == .journalBusy || review.failure == .corruptJournal {
+                // Until the lease/journal can be read, no reminder ID is safe to prune.
+                return store.reminderTaskIDs()
+            }
+            guard let pending = review.pending, pending.operation == .taskMove, let sourceID = pending.sourceTaskID else { return [] }
+            return [sourceID]
+        }
     }
 
     func refreshTasksAfterSave() { refreshAfterMutation(.taskPatch) }

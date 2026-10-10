@@ -66,6 +66,19 @@ struct GWSMutationService {
                   task.id == resourceID, task.taskListID == taskListID else { throw GWSFailure.mutationNotVerified }
             try verify(task: task, against: body)
             return .taskVerified(task)
+        case .taskMove:
+            guard let reader, let source = params["tasklist"] as? String, let sourceID = params["task"] as? String,
+                  let destination = params["destinationTasklist"] as? String, !destination.isEmpty, source != destination,
+                  let expected = invocation.expectedTask, expected.id == sourceID, expected.taskListID == source,
+                  !invocation.arguments.contains("--json") else { throw GWSFailure.mutationNotVerified }
+            let destinationID = resourceID(from: response) ?? sourceID
+            guard let moved = try reader.task(taskListID: destination, taskID: destinationID),
+                  moved.id == destinationID, moved.taskListID == destination, !moved.deleted,
+                  moved.title == expected.title, (moved.notes ?? "") == (expected.notes ?? ""),
+                  moved.due == expected.due, moved.completed == expected.completed else { throw GWSFailure.mutationNotVerified }
+            let remainingSource = try reader.task(taskListID: source, taskID: sourceID)
+            guard remainingSource == nil || remainingSource?.deleted == true else { throw GWSFailure.mutationNotVerified }
+            return .taskVerified(moved)
         case .eventDelete:
             guard let reader, let calendarID = params["calendarId"] as? String, let resourceID = params["eventId"] as? String,
                   try reader.event(identity: CalendarEventIdentity(calendarID: calendarID, eventID: resourceID)) == nil else {

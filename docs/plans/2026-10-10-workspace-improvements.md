@@ -25,7 +25,7 @@
 - [x] 5: Стрелки вниз/вверх для списка задач над календарём.
 - [x] 6: Pointer на всей области действия и правило в AGENTS.md.
 - [x] 7: Все доски по умолчанию, колонки по доскам и исправление геометрии.
-- [ ] 8: Перенос задачи в другую доску с проверкой результата.
+- [x] 8: Перенос задачи в другую доску с проверкой результата.
 
 ## Surprises & Discoveries
 
@@ -112,3 +112,5 @@ OpenSpec validate g-calendar-mvp --strict должен завершиться у
 Этап 6 завершён: Swift typecheck/source audit/shell syntax exit 0. Enabled action bounds покрыты hand cursor, disabled ancestor и clip исключены; native text/menu поведение сохранено. UI приёмка остаётся ручной.
 
 Этап 7 завершён: 535 assertions и Swift typecheck exit 0. Все доски сохраняются после refresh; колонки группируются по ID доски, имеют независимый scroll и устойчивую ширину; фильтры и keyboard navigation проверены синтетически.
+
+Этап 8 завершён: 572 assertions и Swift typecheck без предупреждений, exit 0. Проверены native move/exact fields/source absence, changed ID, partial patch/move/recheck без повторных writes, journal reload, persistence/cleanup failure, metadata retry и защита pending move от refresh prune. Реальные Google mutations и UI проверки не выполнялись.

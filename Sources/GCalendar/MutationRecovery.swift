@@ -8,33 +8,40 @@ struct PendingMutation: Codable, Equatable, Identifiable {
     let arguments: [String]
     let startedAt: Date
     var resourceID: String?
+    var expectedTask: GoogleTask?
+    var taskDestinationListID: String?
 
     init(invocation: ProcessInvocation) {
         id = UUID()
         operation = invocation.operation
         arguments = invocation.arguments
+        expectedTask = invocation.expectedTask
+        taskDestinationListID = invocation.taskDestinationListID
         startedAt = Date()
         let params = Self.object("--params", arguments: arguments)
         switch operation {
         case .eventPatch, .eventDelete: resourceID = params["eventId"] as? String
-        case .taskPatch, .taskDelete: resourceID = params["task"] as? String
+        case .taskPatch, .taskMove, .taskDelete: resourceID = params["task"] as? String
         case .taskListPatch, .taskListDelete: resourceID = params["tasklist"] as? String
         default: resourceID = nil
         }
     }
 
     var body: [String: Any] { Self.object("--json", arguments: arguments) }
-    var draftTitle: String { body["title"] as? String ?? body["summary"] as? String ?? "" }
-    var draftNotes: String { body["notes"] as? String ?? "" }
+    var draftTitle: String { body["title"] as? String ?? body["summary"] as? String ?? expectedTask?.title ?? "" }
+    var draftNotes: String { body["notes"] as? String ?? expectedTask?.notes ?? "" }
+    var sourceTaskID: String? { Self.object("--params", arguments: arguments)["task"] as? String }
+    var destinationTaskListID: String? { Self.object("--params", arguments: arguments)["destinationTasklist"] as? String ?? taskDestinationListID }
 
     mutating func capture(_ response: Data) {
-        guard resourceID == nil, let object = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+        guard resourceID == nil || operation == .taskMove, let object = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
               let value = object["id"] as? String, !value.isEmpty else { return }
         resourceID = value
     }
 
     func invocation(executableURL: URL) -> ProcessInvocation {
-        ProcessInvocation(executableURL: executableURL, arguments: arguments, operation: operation, timeout: 20, outputLimit: 2 * 1_024 * 1_024)
+        ProcessInvocation(executableURL: executableURL, arguments: arguments, operation: operation, timeout: 20, outputLimit: 2 * 1_024 * 1_024,
+                          expectedTask: expectedTask, taskDestinationListID: taskDestinationListID)
     }
 
     private static func object(_ flag: String, arguments: [String]) -> [String: Any] {
@@ -244,6 +251,7 @@ struct RecoverableMutationService {
     let runner: GWSProcessRunning
     let journal: MutationJournal
     var onAccepted: ((PendingMutation) throws -> Void)? = nil
+    var beforeCompletion: ((GWSMutationResult, PendingMutation) throws -> Void)? = nil
 
     func perform(_ invocation: ProcessInvocation, reader: GWSReadClient) throws -> GWSMutationResult {
         try journal.withExclusiveAccess {
@@ -269,6 +277,8 @@ struct RecoverableMutationService {
             if let pending = journal.pending { try onAccepted?(pending) }
             let verified = try GWSMutationService(runner: runner).verifyAccepted(invocation, response: result.stdout, reader: reader)
             guard verified.isReadBackVerified else { throw MutationRecoveryFailure.pendingVerification }
+            guard let pending = journal.pending else { throw MutationRecoveryFailure.pendingVerification }
+            try beforeCompletion?(verified, pending)
             try journal.clear(expectedID: attemptID)
             return verified
         }
@@ -283,6 +293,7 @@ struct RecoverableMutationService {
             let result = try GWSMutationService(runner: runner).verifyAccepted(record.invocation(executableURL: reader.factory.executableURL),
                                                                              response: response, reader: reader)
             guard result.isReadBackVerified else { throw MutationRecoveryFailure.pendingVerification }
+            try beforeCompletion?(result, record)
             try journal.clear(expectedID: record.id)
             return result
         }

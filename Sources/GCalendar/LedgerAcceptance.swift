@@ -172,7 +172,7 @@ final class SyntheticLedgerAcceptanceRunner: GWSProcessRunning, @unchecked Senda
             try requireMarkedTaskList()
             return try base.run(invocation)
         case .calendarList, .eventsList, .taskListsList, .tasksList,
-             .eventInsert, .taskListInsert, .taskInsert:
+             .eventInsert, .taskListInsert, .taskInsert, .taskMove:
             throw GWSFailure.forbiddenOperation
         }
         return try base.run(invocation)

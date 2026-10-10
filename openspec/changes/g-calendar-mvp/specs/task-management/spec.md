@@ -16,7 +16,7 @@ The default list SHALL use readable title/date hierarchy and convenient independ
 - **THEN** the title remains readable and each independent target performs only its matching action
 
 ### Requirement: Task lists and tasks support focused daily workflows
-The system MUST let the user select a Google task list and access list/column view, search, Today, Upcoming and Overdue filters. It MUST distinguish completion state and task list association.
+The system MUST let the user select all boards or a Google task list and access list view, with column view available across all boards, search, Today, Upcoming and Overdue filters. It MUST distinguish completion state and task list association.
 
 #### Scenario: Switch task list
 - **WHEN** a user chooses a different task list
@@ -35,7 +35,7 @@ The system MUST let the user select a Google task list and access list/column vi
 - **THEN** the clear action is reachable, the no-match state is distinguished from an empty list, and clearing restores the selected list/filter
 
 #### Scenario: Narrow task workspace
-- **WHEN** the window becomes too narrow for the status columns
+- **WHEN** the window becomes too narrow for the board columns
 - **THEN** the task workspace switches to a readable single-column presentation without requiring horizontal scrolling for primary actions
 
 ### Requirement: Task workflows are explicit and map to supported API fields
@@ -115,3 +115,13 @@ Editing a task MUST allow selecting a destination board. Moves MUST use tasks.mo
 #### Scenario: Move task while editing
 - **WHEN** The user saves edited fields and a different board
 - **THEN** The fields and move are separately verified; the editor tracks the confirmed identity and local metadata remains attached
+
+#### Scenario: Preserve local data when Google changes task identity
+- **WHEN** a verified move returns a different task ID
+- **THEN** local reminder and favorite metadata are persisted under the destination ID before the recovery journal is released
+- **AND** a local persistence failure keeps the journal for read-only recheck; the old notification is cancelled before removing source metadata
+
+#### Scenario: Refresh while move verification is pending
+- **WHEN** a refresh no longer finds the source task while its move journal remains unresolved
+- **THEN** reconciliation preserves the source local metadata until exact move verification persists the destination metadata
+- **AND** unrelated confirmed deletions continue to reconcile normally

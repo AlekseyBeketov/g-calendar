@@ -7,6 +7,8 @@ struct ProcessInvocation: Equatable {
     let operation: GWSOperation
     let timeout: TimeInterval
     let outputLimit: Int
+    var expectedTask: GoogleTask? = nil
+    var taskDestinationListID: String? = nil
 }
 
 struct ProcessResult: Equatable {
@@ -70,6 +72,7 @@ enum GWSOperation: String, Equatable, Codable {
     case taskListDelete = "tasks.tasklists.delete"
     case taskInsert = "tasks.tasks.insert"
     case taskPatch = "tasks.tasks.patch"
+    case taskMove = "tasks.tasks.move"
     case taskDelete = "tasks.tasks.delete"
 }
 
@@ -174,7 +177,7 @@ struct GWSCommandFactory {
         return try mutation(.taskInsert, command: ["tasks", "tasks", "insert"], params: ["tasklist": taskListID], body: taskBody(title: title, notes: notes, due: due, completed: false))
     }
 
-    func taskPatch(task: GoogleTask, title: String, notes: String?, due: DateOnly?, completed: Bool? = nil, authorization: MutationAuthorization) throws -> ProcessInvocation {
+    func taskPatch(task: GoogleTask, title: String, notes: String?, due: DateOnly?, completed: Bool? = nil, authorization: MutationAuthorization, destinationTaskListID: String? = nil) throws -> ProcessInvocation {
         guard !task.taskListID.isEmpty, !task.id.isEmpty else { throw GWSFailure.forbiddenOperation }
         switch authorization {
         case .userSave: break
@@ -191,7 +194,20 @@ struct GWSCommandFactory {
         case .confirmedDelete, .cancelled:
             throw GWSFailure.forbiddenOperation
         }
-        return try mutation(.taskPatch, command: ["tasks", "tasks", "patch"], params: ["tasklist": task.taskListID, "task": task.id], body: body)
+        var invocation = try mutation(.taskPatch, command: ["tasks", "tasks", "patch"], params: ["tasklist": task.taskListID, "task": task.id], body: body)
+        invocation.taskDestinationListID = destinationTaskListID
+        return invocation
+    }
+
+    func taskMove(task: GoogleTask, destinationTaskListID: String, authorization: MutationAuthorization) throws -> ProcessInvocation {
+        guard authorization == .userSave, !task.id.isEmpty, !task.taskListID.isEmpty, !task.deleted,
+              !destinationTaskListID.isEmpty, destinationTaskListID != task.taskListID else { throw GWSFailure.forbiddenOperation }
+        var invocation = try mutation(.taskMove, command: ["tasks", "tasks", "move"],
+                                      params: ["tasklist": task.taskListID, "task": task.id, "destinationTasklist": destinationTaskListID])
+        // Verification context is device-local; tasks.move receives no JSON body.
+        invocation.expectedTask = task
+        invocation.taskDestinationListID = destinationTaskListID
+        return invocation
     }
 
     func taskDelete(task: GoogleTask, authorization: MutationAuthorization) throws -> ProcessInvocation {
@@ -415,7 +431,9 @@ struct GWSReadClient: ExactCalendarEventReading {
     }
 
     func readTask(taskListID: String, taskID: String) throws -> GoogleTask {
-        let object = try exactObject(factory.readTask(taskListID: taskListID, taskID: taskID))
+        var object = try exactObject(factory.readTask(taskListID: taskListID, taskID: taskID))
+        guard object["id"] as? String == taskID else { throw GWSFailure.invalidResponse("task_identity") }
+        if object["deleted"] as? Bool == true && object["title"] == nil { object["title"] = "" }
         let task = try GoogleTask.decode(object, taskListID: taskListID)
         guard task.id == taskID else { throw GWSFailure.invalidResponse("task_identity") }
         return task
