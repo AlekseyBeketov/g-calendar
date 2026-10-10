@@ -28,6 +28,8 @@ env G_CALENDAR_TEST_OPTIMIZE=1 ./scripts/test.sh
 
 Скрипты используют прямой `swiftc`: собранный bundle расположен в `dist/g-calendar.app`, временные продукты — в `.build/`. `Package.swift` и Xcode project в репозитории отсутствуют, поэтому `swift build`/`swift test` не являются командами сборки этого проекта. Исторический SwiftPM preflight и его linker failure в CLT описаны в [docs/BUILD_PREFLIGHT.md](docs/BUILD_PREFLIGHT.md). Датированные результаты приёмки — [docs/verification.md](docs/verification.md).
 
+После завершения работы над одной или несколькими доработками агент пересобирает приложение через `./scripts/build-app.sh`. Для ручной проверки открывайте обновлённый `dist/g-calendar.app`; если приложение уже запущено, завершите его и откройте заново.
+
 ### Первый запуск
 
 1. Установите и настройте `gws` по [документации Google Workspace CLI](https://github.com/googleworkspace/cli), отдельно разрешив доступ к Calendar и Tasks. OAuth выполняется вне g-calendar под тем же пользователем macOS.
