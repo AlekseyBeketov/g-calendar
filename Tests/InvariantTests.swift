@@ -1,6 +1,25 @@
 import Foundation
 import Darwin
 import UserNotifications
+import ServiceManagement
+
+@MainActor
+final class FakeLoginItemService: LoginItemServicing {
+    var status: SMAppService.Status = .notRegistered
+    var registerCount = 0
+    var unregisterCount = 0
+    var fails = false
+    func register() throws {
+        registerCount += 1
+        if fails { throw GWSFailure.permissionDenied }
+        status = .requiresApproval
+    }
+    func unregister() async throws {
+        unregisterCount += 1
+        if fails { throw GWSFailure.permissionDenied }
+        status = .notRegistered
+    }
+}
 
 struct TestFailure: Error, CustomStringConvertible {
     let description: String
@@ -187,6 +206,7 @@ struct InvariantTests {
             do { try runJournalLockProbe(); return }
             catch { Darwin.exit(1) }
         }
+        await runAsync("login-item-status-register-error-and-demo-isolation", testLoginItems)
         run("optional-event-summary", testOptionalEventSummary)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)
         run("file-metadata-date-round-trip", testFileMetadataRoundTrip)
@@ -233,6 +253,32 @@ struct InvariantTests {
             exit(EXIT_FAILURE)
         }
         print("ASSERTIONS=\(assertions)")
+    }
+
+    @MainActor
+    static func testLoginItems() async throws {
+        let fake = FakeLoginItemService()
+        let settings = LoginItemSettings(service: fake)
+        settings.refresh(isNormalMode: false)
+        await settings.setEnabled(true)
+        try check(fake.registerCount == 0 && !settings.isAvailable, "demo must never register login items")
+        settings.refresh(isNormalMode: true)
+        await settings.setEnabled(true)
+        try check(settings.isRegistered && settings.status == .requiresApproval && fake.registerCount == 1, "registration must expose approval state")
+        await settings.setEnabled(true)
+        try check(fake.registerCount == 1, "pending approval must not trigger duplicate registration")
+        fake.status = .enabled
+        settings.refresh(isNormalMode: true)
+        try check(settings.status == .enabled, "settings must read externally changed macOS status")
+        fake.fails = true
+        await settings.setEnabled(false)
+        try check(settings.isRegistered && settings.errorMessage != nil && !settings.isUpdating, "unregister error must retain actual status")
+        fake.fails = false
+        await settings.setEnabled(false)
+        try check(!settings.isRegistered && settings.status == .notRegistered && settings.errorMessage == nil, "unregister success must read back disabled status")
+        fake.status = .notFound
+        settings.refresh(isNormalMode: true)
+        try check(!settings.isRegistered && settings.statusMessage.contains("Applications"), "missing bundle must provide installation guidance")
     }
 
     static func run(_ name: String, _ operation: () throws -> Void) {

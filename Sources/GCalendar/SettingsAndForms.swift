@@ -469,6 +469,7 @@ struct ReminderEditorView: View {
 }
 
 struct SettingsView: View {
+    @StateObject private var loginItems = LoginItemSettings()
     @EnvironmentObject private var model: WorkspaceViewModel
     @Environment(\.dismiss) private var dismiss
     @StateObject private var local = ViewLocalState()
@@ -507,6 +508,22 @@ struct SettingsView: View {
                             ForEach(WorkspaceViewModel.Appearance.allCases) { Text($0.rawValue).tag($0) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    SettingsSection(title: "Запуск приложения") {
+                        Toggle("Запускать при входе в систему", isOn: Binding(
+                            get: { loginItems.isRegistered },
+                            set: { enabled in Task { await loginItems.setEnabled(enabled) } }
+                        ))
+                        .disabled(!loginItems.isAvailable || loginItems.isUpdating)
+                        Text(loginItems.statusMessage).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let message = loginItems.errorMessage {
+                            Text(message).font(.caption).foregroundStyle(AppTheme.overdue)
+                                .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
+                        }
+                        Button("Объекты входа в macOS") { loginItems.openSystemSettings() }
+                            .disabled(!loginItems.isAvailable || loginItems.isUpdating)
                     }
 
                     SettingsSection(title: "Горячие клавиши") {
@@ -561,7 +578,14 @@ struct SettingsView: View {
         }
         .padding(AppTheme.editorInset)
         .frame(minWidth: 400, idealWidth: 500, minHeight: 430)
-        .task { await model.refreshNotificationStatus() }
+        .task {
+            loginItems.refresh(isNormalMode: model.launchMode == .normal)
+            await model.refreshNotificationStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loginItems.refresh(isNormalMode: model.launchMode == .normal)
+            Task { await model.refreshNotificationStatus() }
+        }
     }
 
     private var notificationActionTitle: String {

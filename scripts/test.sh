@@ -12,7 +12,8 @@ configure_swift_compiler "$BUILD_DIR"
 TEST_OPTIMIZATION="-Onone"
 if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; fi
 "${G_CALENDAR_SWIFT[@]}" "$TEST_OPTIMIZATION" -parse-as-library -swift-version 5 -target arm64-apple-macosx13.0 \
-  -framework UserNotifications \
+  -framework UserNotifications -framework ServiceManagement \
+  "$ROOT/Sources/GCalendar/LoginItemSettings.swift" \
   "$ROOT/Sources/GCalendar/Models.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
   "$ROOT/Sources/GCalendar/TaskKeyboardNavigation.swift" \

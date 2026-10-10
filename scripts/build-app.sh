@@ -30,7 +30,7 @@ SOURCE_FILES=("$ROOT"/Sources/GCalendar/*.swift)
 OPTIMIZATION="-O"
 if [[ "${G_CALENDAR_DEBUG_BUILD:-0}" == "1" ]]; then OPTIMIZATION="-Onone"; fi
 "${G_CALENDAR_SWIFT[@]}" "$OPTIMIZATION" -parse-as-library -target arm64-apple-macosx13.0 \
-  -framework SwiftUI -framework AppKit -framework UserNotifications \
+  -framework SwiftUI -framework AppKit -framework UserNotifications -framework ServiceManagement \
   "${SOURCE_FILES[@]}" -o "$STAGE/Contents/MacOS/g-calendar"
 
 cp "$ROOT/resources/Info.plist" "$STAGE/Contents/Info.plist"
