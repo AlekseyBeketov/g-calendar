@@ -224,6 +224,7 @@ struct InvariantTests {
         run("calendar-task-only-date-is-not-empty", testCalendarTaskOnlyDateIsNotEmpty)
         run("calendar-undated-tasks-once-and-search-scope", testCalendarUndatedTasks)
         run("task-date-filters-and-groups", testTaskFilters)
+        run("all-board-columns-filtering-and-identities", testTaskBoardGroups)
         run("task-keyboard-selection-scope-and-commands", testTaskKeyboardNavigation)
         run("workspace-shortcut-defaults-persistence-conflicts-reset", testWorkspaceShortcuts)
         run("theme-srgb-text-and-control-contrast", testThemeContrast)
@@ -572,8 +573,8 @@ struct InvariantTests {
         let lists = [TaskList(id: "synthetic-a", title: "Synthetic A", updated: nil),
                      TaskList(id: "synthetic-b", title: "Synthetic B", updated: nil)]
         try check(TaskWorkspaceLayout.validSelectedListID("synthetic-b", lists: lists) == "synthetic-b", "refresh must retain an existing selected list")
-        try check(TaskWorkspaceLayout.validSelectedListID("synthetic-removed", lists: lists) == "synthetic-a", "refresh must replace a remotely removed list context")
-        try check(TaskWorkspaceLayout.validSelectedListID(nil, lists: lists) == "synthetic-a", "refresh must choose a list when no context exists")
+        try check(TaskWorkspaceLayout.validSelectedListID("synthetic-removed", lists: lists) == nil, "removed board must return to all boards")
+        try check(TaskWorkspaceLayout.validSelectedListID(nil, lists: lists) == nil, "refresh must preserve all-board default scope")
         try check(TaskWorkspaceLayout.validSelectedListID("synthetic-a", lists: []) == nil, "an empty refreshed collection must clear stale list context")
         try check(TaskWorkspaceLayout.isOverdue(task("past-status", due: "2026-10-01"), today: today), "past active task needs an explicit overdue status")
         try check(!TaskWorkspaceLayout.isOverdue(task("today-status", due: "2026-10-02"), today: today), "today must not be styled as overdue")
@@ -608,6 +609,35 @@ struct InvariantTests {
         let ordered = TaskWorkspaceLayout.filteredTasks(unordered, filter: .upcoming, selectedTaskListID: "synthetic-list", searchText: "", today: today)
         try check(ordered.map(\.id) == ["same-a", "same-b", "later"], "dated views must sort by due and retain source order for equal dates")
         try check(TaskWorkspaceLayout.groups(unordered, today: today)[3].1.map(\.id) == ["undated-b", "undated-a"], "undated manual order must not change")
+    }
+
+    static func testTaskBoardGroups() throws {
+        let today = DateOnly(rawValue: "2026-10-10")!
+        let boards = [TaskList(id: "a", title: "Same", updated: nil), TaskList(id: "b", title: "Same", updated: nil),
+                      TaskList(id: "empty", title: "Empty", updated: nil)]
+        func task(_ id: String, board: String, completed: Bool = false, deleted: Bool = false) -> GoogleTask {
+            GoogleTask(id: id, taskListID: board, title: "Find " + id, notes: nil, due: today,
+                       completed: completed, deleted: deleted, updated: nil)
+        }
+        let tasks = [task("done", board: "a", completed: true), task("shared", board: "a"),
+                     task("shared", board: "b"), task("deleted", board: "b", deleted: true)]
+        let visible = TaskWorkspaceLayout.filteredTasks(tasks, filter: .all, selectedTaskListID: nil, searchText: "", today: today)
+        let groups = TaskWorkspaceLayout.boardGroups(visible, lists: boards)
+        try check(groups.map(\.id) == ["a", "b", "empty"], "board columns use IDs even with duplicate names and retain empty boards")
+        try check(groups.map { $0.tasks.count } == [2, 1, 0], "each task must belong only to its board and deleted tasks are excluded")
+        try check(groups[0].tasks.map(\.id) == ["shared", "done"], "active tasks precede completed tasks within a board")
+        let identities = groups.flatMap(\.tasks).map(\.selectionIdentity)
+        try check(Set(identities).count == 3, "same Google task ID in distinct boards retains distinct keyboard identities")
+        let found = TaskWorkspaceLayout.filteredTasks(tasks, filter: .today, selectedTaskListID: nil, searchText: "SHARED", today: today)
+        try check(TaskWorkspaceLayout.boardGroups(found, lists: boards).map { $0.tasks.count } == [1, 1, 0], "search and date filters must work across all boards")
+        let selected = TaskWorkspaceLayout.filteredTasks(tasks, filter: .all, selectedTaskListID: "b", searchText: "", today: today)
+        try check(selected.count == 1 && selected[0].taskListID == "b", "specific board scope must exclude other boards")
+        try check(!TaskWorkspaceLayout.usesColumnBoard(presentation: .columns, availableWidth: 1600, selectedTaskListID: "b"), "specific board must always render a list")
+        let width = TaskWorkspaceLayout.boardColumnWidth(availableWidth: 1100, boardCount: 8)
+        try check(width >= 320 && width <= 420, "columns must keep readable explicit widths instead of compressing eight boards")
+        let keyboard = TaskKeyboardNavigation.visibleTasks(filteredTasks: found, groups: groups.map { ("board:" + $0.id, $0.tasks) },
+                                                           usesGroups: true, usesColumns: false, collapsedGroups: ["board:a"])
+        try check(keyboard.map(\.taskListID) == ["b"], "narrow fallback must exclude collapsed board tasks from keyboard navigation")
     }
 
     static func testWorkspaceShortcuts() throws {

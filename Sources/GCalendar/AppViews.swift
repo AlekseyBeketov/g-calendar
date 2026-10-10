@@ -129,6 +129,15 @@ private struct SidebarView: View {
                 }
             } else {
                 Section {
+                    Button { model.selectedTaskListID = nil } label: {
+                        Label("Все доски", systemImage: "square.stack")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8).frame(minHeight: 36)
+                            .contentShape(.interaction, Rectangle())
+                            .background(model.selectedTaskListID == nil ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                    }.pointingHandCursor().buttonStyle(.plain)
+                    .accessibilityIdentifier("sidebar-all-task-boards")
+                    .accessibilityAddTraits(model.selectedTaskListID == nil ? .isSelected : [])
                     ForEach(model.snapshot.taskLists) { list in
                         Button { model.selectedTaskListID = list.id } label: {
                             Label(list.title, systemImage: "list.bullet")

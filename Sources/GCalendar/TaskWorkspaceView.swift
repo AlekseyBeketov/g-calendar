@@ -43,28 +43,30 @@ struct TaskWorkspaceView: View {
                                     actionTitle: model.searchText.isEmpty ? nil : "Очистить поиск") {
                     model.searchText = ""
                 }
-            } else if model.taskFilter == .all {
+            } else if usesBoardGroups || model.taskFilter == .all {
                 GeometryReader { geometry in
-                    let usesColumns = TaskWorkspaceLayout.usesColumnBoard(presentation: presentation, availableWidth: Double(geometry.size.width))
+                    let usesColumns = TaskWorkspaceLayout.usesColumnBoard(presentation: presentation, availableWidth: Double(geometry.size.width), selectedTaskListID: model.selectedTaskListID)
                     Group {
                         if !usesColumns {
                             ScrollViewReader { proxy in
                                 ScrollView {
                                     LazyVStack(alignment: .leading, spacing: 16) {
-                                        ForEach(model.taskGroups().filter { !$0.1.isEmpty }, id: \.0) { title, tasks in
+                                        ForEach(workspaceGroups.filter { !$0.tasks.isEmpty }) { group in
+                                            let title = group.title
+                                            let tasks = group.tasks
                                             VStack(alignment: .leading, spacing: 4) {
                                                 Button {
-                                                    if local.collapsedGroups.contains(title) { local.collapsedGroups.remove(title) }
-                                                    else { local.collapsedGroups.insert(title) }
+                                                    if local.collapsedGroups.contains(group.id) { local.collapsedGroups.remove(group.id) }
+                                                    else { local.collapsedGroups.insert(group.id) }
                                                 } label: {
                                                     HStack(spacing: 8) {
-                                                        Image(systemName: local.collapsedGroups.contains(title) ? "chevron.right" : "chevron.down").font(.caption)
+                                                        Image(systemName: local.collapsedGroups.contains(group.id) ? "chevron.right" : "chevron.down").font(.caption)
                                                         Text(title).font(.callout.weight(.semibold))
                                                         Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
                                                         Spacer()
                                                     }.frame(minHeight: 32).contentShape(.interaction, Rectangle())
-                                                }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("\(title), \(tasks.count), \(local.collapsedGroups.contains(title) ? "свёрнуто" : "развёрнуто")")
-                                                if !local.collapsedGroups.contains(title) {
+                                                }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("\(title), \(tasks.count), \(local.collapsedGroups.contains(group.id) ? "свёрнуто" : "развёрнуто")")
+                                                if !local.collapsedGroups.contains(group.id) {
                                                     LazyVStack(spacing: 0) { ForEach(tasks, id: \.selectionIdentity) { task in taskRow(task) } }
                                                 }
                                             }
@@ -82,13 +84,15 @@ struct TaskWorkspaceView: View {
                             }
                         } else {
                             ScrollViewReader { proxy in
-                                ScrollView([.horizontal, .vertical]) {
+                                ScrollView(.horizontal) {
                                     HStack(alignment: .top, spacing: 16) {
-                                        ForEach(model.taskGroups(), id: \.0) { title, tasks in
-                                            TaskColumn(title: title, tasks: tasks, selectedIdentity: local.selectedTaskIdentity,
+                                        ForEach(boardGroups) { group in
+                                            TaskColumn(title: group.board.title, tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity,
                                                        keyboardFocused: local.taskKeyboardFocused,
                                                        onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
-                                                .frame(minWidth: 230, idealWidth: max(230, geometry.size.width / 5 - 16), maxWidth: 360)
+                                                .frame(width: CGFloat(TaskWorkspaceLayout.boardColumnWidth(availableWidth: Double(geometry.size.width), boardCount: boardGroups.count)),
+                                                       height: max(120, geometry.size.height - 8))
+                                                .id(group.id)
                                         }
                                     }
                                     .padding(.horizontal, 24)
@@ -98,7 +102,7 @@ struct TaskWorkspaceView: View {
                                 .scrollIndicators(.visible)
                                 .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .topLeading) }
                                 .onChange(of: local.selectedTaskIdentity) { identity in
-                                    if let identity { proxy.scrollTo(identity) }
+                                    if let identity { proxy.scrollTo(identity.taskListID, anchor: .leading) }
                                 }
                             }
                         }
@@ -139,7 +143,7 @@ struct TaskWorkspaceView: View {
         .onAppear { reconcileTaskSelection() }
         .onChange(of: visibleTaskIdentities) { _ in reconcileTaskSelection() }
         .onChange(of: model.newItemRequestID) { _ in
-            guard model.section == .tasks, model.selectedTaskList != nil else { return }
+            guard model.section == .tasks, !model.snapshot.taskLists.isEmpty else { return }
             local.showingNewTask = true
         }
         .accessibilityIdentifier("task-workspace")
@@ -147,6 +151,11 @@ struct TaskWorkspaceView: View {
 
     private var listSelector: some View {
         Menu {
+            Button { model.selectedTaskListID = nil } label: {
+                if model.selectedTaskListID == nil { Label("Все доски", systemImage: "checkmark") }
+                else { Text("Все доски") }
+            }
+            Divider()
             ForEach(model.snapshot.taskLists) { list in
                 Button { model.selectedTaskListID = list.id } label: {
                     if model.selectedTaskListID == list.id { Label(list.title, systemImage: "checkmark") }
@@ -156,24 +165,24 @@ struct TaskWorkspaceView: View {
             Divider()
             Button("Управлять списками…") { local.showTaskLists = true }
         } label: {
-            Text(model.selectedTaskList?.title ?? "Задачи").font(.title2.weight(.semibold)).lineLimit(1)
+            Text(model.selectedTaskList?.title ?? "Все доски").font(.title2.weight(.semibold)).lineLimit(1)
         }.pointingHandCursor().menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "не выбран")")
+        .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "Все доски")")
     }
 
     private var workspaceActions: some View {
         HStack(spacing: 12) {
-            if model.taskFilter == .all {
+            if model.selectedTaskListID == nil {
                 Picker("Представление задач", selection: $presentationRawValue) {
                     ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
                         Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue)
                     }
                 }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 112)
                 .accessibilityIdentifier("task-presentation-picker")
-                .help("Список по умолчанию. Колонки доступны в широком окне.")
+                .help("Колонки показывают доски. В узком окне доски отображаются вертикальным списком.")
             }
             Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }.pointingHandCursor()
-                .buttonStyle(.borderedProminent).disabled(model.selectedTaskList == nil || model.mutationsBlocked)
+                .buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked)
                 .help("Создать задачу")
         }
     }
@@ -182,9 +191,17 @@ struct TaskWorkspaceView: View {
         TaskWorkspacePresentation(rawValue: presentationRawValue) ?? .defaultMode
     }
 
+    private var usesBoardGroups: Bool { model.selectedTaskListID == nil && presentation == .columns }
+    private var boardGroups: [TaskBoardGroup] { TaskWorkspaceLayout.boardGroups(model.visibleTasks, lists: model.snapshot.taskLists) }
+    private var workspaceGroups: [TaskPresentationGroup] {
+        if usesBoardGroups { return boardGroups.map { TaskPresentationGroup(id: "board:" + $0.id, title: $0.board.title, tasks: $0.tasks) } }
+        return model.taskGroups().map { TaskPresentationGroup(id: $0.0, title: $0.0, tasks: $0.1) }
+    }
+
     private var keyboardVisibleTasks: [GoogleTask] {
-        TaskKeyboardNavigation.visibleTasks(filteredTasks: model.visibleTasks, groups: model.taskGroups(),
-                                            usesGroups: model.taskFilter == .all, usesColumns: local.taskColumnsVisible,
+        TaskKeyboardNavigation.visibleTasks(filteredTasks: model.visibleTasks, groups: workspaceGroups.map { ($0.id, $0.tasks) },
+                                            usesGroups: usesBoardGroups || model.taskFilter == .all,
+                                            usesColumns: usesBoardGroups && local.taskColumnsVisible,
                                             collapsedGroups: local.collapsedGroups)
     }
 
@@ -244,7 +261,7 @@ struct TaskWorkspaceView: View {
 
     private var emptyTitle: String {
         if !model.searchText.isEmpty { return tasksInSelectedList.isEmpty ? "Задач нет" : "Ничего не найдено" }
-        if tasksInSelectedList.isEmpty { return "В этом списке нет задач" }
+        if tasksInSelectedList.isEmpty { return model.selectedTaskListID == nil ? "На досках нет задач" : "В этой доске нет задач" }
         return "Нет задач по выбранному фильтру"
     }
 
@@ -266,26 +283,41 @@ private struct TaskColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text(title).font(.headline)
+                Text(title).font(.headline).lineLimit(2)
                 Spacer()
                 Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
             }
-            if tasks.isEmpty {
-                Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 5)
-            } else {
-                ForEach(tasks, id: \.selectionIdentity) { task in
-                    TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
-                                onSelect: onSelect, onEditorDismiss: onEditorDismiss)
-                        .id(task.selectionIdentity)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if tasks.isEmpty {
+                            Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 5)
+                        }
+                        ForEach(tasks, id: \.selectionIdentity) { task in
+                            TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
+                                        onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: false)
+                                .id(task.selectionIdentity)
+                        }
+                    }
+                }.scrollIndicators(.visible)
+                .onChange(of: selectedIdentity) { identity in
+                    if let identity, tasks.contains(where: { $0.selectionIdentity == identity }) { proxy.scrollTo(identity) }
                 }
             }
         }
         .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1)
             .allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)
     }
+}
+
+private struct TaskPresentationGroup: Identifiable {
+    let id: String
+    let title: String
+    let tasks: [GoogleTask]
 }
 
 private struct TaskRowView: View {
@@ -295,6 +327,7 @@ private struct TaskRowView: View {
     let keyboardFocused: Bool
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
+    var showsListTag = true
     @StateObject private var local = ViewLocalState()
 
     private var metadata: LocalTaskMetadata { model.metadataStore.metadata(for: task.id) }
@@ -410,10 +443,12 @@ private struct TaskRowView: View {
                 Text(dueText).font(.callout).foregroundStyle(dueColor)
             }.frame(width: 82, alignment: .leading)
             .help(isOverdue ? "Просрочено" : "Срок задачи — дата без времени")
-            Text(listTitle).font(.callout).foregroundStyle(AppTheme.accent).lineLimit(1)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .frame(maxWidth: 150, alignment: .leading)
-                .background(AppTheme.selection.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+            if showsListTag {
+                Text(listTitle).font(.callout).foregroundStyle(AppTheme.accent).lineLimit(1)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .frame(maxWidth: 150, alignment: .leading)
+                    .background(AppTheme.selection.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+            }
         }.fixedSize(horizontal: true, vertical: false)
     }
 

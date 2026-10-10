@@ -18,13 +18,19 @@ enum TaskWorkspacePresentation: String, CaseIterable {
     var symbol: String { self == .list ? "list.bullet" : "rectangle.split.3x1" }
 }
 
+struct TaskBoardGroup: Identifiable {
+    let board: TaskList
+    let tasks: [GoogleTask]
+    var id: String { board.id }
+}
+
 enum TaskWorkspaceLayout {
     static let idealSidebarWidth = 245.0
     static let topScrollAnchorID = "task-workspace-scroll-top"
 
     static func validSelectedListID(_ selectedID: String?, lists: [TaskList]) -> String? {
         if let selectedID, lists.contains(where: { $0.id == selectedID }) { return selectedID }
-        return lists.first?.id
+        return nil
     }
 
     static func isOverdue(_ task: GoogleTask, today: DateOnly) -> Bool {
@@ -39,8 +45,22 @@ enum TaskWorkspaceLayout {
         availableWidth < threshold
     }
 
-    static func usesColumnBoard(presentation: TaskWorkspacePresentation, availableWidth: Double) -> Bool {
-        presentation == .columns && !usesSingleColumn(availableWidth: availableWidth)
+    static func usesColumnBoard(presentation: TaskWorkspacePresentation, availableWidth: Double,
+                                selectedTaskListID: String? = nil) -> Bool {
+        selectedTaskListID == nil && presentation == .columns && !usesSingleColumn(availableWidth: availableWidth)
+    }
+
+    static func boardGroups(_ tasks: [GoogleTask], lists: [TaskList]) -> [TaskBoardGroup] {
+        let byList = Dictionary(grouping: tasks.filter { !$0.deleted }, by: \.taskListID)
+        return lists.map { list in
+            let contents = byList[list.id] ?? []
+            return TaskBoardGroup(board: list, tasks: contents.filter { !$0.completed } + contents.filter(\.completed))
+        }
+    }
+
+    static func boardColumnWidth(availableWidth: Double, boardCount: Int) -> Double {
+        let visibleCount = Double(max(1, min(3, boardCount)))
+        return max(320, min(420, (availableWidth - 48 - 16 * (visibleCount - 1)) / visibleCount))
     }
 
     static func filteredTasks(_ tasks: [GoogleTask], filter: TaskWorkspaceFilter,

@@ -121,7 +121,6 @@ final class WorkspaceViewModel: ObservableObject {
             snapshot = initial
             if mode == .demo {
                 selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: initial.calendars)
-                selectedTaskListID = initial.taskLists.first?.id
                 visibleCalendarIDs = Set(initial.calendars.map(\.id))
             }
             metadataStore = metadata
@@ -359,9 +358,7 @@ final class WorkspaceViewModel: ObservableObject {
                     if !refreshed.calendars.contains(where: { $0.id == self.selectedCalendarID ?? "" }) {
                         self.selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: refreshed.calendars)
                     }
-                    if !refreshed.taskLists.contains(where: { $0.id == self.selectedTaskListID ?? "" }) {
-                        self.selectedTaskListID = refreshed.taskLists.first?.id
-                    }
+                    self.selectedTaskListID = TaskWorkspaceLayout.validSelectedListID(self.selectedTaskListID, lists: refreshed.taskLists)
                     self.visibleCalendarIDs = Set(refreshed.calendars.map(\.id))
                     if let event = refreshed.events.first {
                         self.activeDate = event.start.instant
@@ -392,9 +389,7 @@ final class WorkspaceViewModel: ObservableObject {
                     if !snapshot.calendars.contains(where: { $0.id == selectedCalendarID }) {
                         selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: snapshot.calendars)
                     }
-                    if !snapshot.taskLists.contains(where: { $0.id == selectedTaskListID }) {
-                        selectedTaskListID = snapshot.taskLists.first?.id
-                    }
+                    selectedTaskListID = TaskWorkspaceLayout.validSelectedListID(selectedTaskListID, lists: snapshot.taskLists)
                     visibleCalendarIDs = Set(snapshot.calendars.map(\.id))
                 }
                 statusMessage = "ДЕМО · действие обработано локальным fixture-адаптером; Google не вызывался."
