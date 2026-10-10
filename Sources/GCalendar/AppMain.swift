@@ -120,7 +120,7 @@ final class WorkspaceViewModel: ObservableObject {
             snapshotStore = memorySnapshot
             snapshot = initial
             if mode == .demo {
-                selectedCalendarID = initial.calendars.first?.id
+                selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: initial.calendars)
                 selectedTaskListID = initial.taskLists.first?.id
                 visibleCalendarIDs = Set(initial.calendars.map(\.id))
             }
@@ -134,6 +134,7 @@ final class WorkspaceViewModel: ObservableObject {
             syncState = mode == .demo ? .updated : .idle
             statusMessage = mode == .demo ? "ДЕМО · синтетические данные; сеть, кэш пользователя и уведомления отключены." : "Проверка состояния уведомлений…"
         }
+        selectedCalendarID = CalendarNavigation.selectedID(selectedCalendarID, calendars: snapshot.calendars)
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -143,6 +144,7 @@ final class WorkspaceViewModel: ObservableObject {
     var presentationDefaults: UserDefaults { defaults }
     var mutationsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
 
+    var sortedCalendars: [CalendarInfo] { CalendarNavigation.sorted(snapshot.calendars) }
     var selectedCalendar: CalendarInfo? { snapshot.calendars.first(where: { $0.id == selectedCalendarID }) }
     var selectedTaskList: TaskList? { snapshot.taskLists.first(where: { $0.id == selectedTaskListID }) }
     var calendarRangeIsCovered: Bool { snapshot.calendarCoverage?.covers(currentRange()) ?? false }
@@ -330,7 +332,7 @@ final class WorkspaceViewModel: ObservableObject {
             visibleCalendarIDs = refreshedCalendarIDs
         }
         if !refreshedCalendarIDs.contains(selectedCalendarID ?? "") {
-            selectedCalendarID = refreshed.calendars.first?.id
+            selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: refreshed.calendars)
         }
         selectedTaskListID = TaskWorkspaceLayout.validSelectedListID(selectedTaskListID, lists: refreshed.taskLists)
     }
@@ -355,7 +357,7 @@ final class WorkspaceViewModel: ObservableObject {
                 case .success(let refreshed):
                     self.snapshot = refreshed
                     if !refreshed.calendars.contains(where: { $0.id == self.selectedCalendarID ?? "" }) {
-                        self.selectedCalendarID = refreshed.calendars.first?.id
+                        self.selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: refreshed.calendars)
                     }
                     if !refreshed.taskLists.contains(where: { $0.id == self.selectedTaskListID ?? "" }) {
                         self.selectedTaskListID = refreshed.taskLists.first?.id
@@ -388,7 +390,7 @@ final class WorkspaceViewModel: ObservableObject {
                 if let demoAdapter {
                     snapshot = demoAdapter.snapshot()
                     if !snapshot.calendars.contains(where: { $0.id == selectedCalendarID }) {
-                        selectedCalendarID = snapshot.calendars.first?.id
+                        selectedCalendarID = CalendarNavigation.selectedID(nil, calendars: snapshot.calendars)
                     }
                     if !snapshot.taskLists.contains(where: { $0.id == selectedTaskListID }) {
                         selectedTaskListID = snapshot.taskLists.first?.id

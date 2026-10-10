@@ -207,6 +207,7 @@ struct InvariantTests {
             catch { Darwin.exit(1) }
         }
         await runAsync("login-item-status-register-error-and-demo-isolation", testLoginItems)
+        run("calendar-writable-sort-and-default-selection", testCalendarNavigation)
         run("optional-event-summary", testOptionalEventSummary)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)
         run("file-metadata-date-round-trip", testFileMetadataRoundTrip)
@@ -279,6 +280,20 @@ struct InvariantTests {
         fake.status = .notFound
         settings.refresh(isNormalMode: true)
         try check(!settings.isRegistered && settings.statusMessage.contains("Applications"), "missing bundle must provide installation guidance")
+    }
+
+    static func testCalendarNavigation() throws {
+        let reader = CalendarInfo(id: "reader", title: "А", accessRole: "reader", timeZoneID: nil, colorHex: nil)
+        let owner = CalendarInfo(id: "owner", title: "Я", accessRole: "owner", timeZoneID: nil, colorHex: nil)
+        let writer = CalendarInfo(id: "writer", title: "Б", accessRole: "writer", timeZoneID: nil, colorHex: nil)
+        let sameTitle = CalendarInfo(id: "a", title: "Б", accessRole: "writer", timeZoneID: nil, colorHex: nil)
+        try check(CalendarNavigation.sorted([reader, owner, writer, sameTitle]).map(\.id) == ["a", "writer", "owner", "reader"], "writable calendars must lead with localized name ordering and ID tie-break")
+        try check(CalendarNavigation.selectedID(nil, calendars: [reader, owner]) == "owner", "missing selection must prefer writable calendar")
+        try check(CalendarNavigation.selectedID("removed", calendars: [reader, writer]) == "writer", "removed calendar must fall back to writable context")
+        try check(CalendarNavigation.selectedID("reader", calendars: [reader, owner]) == "reader", "explicit read-only selection must survive refresh")
+        try check(CalendarNavigation.selectedID(nil, calendars: [reader]) == "reader", "read-only-only collection must remain selectable")
+        try check(CalendarNavigation.selectedID("reader", calendars: []) == nil, "empty collection must clear selection")
+        try check(!reader.isWritable && owner.isWritable && writer.isWritable, "Google roles must determine writable state")
     }
 
     static func run(_ name: String, _ operation: () throws -> Void) {

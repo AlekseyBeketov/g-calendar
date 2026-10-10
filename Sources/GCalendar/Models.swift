@@ -87,6 +87,21 @@ struct DateOnly: Codable, Hashable, Comparable, CustomStringConvertible {
     }
 }
 
+enum CalendarNavigation {
+    static func sorted(_ calendars: [CalendarInfo]) -> [CalendarInfo] {
+        calendars.sorted { lhs, rhs in
+            if lhs.isWritable != rhs.isWritable { return lhs.isWritable }
+            let comparison = lhs.title.localizedStandardCompare(rhs.title)
+            return comparison == .orderedSame ? lhs.id < rhs.id : comparison == .orderedAscending
+        }
+    }
+
+    static func selectedID(_ current: String?, calendars: [CalendarInfo]) -> String? {
+        if let current, calendars.contains(where: { $0.id == current }) { return current }
+        return sorted(calendars).first?.id
+    }
+}
+
 struct CalendarInfo: Codable, Equatable, Identifiable {
     let id: String
     var title: String

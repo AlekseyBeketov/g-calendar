@@ -97,14 +97,14 @@ private struct SidebarView: View {
             }
             if model.section == .calendar {
                 Section("Календари") {
-                    ForEach(model.snapshot.calendars) { calendar in
+                    ForEach(model.sortedCalendars) { calendar in
                         HStack(spacing: 4) {
                             Button { model.selectedCalendarID = calendar.id } label: {
                                 HStack(spacing: 8) {
                                     Circle().fill(Color(hex: calendar.colorHex) ?? AppTheme.event).frame(width: 9, height: 9)
                                     Text(calendar.title).lineLimit(1)
                                     Spacer(minLength: 2)
-                                    if !calendar.isWritable { Image(systemName: "lock.fill").foregroundStyle(AppTheme.textSecondary).help("Только просмотр") }
+                                    if !calendar.isWritable { Image(systemName: "lock.fill").foregroundStyle(AppTheme.textSecondary).help("Google предоставляет только просмотр этого календаря. Изменение событий недоступно и в Google Calendar.") }
                                 }
                                 .padding(.horizontal, 8)
                                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)

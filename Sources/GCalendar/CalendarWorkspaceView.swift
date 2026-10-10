@@ -262,7 +262,7 @@ struct EventEditorView: View {
                 }
                 if event == nil {
                     Picker("Календарь", selection: $local.contextID) {
-                        ForEach(model.snapshot.calendars.filter(\.isWritable)) { Text($0.title).tag($0.id) }
+                        ForEach(model.sortedCalendars.filter(\.isWritable)) { Text($0.title).tag($0.id) }
                     }
                 } else if let calendar { LabeledContent("Календарь", value: calendar.title) }
                 if let event {
@@ -314,7 +314,7 @@ struct EventEditorView: View {
         .fixedSize(horizontal: false, vertical: true)
         .defaultFocus($titleFocused, true)
         .onAppear {
-            if event == nil && local.contextID.isEmpty { local.contextID = model.snapshot.calendars.first(where: \.isWritable)?.id ?? "" }
+            if event == nil && local.contextID.isEmpty { local.contextID = model.sortedCalendars.first(where: \.isWritable)?.id ?? "" }
             if let event, let record = model.eventReminderCoordinator.store.record(for: event.identity) {
                 local.enabled = true
                 local.fireDate = record.fireDate
