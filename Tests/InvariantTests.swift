@@ -247,6 +247,9 @@ struct InvariantTests {
         run("google-rest-allowlisted-http-retry-cancel-core", testGoogleRESTCore)
         run("google-oauth-pkce-callback-singleflight-context-isolation", testGoogleOAuthIsolation)
         run("google-urlsession-streaming-response-cap", testGoogleHTTPStreamingLimit)
+        if ProcessInfo.processInfo.environment["G_CALENDAR_TEST_LOOPBACK"] == "1" {
+            await runAsync("google-oauth-native-loopback-local-fixture", testGoogleNativeLoopback)
+        }
         run("calendar-writable-sort-and-default-selection", testCalendarNavigation)
         run("optional-event-summary", testOptionalEventSummary)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)

@@ -193,3 +193,37 @@ extension InvariantTests {
         try check(deadlines.count == 1, "stalled HTTP fixture finishes within bounded request timeout")
     }
 }
+
+// Opt-in local socket fixture: never opens a browser or contacts Google.
+// The regular suite remains entirely offline and sandbox-friendly.
+extension InvariantTests {
+    static func testGoogleNativeLoopback() async throws {
+        let result: (String, Int, Int, Bool) = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                let http = GoogleURLSessionHTTPClient()
+                defer { http.invalidate() }
+                let listener = GoogleLoopbackListener()
+                do {
+                    var invalidStatus = 0, validStatus = 0
+                    let (code, redirect) = try listener.receive(state: "fixture-state") { redirect in
+                        var url = URLComponents(url: redirect, resolvingAgainstBaseURL: false)!
+                        url.queryItems = [URLQueryItem(name: "state", value: "invalid"), URLQueryItem(name: "code", value: "fixture-code")]
+                        invalidStatus = try http.send(URLRequest(url: url.url!, timeoutInterval: 2), outputLimit: 4096, cancellation: nil).statusCode
+                        url.queryItems = [URLQueryItem(name: "state", value: "fixture-state"), URLQueryItem(name: "code", value: "fixture-code")]
+                        validStatus = try http.send(URLRequest(url: url.url!, timeoutInterval: 2), outputLimit: 4096, cancellation: nil).statusCode
+                    }
+                    guard redirect.host == "127.0.0.1", redirect.port != nil else { throw GoogleRESTFailure.authentication }
+                    let cancelled = GoogleLoopbackListener()
+                    var cancelledAsExpected = false
+                    do { _ = try cancelled.receive(state: "fixture-state") { _ in cancelled.cancel() } }
+                    catch GoogleRESTFailure.cancelled { cancelledAsExpected = true }
+                    continuation.resume(returning: (code, invalidStatus, validStatus, cancelledAsExpected))
+                } catch { listener.cancel(); continuation.resume(throwing: error) }
+            }
+        }
+        try check(result.0 == "fixture-code", "native ephemeral loopback returns exact code")
+        try check(result.1 == 400, "wrong state callback is rejected without completing listener")
+        try check(result.2 == 200, "valid callback receives bounded success response")
+        try check(result.3, "native callback wait ends promptly after cancellation")
+    }
+}
