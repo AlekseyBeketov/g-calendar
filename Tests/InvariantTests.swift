@@ -244,6 +244,9 @@ struct InvariantTests {
             catch { Darwin.exit(1) }
         }
         await runAsync("login-item-status-register-error-and-demo-isolation", testLoginItems)
+        run("google-rest-allowlisted-http-retry-cancel-core", testGoogleRESTCore)
+        run("google-oauth-pkce-callback-singleflight-context-isolation", testGoogleOAuthIsolation)
+        run("google-urlsession-streaming-response-cap", testGoogleHTTPStreamingLimit)
         run("calendar-writable-sort-and-default-selection", testCalendarNavigation)
         run("optional-event-summary", testOptionalEventSummary)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)

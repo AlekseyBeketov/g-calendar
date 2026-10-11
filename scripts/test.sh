@@ -23,6 +23,9 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/ThemePalette.swift" \
   "$ROOT/Sources/GCalendar/RefreshCoordinator.swift" \
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
+  "$ROOT/Sources/GCalendar/GoogleRESTTransport.swift" \
+  "$ROOT/Sources/GCalendar/GoogleOAuth.swift" \
+  "$ROOT/Sources/GCalendar/WorkspaceTransport.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceSnapshotReducer.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \
@@ -32,6 +35,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/SyntheticAcceptance.swift" \
   "$ROOT/Sources/GCalendar/LedgerAcceptance.swift" \
   "$ROOT/Tests/InvariantTests.swift" \
+  "$ROOT/Tests/GoogleRESTTests.swift" \
   -o "$TEST_BINARY"
 
 G_CALENDAR_FIXTURES="$ROOT/Tests/Fixtures" "$TEST_BINARY"

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import SwiftUI
 
@@ -41,6 +42,9 @@ final class WorkspaceViewModel: ObservableObject {
     let eventReminderCoordinator: EventReminderCoordinator
     private let snapshotStore: SnapshotStoring
     private let runner: GWSProcessRunning?
+    private let transportContext: WorkspaceTransportContext?
+    private var transportSettingsObserver: AnyCancellable?
+    let googleTransportSettings: GoogleTransportSettings
     private let mutationJournal: MutationJournal
     private let defaults: UserDefaults
     private let demoAdapter: DemoWorkspaceAdapter?
@@ -56,40 +60,41 @@ final class WorkspaceViewModel: ObservableObject {
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
-        let journalURL = mode == .normal ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("g-calendar/pending-verification.json") : nil
+        let defaults = suppliedDefaults ?? (mode == .normal ? .standard : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
+        let context = mode == .normal ? WorkspaceTransportContext.load(defaults: defaults) : nil
+        transportContext = context
+        googleTransportSettings = GoogleTransportSettings(active: context?.kind ?? .gws, defaults: defaults,
+            secrets: mode == .normal ? GoogleKeychainSecretStore() : GoogleMemorySecretStore())
+        let journalURL = context?.journalURL
         mutationJournal = MutationJournal(fileURL: journalURL)
         let journalState = mutationJournal.review()
         pendingMutation = journalState.pending
         mutationRecoveryProblem = journalState.pending == nil ? journalState.failure?.errorDescription : nil
         mutationJournalBusy = journalState.failure == .journalBusy
-        let defaults = suppliedDefaults ?? (mode == .normal
-            ? .standard
-            : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
         self.defaults = defaults
         shortcutSettings = WorkspaceShortcutSettings.load(from: defaults)
         gwsPath = mode == .normal ? (defaults.string(forKey: "gwsExecutablePath") ?? "") : ""
         appearance = mode == .normal ? (Appearance(rawValue: defaults.string(forKey: "appAppearance") ?? "Система") ?? .system) : .system
 
         if mode == .normal {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.homeDirectoryForCurrentUser
-            let appDirectory = appSupport.appendingPathComponent("g-calendar", isDirectory: true)
-            let diskStore: SnapshotStoring
-            if let store = try? FileSnapshotStore.applicationDefault() { diskStore = store } else { diskStore = MemorySnapshotStore() }
+            let appDirectory = context!.directory
+            let diskStore: SnapshotStoring = FileSnapshotStore(fileURL: appDirectory.appendingPathComponent("snapshot.json"))
             snapshotStore = diskStore
             let loaded = diskStore.load() ?? .empty
             snapshot = loaded
             let metadata = FileLocalMetadataStore(fileURL: appDirectory.appendingPathComponent("local-task-metadata.json"))
             let eventMetadata = FileLocalEventReminderStore(fileURL: appDirectory.appendingPathComponent("local-event-reminders.json"))
             metadataStore = metadata
-            let scheduler = suppliedScheduler ?? UserNotificationScheduler()
-            reminderCoordinator = ReminderCoordinator(store: metadata, scheduler: scheduler, defaults: defaults)
+            let baseScheduler = suppliedScheduler ?? UserNotificationScheduler()
+            let scheduler: ReminderScheduling = context?.identity.map { NamespacedReminderScheduler(base: baseScheduler, namespace: $0) } ?? baseScheduler
+            reminderCoordinator = ReminderCoordinator(store: metadata, scheduler: scheduler, defaults: defaults, enabledKey: context!.reminderEnabledKey)
             eventReminderCoordinator = EventReminderCoordinator(store: eventMetadata, scheduler: scheduler)
-            notificationStatusProvider = scheduler as? NotificationStatusProviding
-            runner = RuntimeProcessBoundary.runner(for: mode) { FoundationProcessRunner() }
+            notificationStatusProvider = baseScheduler as? NotificationStatusProviding
+            runner = context?.runner
             demoAdapter = nil
             syncState = loaded.fetchedAt == .distantPast ? .idle : .stale
-            statusMessage = loaded.fetchedAt == .distantPast ? "Нажмите «Синхронизировать», чтобы загрузить данные." : "Показан последний сохранённый снимок."
+            statusMessage = context?.setupProblem ?? (loaded.fetchedAt == .distantPast ? "Нажмите «Синхронизировать», чтобы загрузить данные." : "Показан последний сохранённый снимок.")
+            if context?.setupProblem != nil { syncState = .setupRequired }
         } else if mode == .ledgerAcceptance {
             let session = try? SyntheticLedgerAcceptanceSession()
             let memorySnapshot = MemorySnapshotStore()
@@ -133,6 +138,7 @@ final class WorkspaceViewModel: ObservableObject {
             statusMessage = mode == .demo ? "ДЕМО · синтетические данные; сеть, кэш пользователя и уведомления отключены." : "Проверка состояния уведомлений…"
         }
         selectedCalendarID = CalendarNavigation.selectedID(selectedCalendarID, calendars: snapshot.calendars)
+        transportSettingsObserver = googleTransportSettings.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -140,7 +146,8 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     var presentationDefaults: UserDefaults { defaults }
-    var mutationsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
+    var transportSettingsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
+    var mutationsBlocked: Bool { transportContext?.recoveryOnly == true || googleTransportSettings.requiresRestart || googleTransportSettings.signingIn || transportSettingsBlocked }
 
     var sortedCalendars: [CalendarInfo] { CalendarNavigation.sorted(snapshot.calendars) }
     var selectedCalendar: CalendarInfo? { snapshot.calendars.first(where: { $0.id == selectedCalendarID }) }
@@ -169,9 +176,8 @@ final class WorkspaceViewModel: ObservableObject {
             return ledgerAcceptanceSession.factory
         }
         guard launchMode == .normal else { throw GWSFailure.forbiddenOperation }
-        let resolver = GWSExecutableResolver()
-        let url = try resolver.resolve(configuredPath: gwsPath.isEmpty ? nil : gwsPath)
-        return GWSCommandFactory(executableURL: url)
+        guard let transportContext else { throw GWSFailure.forbiddenOperation }
+        return try transportContext.factory(configuredGWSPath: gwsPath)
     }
 
     func saveSettings() {
@@ -295,6 +301,7 @@ final class WorkspaceViewModel: ObservableObject {
         let foreground = request.key.purpose == .foreground
         if foreground { syncState = .syncing; statusMessage = "Обновление данных…" }
         let path = gwsPath
+        let context = transportContext
         let cache = snapshotStore
         let baseline = snapshot
         let startedRevision = snapshotAcceptance.revision
@@ -303,8 +310,8 @@ final class WorkspaceViewModel: ObservableObject {
         DispatchQueue.global(qos: foreground ? .userInitiated : .utility).async { [weak self] in
             let outcome: Result<GWSWorkspaceReadResult, Error>
             do {
-                let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
-                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner, cancellation: cancellation)
+                guard let context else { throw GWSFailure.forbiddenOperation }
+                let reader = GWSReadClient(factory: try context.factory(configuredGWSPath: path), runner: runner, cancellation: cancellation)
                 outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).read(query: request.key, baseline: baseline))
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
@@ -477,6 +484,10 @@ final class WorkspaceViewModel: ObservableObject {
             return
         }
         guard !mutationInFlight else { return }
+        guard !googleTransportSettings.requiresRestart, !googleTransportSettings.signingIn, transportContext?.recoveryOnly != true else {
+            onFailure?("Перезапустите приложение для применения настроек Google.")
+            return
+        }
         guard !mutationJournal.isBlocked else {
             refreshMutationRecoveryState()
             onFailure?(mutationJournal.blockingFailure?.errorDescription ?? "Требуется проверка изменения.")
@@ -485,13 +496,14 @@ final class WorkspaceViewModel: ObservableObject {
         mutationInFlight = true
         statusMessage = "Сохранение…"
         let path = gwsPath
+        let context = transportContext
         let metadataMigration = reminderCoordinator.metadataMigrationPreparation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let outcome: Result<GWSMutationResult, Error>
             do {
                 guard let self, let runner = self.runner else { throw GWSFailure.forbiddenOperation }
-                let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
-                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
+                guard let context else { throw GWSFailure.forbiddenOperation }
+                let reader = GWSReadClient(factory: try context.factory(configuredGWSPath: path), runner: runner)
                 outcome = .success(try RecoverableMutationService(runner: runner, journal: self.mutationJournal, beforeCompletion: { result, pending in
                     if pending.operation == .taskMove, let sourceID = pending.sourceTaskID, case .taskVerified(let task) = result {
                         try metadataMigration.prepare(from: sourceID, to: task.id)
@@ -551,6 +563,7 @@ final class WorkspaceViewModel: ObservableObject {
         mutationInFlight = true
         statusMessage = "Проверяем сохранение…"
         let path = gwsPath
+        let context = transportContext
         let journal = mutationJournal
         let pendingInvocation = pendingMutation?.invocation(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
         let pendingOperation = pendingMutation?.operation
@@ -560,8 +573,8 @@ final class WorkspaceViewModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result: Result<GWSMutationResult, Error>
             do {
-                let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
-                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
+                guard let context else { throw GWSFailure.forbiddenOperation }
+                let reader = GWSReadClient(factory: try context.factory(configuredGWSPath: path), runner: runner)
                 result = .success(try RecoverableMutationService(runner: runner, journal: journal, beforeCompletion: { result, pending in
                     if pending.operation == .taskMove, let sourceID = pending.sourceTaskID, case .taskVerified(let task) = result {
                         try metadataMigration.prepare(from: sourceID, to: task.id)
@@ -767,14 +780,15 @@ final class WorkspaceViewModel: ObservableObject {
     func reconcileLocalReminders(trigger: ReminderLifecycleTrigger) {
         guard launchMode == .normal, let runner else { return }
         let path = gwsPath
+        let context = transportContext
         let tasks = snapshot.tasks
         let taskCoordinator = reminderCoordinator
         let eventCoordinator = eventReminderCoordinator
         Task {
             await ReminderLifecycleReconciliation.perform(for: trigger) {
                 await taskCoordinator.reconcile(tasks: tasks)
-                guard let executable = try? GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path) else { return }
-                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
+                guard let factory = try? context?.factory(configuredGWSPath: path) else { return }
+                let reader = GWSReadClient(factory: factory, runner: runner)
                 await eventCoordinator.reconcile(using: reader)
             }
         }
@@ -790,9 +804,10 @@ final class WorkspaceViewModel: ObservableObject {
     private func reconcileEventReminders() {
         guard let runner else { return }
         let path = gwsPath
+        let context = transportContext
         Task {
-            guard let executable = try? GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path) else { return }
-            let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
+            guard let factory = try? context?.factory(configuredGWSPath: path) else { return }
+            let reader = GWSReadClient(factory: factory, runner: runner)
             await eventReminderCoordinator.reconcile(using: reader)
         }
     }

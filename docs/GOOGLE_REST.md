@@ -24,9 +24,17 @@
 4. Кэш, metadata, journal и notification identifiers REST отделены от legacy gws и привязаны к OAuth client/Google account subject. Переключение аккаунта/транспорта запрещено при незавершённой проверке записи. Demo/test режимы остаются синтетическими.
 5. Настройки позволяют импортировать Desktop JSON, выполнить вход и выбрать транспорт. До авторизации REST показывает необходимость настройки. Никакие ключи, токены и пользовательские данные не добавляются в Git.
 
+## Что понадобится владельцу
+
+В своём Google Cloud project включить Google Calendar API и Google Tasks API, настроить OAuth consent screen и создать OAuth client типа **Desktop app**. Скачать его JSON и импортировать через настройки приложения; не добавлять файл в репозиторий и не передавать refresh token в чат. Затем нажать «Войти через браузер», разрешить указанные Calendar/Tasks scopes и перезапустить приложение для выбранного REST транспорта.
+
+Если consent screen имеет внешний тип и статус Testing, refresh token с Calendar/Tasks scopes истекает через семь дней; потребуется повторный вход. Это режим Google, а не ошибка кэша. [OAuth token expiration](https://developers.google.com/identity/protocols/oauth2).
+
 ## Сравнение через OpenResearch
 
 Используется [официальный OpenResearch](https://github.com/alphaXiv/OpenResearch), прочитанный исходник `603558cbf18207fdf758cc50b317a06e01ba2354`, установленный `orx 0.2.17`. Локальная работа не требует аккаунта или платного compute. Store и артефакты находятся в исключённой `.hermes/research/`; браузер, дополнительные агенты и GitHub sync выключены.
+
+Локальный проект зарегистрирован: `a94fd8ec-0f24-48cd-ba51-56d11be59dd5`, команда `./scripts/benchmark-transports.sh`. Store: `.hermes/research/openresearch`. Для локального daemon используются `--no-browser --no-agent --no-telemetry`, `ORX_NO_UPDATE_CHECK=1` и `OPENRESEARCH_CLI_DISABLE_UPDATE=1`. Dashboard — loopback `127.0.0.1:4793`, если daemon запущен.
 
 Одна фиксированная команда и committed конфигурации вариантов; каждый run связан с commit и неизменяемым архивом исходников. До авторизации выполняются только синтетические fixtures и сбои: retry, cancellation, pagination, token refresh, uncertain mutation. Их времена не доказывают преимущество REST в реальной сети.
 
@@ -34,4 +42,4 @@
 
 ## Статус
 
-План согласован поручением владельца. REST реализация и стенд — в работе. Авторизация, живое A/B и ручная UI приёмка ещё не выполнены.
+План согласован поручением владельца. REST транспорт и OAuth реализованы до авторизации владельцем. Проверки: 723 model assertions, 918 native assertions; сборка успешна, `dist/g-calendar.app`. Синтетический стенд работает; привязка запусков к OpenResearch завершается. Авторизация, живое A/B и ручная UI приёмка ещё не выполнены.

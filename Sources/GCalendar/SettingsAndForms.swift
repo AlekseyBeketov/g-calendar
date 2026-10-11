@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EditorBody<Content: View>: View {
     @ViewBuilder let content: Content
@@ -530,6 +531,8 @@ struct SettingsView: View {
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
+                    GoogleTransportSettingsSection(settings: model.googleTransportSettings)
+                        .environmentObject(model)
                     SettingsSection(title: "Google Workspace CLI") {
                         VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
                             Text("Оставьте путь пустым для безопасного поиска gws. Приложение проверяет только исполняемый файл и не читает и не показывает OAuth-данные.")
@@ -754,4 +757,42 @@ private final class TaskEditorReminderState: ObservableObject {
     @Published var isSaving = false
     @Published var message: String?
     @Published var saveState = TaskReminderSaveState()
+}
+
+private struct GoogleTransportSettingsSection: View {
+    @ObservedObject var settings: GoogleTransportSettings
+    @EnvironmentObject private var model: WorkspaceViewModel
+    var body: some View {
+        SettingsSection(title: "Транспорт Google") {
+            Text("Активен: \(settings.active == .gws ? "gws" : "Google REST"). Выбор и аккаунт применяются после перезапуска.")
+                .font(.caption).foregroundStyle(.secondary)
+            Picker("После перезапуска", selection: Binding(get: { settings.requested }, set: { settings.request($0, blocked: model.transportSettingsBlocked) })) {
+                Text("gws").tag(WorkspaceTransportContext.Kind.gws)
+                Text("Google REST").tag(WorkspaceTransportContext.Kind.rest)
+            }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
+            HStack {
+                Button("Импорт Desktop OAuth JSON") {
+                    let panel = NSOpenPanel()
+                    panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false; panel.canChooseDirectories = false
+                    if panel.runModal() == .OK, let url = panel.url {
+                        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 65_536,
+                              let data = try? Data(contentsOf: url) else { return }
+                        settings.importDesktopJSON(data, blocked: model.transportSettingsBlocked)
+                    }
+                }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
+                if settings.signingIn {
+                    Button("Отменить вход") { settings.cancelSignIn() }.pointingHandCursor()
+                } else {
+                    Button("Войти через браузер") {
+                        settings.signIn(blocked: model.transportSettingsBlocked) { !model.transportSettingsBlocked && model.launchMode == .normal }
+                    }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked)
+                    Button("Выйти") { settings.signOut(blocked: model.transportSettingsBlocked) }
+                        .pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked)
+                }
+            }
+            Text(settings.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Собственный OAuth client типа Desktop app. JSON и refresh token сохраняются в Keychain этого Mac. REST напоминания включаются отдельно.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
 }

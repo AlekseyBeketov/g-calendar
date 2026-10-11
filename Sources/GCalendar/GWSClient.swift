@@ -9,6 +9,7 @@ struct ProcessInvocation: Equatable {
     let outputLimit: Int
     var expectedTask: GoogleTask? = nil
     var taskDestinationListID: String? = nil
+    var contextIdentity: String? = nil
 }
 
 struct ProcessResult: Equatable {
@@ -80,6 +81,11 @@ enum GWSOperation: String, Equatable, Codable {
 
 struct GWSCommandFactory {
     let executableURL: URL
+    var contextIdentity: String? = nil
+    static let restMarker = URL(string: "gcalendar-rest://internal/google")!
+    static func googleREST(timeout: TimeInterval = 20, outputLimit: Int = 2 * 1_024 * 1_024) -> GWSCommandFactory {
+        GWSCommandFactory(executableURL: restMarker, timeout: timeout, outputLimit: outputLimit)
+    }
     var timeout: TimeInterval = 20
     var outputLimit: Int = 2 * 1_024 * 1_024
 
@@ -226,11 +232,11 @@ struct GWSCommandFactory {
     }
 
     private func invocation(_ operation: GWSOperation, command: [String], params: [String: Any], body: [String: Any]?) throws -> ProcessInvocation {
-        guard executableURL.isFileURL, executableURL.path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: executableURL.path) else { throw GWSFailure.invalidExecutablePath }
+        guard executableURL == Self.restMarker || (executableURL.isFileURL && executableURL.path.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: executableURL.path)) else { throw GWSFailure.invalidExecutablePath }
         var args = command
         if !params.isEmpty { args += ["--params", try jsonArgument(params)] }
         if let body { args += ["--json", try jsonArgument(body)] }
-        return ProcessInvocation(executableURL: executableURL, arguments: args, operation: operation, timeout: timeout, outputLimit: outputLimit)
+        return ProcessInvocation(executableURL: executableURL, arguments: args, operation: operation, timeout: timeout, outputLimit: outputLimit, contextIdentity: contextIdentity)
     }
 
     private func jsonArgument(_ object: [String: Any]) throws -> String {
@@ -362,7 +368,18 @@ private final class BoundedCapture {
 final class GWSReadCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
-    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    private var handlers: [UUID: () -> Void] = [:]
+    func cancel() {
+        lock.lock(); cancelled = true; let callbacks = Array(handlers.values); handlers.removeAll(); lock.unlock()
+        for callback in callbacks { callback() }
+    }
+    func register(_ handler: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        lock.lock(); let immediately = cancelled; if !immediately { handlers[id] = handler }; lock.unlock()
+        if immediately { handler() }
+        return id
+    }
+    func unregister(_ id: UUID) { lock.lock(); handlers.removeValue(forKey: id); lock.unlock() }
     func check() throws {
         lock.lock(); let value = cancelled; lock.unlock()
         if value { throw GWSFailure.readCancelled }
@@ -463,8 +480,14 @@ struct GWSReadClient: ExactCalendarEventReading {
         catch GWSFailure.resourceNotFound { return nil }
     }
 
+    private func runRead(_ invocation: ProcessInvocation) throws -> ProcessResult {
+        try cancellation?.check()
+        if let cancellable = runner as? GWSReadProcessRunning { return try cancellable.run(invocation, cancellation: cancellation) }
+        return try runner.run(invocation)
+    }
+
     private func exactObject(_ invocation: ProcessInvocation) throws -> [String: Any] {
-        let result = try runner.run(invocation)
+        let result = try runRead(invocation)
         guard result.exitCode == 0 else {
             let category = Self.safeCategory(result.stderr)
             if Self.isMissingResource(result) { throw GWSFailure.resourceNotFound }
@@ -496,7 +519,7 @@ struct GWSReadClient: ExactCalendarEventReading {
         repeat {
             try cancellation?.check()
             let invocation = try makeInvocation(nextToken)
-            let processResult = try runner.run(invocation)
+            let processResult = try runRead(invocation)
             try cancellation?.check()
             guard processResult.exitCode == 0 else { throw GWSFailure.processFailed(operation.rawValue, processResult.exitCode, Self.safeCategory(processResult.stderr)) }
             guard let json = try? JSONSerialization.jsonObject(with: processResult.stdout), let object = json as? [String: Any] else {

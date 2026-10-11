@@ -10,11 +10,13 @@ struct PendingMutation: Codable, Equatable, Identifiable {
     var resourceID: String?
     var expectedTask: GoogleTask?
     var taskDestinationListID: String?
+    var contextIdentity: String?
 
     init(invocation: ProcessInvocation) {
         id = UUID()
         operation = invocation.operation
         arguments = invocation.arguments
+        contextIdentity = invocation.contextIdentity
         expectedTask = invocation.expectedTask
         taskDestinationListID = invocation.taskDestinationListID
         startedAt = Date()
@@ -41,7 +43,7 @@ struct PendingMutation: Codable, Equatable, Identifiable {
 
     func invocation(executableURL: URL) -> ProcessInvocation {
         ProcessInvocation(executableURL: executableURL, arguments: arguments, operation: operation, timeout: 20, outputLimit: 2 * 1_024 * 1_024,
-                          expectedTask: expectedTask, taskDestinationListID: taskDestinationListID)
+                          expectedTask: expectedTask, taskDestinationListID: taskDestinationListID, contextIdentity: contextIdentity)
     }
 
     private static func object(_ flag: String, arguments: [String]) -> [String: Any] {
@@ -254,7 +256,9 @@ struct RecoverableMutationService {
     var beforeCompletion: ((GWSMutationResult, PendingMutation) throws -> Void)? = nil
 
     func perform(_ invocation: ProcessInvocation, reader: GWSReadClient) throws -> GWSMutationResult {
-        try journal.withExclusiveAccess {
+        guard invocation.contextIdentity == reader.factory.contextIdentity,
+              (reader.factory.executableURL == GWSCommandFactory.restMarker) == (invocation.contextIdentity != nil) else { throw GWSFailure.forbiddenOperation }
+        return try journal.withExclusiveAccess {
             let attemptID = try journal.begin(invocation)
             let result: ProcessResult
             do { result = try runner.run(invocation) }
@@ -288,6 +292,8 @@ struct RecoverableMutationService {
         let attemptID = expectedID ?? journal.reviewedAttemptID
         return try journal.withExclusiveAccess {
             guard let record = journal.pending, record.id == attemptID else { throw MutationRecoveryFailure.pendingVerification }
+            guard record.contextIdentity == reader.factory.contextIdentity,
+                  (reader.factory.executableURL == GWSCommandFactory.restMarker) == (record.contextIdentity != nil) else { throw GWSFailure.forbiddenOperation }
             guard let id = record.resourceID else { throw MutationRecoveryFailure.unknownIdentity }
             let response = try JSONSerialization.data(withJSONObject: ["id": id])
             let result = try GWSMutationService(runner: runner).verifyAccepted(record.invocation(executableURL: reader.factory.executableURL),

@@ -420,6 +420,10 @@ final class UserNotificationScheduler: ReminderScheduling, NotificationStatusPro
         content.title = "Локальное напоминание"
         content.body = body
         content.sound = .default
+        if identifier.hasPrefix("g-calendar.rest.") {
+            let parts = identifier.split(separator: ".")
+            if parts.count > 2 { content.userInfo = ["workspaceContext": String(parts[2]), "transport": "rest"] }
+        }
         let components = ReminderTriggerFactory.dateComponents(for: fireDate)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
