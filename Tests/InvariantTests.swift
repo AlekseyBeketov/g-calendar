@@ -283,6 +283,12 @@ struct InvariantTests {
         run("targeted-list-structure-skips-other-task-boards", testTargetedTaskListStructure)
         run("empty-omitted-items-versus-malformed-items", testOmittedEmptyItems)
         run("targeted-calendar-edit-day-preserves-covered-week", testTargetedCoveredWeek)
+        run("calendar-multi-range-cache-migration-lru-keys-navigation", testCalendarMultiRangeCache)
+        run("metadata-ttl-read-reuse-and-forced-refresh", testCalendarMetadataReuse)
+        run("superseded-full-accepts-tasks-and-only-reads-residual-range", testSupersededFullResidual)
+        run("prefetch-retains-current-range-cancels-between-pages-and-no-chain", testCalendarPrefetch)
+        run("cached-event-mutations-and-overlap-invalidation", testCachedEventMutation)
+        run("navigation-during-day-revalidation-recovers-week-coverage", testNavigationDuringDayRevalidation)
         await runAsync("accepted-proof-invalidates-across-scheduler-await", testObsoleteReminderProof)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
@@ -2355,6 +2361,212 @@ struct InvariantTests {
         }
         try check(store.metadata(for: taskID).reminderAt == reminderDate, "failed partial sync cleared local reminder metadata")
         try check(scheduler.cancellations.isEmpty, "failed partial sync canceled an existing notification")
+    }
+
+    static func syntheticRange(_ offset: Int = 0, zone: TimeZone = TimeZone(secondsFromGMT: 0)!) throws -> DateRange {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let start = DateOnly(rawValue: "2026-10-05")!.startOfDay(in: zone)!
+        return try DateRange(start: calendar.date(byAdding: .day, value: offset * 7, to: start)!,
+                             endExclusive: calendar.date(byAdding: .day, value: offset * 7 + 7, to: start)!, timeZone: zone)
+    }
+
+    static func calendarRead(range: DateRange, events: [CalendarEvent] = [], now: Date = Date()) -> GWSWorkspaceReadResult {
+        GWSWorkspaceReadResult(calendars: nil, events: events, taskLists: nil, tasks: [], calendarIDs: ["c"], taskListIDs: [],
+                               range: range, now: now, completeCalendar: true, completeTasks: false)
+    }
+
+    static func testCalendarMultiRangeCache() throws {
+        let first = try syntheticRange(), second = try syntheticRange(1)
+        let event = try CalendarEvent.decode(["id": "a", "summary": "A", "start": ["date": "2026-10-06"], "end": ["date": "2026-10-07"]], calendarID: "c")
+        let task = try GoogleTask.decode(["id": "task", "title": "Verified task"], taskListID: "l")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var legacy = WorkspaceSnapshot.empty
+        legacy.calendars = [CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)]
+        legacy.events = [event]
+        legacy.calendarCoverage = CalendarRangeCoverage(range: first)
+        legacy.calendarFetchedAt = now
+        legacy.tasks = [task]
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as! [String: Any]
+        object.removeValue(forKey: "calendarRangeEntries")
+        object.removeValue(forKey: "calendarMetadataFetchedAt")
+        let decoded = try JSONDecoder().decode(WorkspaceSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        try check(decoded.calendarRangeEntries == nil && CalendarRangeCache.entries(in: decoded).count == 1,
+                  "legacy single coverage cache must migrate without schema rejection")
+        let cachedB = try calendarRead(range: second, now: now.addingTimeInterval(1)).merging(into: decoded)
+        let returnedA = CalendarRangeCache.activate(range: first, in: cachedB, now: now.addingTimeInterval(2))!
+        let neverCalled = FakeProcessRunner { _ in throw TestFailure(description: "cache activation invoked a runner") }
+        try check(returnedA.events == [event] && returnedA.tasks == [task] && neverCalled.invocations.isEmpty,
+                  "A to B to A activation must retain events/latest tasks without a reader call")
+        try check(returnedA.calendarFetchedAt == now, "cache hit must retain actual successful read timestamp")
+        let oldA = CalendarRangeCache.activate(range: first, in: returnedA, now: now.addingTimeInterval(3600))!
+        try check(oldA.events == [event] && oldA.calendarFetchedAt == now, "expired cache remains immediately displayable before background revalidation")
+        var bounded = returnedA
+        for offset in 2..<9 {
+            bounded = CalendarRangeCache.storing(events: [], range: try syntheticRange(offset), calendarIDs: ["c"], fetchedAt: now.addingTimeInterval(Double(offset)), in: bounded)
+        }
+        try check(bounded.calendarRangeEntries?.count == 5 && CalendarRangeCache.activate(range: first, in: bounded) != nil,
+                  "bounded cache must keep five entries and protect currently displayed coverage")
+        var changedCalendars = returnedA
+        changedCalendars.calendars.append(CalendarInfo(id: "new", title: "New", accessRole: "owner", timeZoneID: "UTC", colorHex: nil))
+        try check(CalendarRangeCache.activate(range: first, in: changedCalendars) == nil, "different calendar identity set must not claim cached coverage")
+        let differentZone = try DateRange(start: first.start, endExclusive: first.endExclusive, timeZone: TimeZone(identifier: "Europe/Moscow")!)
+        try check(CalendarRangeCache.activate(range: differentZone, in: returnedA) == nil, "coverage key must include display timezone")
+        let roundTrip = try JSONDecoder().decode(WorkspaceSnapshot.self, from: JSONEncoder().encode(bounded))
+        try check(roundTrip == bounded, "multi-range entries must survive persistence round trip")
+    }
+
+    static func testCalendarMetadataReuse() throws {
+        let range = try syntheticRange()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var baseline = WorkspaceSnapshot.empty
+        baseline.calendars = [CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)]
+        baseline.calendarMetadataFetchedAt = now
+        let runner = FakeProcessRunner { invocation in
+            switch invocation.operation {
+            case .calendarList: return response(Data(#"{"items":[{"id":"c","summary":"C","accessRole":"owner"}]}"#.utf8))
+            case .eventsList, .taskListsList: return response(Data("{}".utf8))
+            default: throw GWSFailure.forbiddenOperation
+            }
+        }
+        let service = GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner), cache: MemorySnapshotStore())
+        let reused = try service.read(query: WorkspaceRefreshQuery(range: range, scope: .calendarRange), baseline: baseline, now: now.addingTimeInterval(60))
+        try check(runner.invocations.map(\.operation) == [.eventsList] && reused.calendars == nil,
+                  "fresh metadata range read must skip calendar list enumeration")
+        let merged = try reused.merging(into: baseline)
+        try check(merged.calendarMetadataFetchedAt == now && merged.calendarFetchedAt == now.addingTimeInterval(60), "metadata/range freshness must remain independent")
+        let beforeForced = runner.invocations.count
+        _ = try service.read(query: WorkspaceRefreshQuery(range: range, scope: .calendarRange, requestID: 1), baseline: baseline, now: now.addingTimeInterval(60))
+        try check(runner.invocations.dropFirst(beforeForced).contains { $0.operation == .calendarList }, "forced range refresh must re-read metadata")
+        let beforeExpired = runner.invocations.count
+        _ = try service.read(query: WorkspaceRefreshQuery(range: range, scope: .calendarRange), baseline: baseline, now: now.addingTimeInterval(901))
+        try check(runner.invocations.dropFirst(beforeExpired).contains { $0.operation == .calendarList }, "expired metadata must re-read calendar list")
+        let beforeFull = runner.invocations.count
+        _ = try service.read(query: WorkspaceRefreshQuery(range: range, scope: .full), baseline: baseline, now: now.addingTimeInterval(60))
+        try check(runner.invocations.dropFirst(beforeFull).contains { $0.operation == .calendarList }, "full refresh always reads calendar metadata")
+    }
+
+    static func testSupersededFullResidual() throws {
+        let first = try syntheticRange(), second = try syntheticRange(1)
+        let task = try GoogleTask.decode(["id": "t", "title": "Task from completed full"], taskListID: "l")
+        let read = GWSWorkspaceReadResult(calendars: [CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)],
+                                          events: [], taskLists: [TaskList(id: "l", title: "L")], tasks: [task], calendarIDs: ["c"], taskListIDs: ["l"],
+                                          range: first, now: Date(), completeCalendar: true, completeTasks: true)
+        var coordinator = WorkspaceRefreshCoordinator()
+        let active = coordinator.request(WorkspaceRefreshQuery(range: first, scope: .full))!
+        _ = coordinator.request(WorkspaceRefreshQuery(range: second, scope: .calendarRange))
+        var acceptance = WorkspaceSnapshotAcceptance()
+        let accepted = try acceptance.accept(read, startedAt: 0, current: .empty, cache: MemorySnapshotStore(), displayRange: second)!
+        guard case .superseded(let residual) = coordinator.finish(active, completed: read) else { throw TestFailure(description: "missing navigation residual") }
+        try check(residual.key.scope == .calendarRange && residual.key.range == second && accepted.tasks == [task],
+                  "safe completed full must publish Tasks and re-read only latest calendar range")
+        try check(CalendarRangeCache.activate(range: first, in: accepted) != nil && accepted.calendarCoverage?.covers(second) != true,
+                  "superseded calendar result must cache its own range without falsely covering latest navigation")
+        var staleCoordinator = WorkspaceRefreshCoordinator()
+        let stale = staleCoordinator.request(WorkspaceRefreshQuery(range: first, scope: .full))!
+        _ = staleCoordinator.request(WorkspaceRefreshQuery(range: second, scope: .targeted, taskListIDs: ["source", "destination"]))
+        guard case .superseded(let retry) = staleCoordinator.finish(stale) else { throw TestFailure(description: "missing stale scope retry") }
+        try check(retry.key.scope == .full && retry.key.taskListIDs == ["source", "destination"], "stale read must retain full and required mutation scopes")
+        var forcedCoordinator = WorkspaceRefreshCoordinator()
+        let older = forcedCoordinator.request(WorkspaceRefreshQuery(range: first, scope: .full))!
+        _ = forcedCoordinator.request(WorkspaceRefreshQuery(range: first, scope: .full, requestID: 9))
+        _ = forcedCoordinator.request(WorkspaceRefreshQuery(range: second, scope: .calendarRange))
+        guard case .superseded(let forced) = forcedCoordinator.finish(older, completed: read) else { throw TestFailure(description: "forced refresh lost to ordinary navigation") }
+        try check(forced.key.scope == .full && forced.key.requestID == 9 && forced.key.range == second,
+                  "ordinary navigation must preserve pending explicit full refresh identity")
+    }
+
+    static func testNavigationDuringDayRevalidation() throws {
+        let week = try syntheticRange()
+        let day = try DateRange(start: week.start, endExclusive: week.start.addingTimeInterval(86400), timeZone: week.timeZone)
+        var snapshot = WorkspaceSnapshot.empty
+        snapshot.calendars = [CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)]
+        snapshot = try calendarRead(range: week).merging(into: snapshot)
+        let weekHit = CalendarRangeCache.activate(range: week, in: snapshot)!
+        let dayHit = CalendarRangeCache.activate(range: day, in: snapshot)!
+        try check(dayHit.calendarCoverage?.dateRange == week, "day cache hit revalidation must use saved whole-week coverage")
+        let afterDayRevalidation = try calendarRead(range: day).merging(into: weekHit, displayRange: week)
+        try check(afterDayRevalidation.calendarCoverage?.covers(week) != true,
+                  "day revalidation after week cache hit must invalidate stale wider coverage")
+        let reread = try calendarRead(range: week).merging(into: afterDayRevalidation, displayRange: week)
+        try check(reread.calendarCoverage?.covers(week) == true, "visible week must be read again after background invalidates overlapping entry")
+        var coordinator = WorkspaceRefreshCoordinator()
+        let active = coordinator.request(WorkspaceRefreshQuery(range: day, scope: .calendarRange))!
+        _ = coordinator.request(WorkspaceRefreshQuery(range: week, scope: .calendarRange))
+        guard case .superseded(let latest) = coordinator.finish(active, discardActive: true) else { throw TestFailure(description: "cancelled range did not advance latest navigation") }
+        try check(latest.key.range == week && latest.key.scope == .calendarRange, "cancelled obsolete range must yield to latest range without mandatory scope")
+    }
+
+    static func testCalendarPrefetch() throws {
+        let first = try syntheticRange(), second = try syntheticRange(1)
+        var snapshot = WorkspaceSnapshot.empty
+        snapshot.calendars = [CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)]
+        snapshot = try calendarRead(range: first, now: Date(timeIntervalSince1970: 1_800_000_000)).merging(into: snapshot)
+        let prefetched = try calendarRead(range: second).merging(into: snapshot, displayRange: first)
+        try check(prefetched.events == snapshot.events && prefetched.calendarCoverage == snapshot.calendarCoverage && prefetched.calendarFetchedAt == snapshot.calendarFetchedAt,
+                  "prefetch acceptance must retain visible range and its freshness")
+        var prefetch = CalendarNeighbourPrefetch()
+        let day = try DateRange(start: first.start.addingTimeInterval(2 * 86400), endExclusive: first.start.addingTimeInterval(3 * 86400), timeZone: first.timeZone)
+        let now = Date()
+        try check(prefetch.neighbours(after: day, calendars: snapshot.calendars, snapshot: snapshot, now: now) == [second],
+                  "day mode must preload one complete neighbouring week")
+        try check(prefetch.neighbours(after: first, calendars: snapshot.calendars, snapshot: snapshot, now: now).isEmpty,
+                  "duplicate offers must be bounded while neighbour is in flight")
+        try check(prefetch.neighbours(after: first, calendars: snapshot.calendars, snapshot: snapshot, now: now.addingTimeInterval(61)) == [second],
+                  "failed speculative read may be offered again after retry cooldown")
+        try check(prefetch.neighbours(after: first, calendars: snapshot.calendars, snapshot: prefetched, now: now.addingTimeInterval(122)).isEmpty,
+                  "successfully cached neighbour must not be prefetched again")
+        let cancellation = GWSReadCancellation()
+        let runner = FakeProcessRunner { invocation in
+            guard invocation.operation == .eventsList, params(invocation)["pageToken"] == nil else { throw TestFailure(description: "cancelled read requested another page") }
+            cancellation.cancel()
+            return response(Data(#"{"items":[],"nextPageToken":"next"}"#.utf8))
+        }
+        let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner, cancellation: cancellation)
+        do { _ = try reader.events(calendarID: "c", range: first); throw TestFailure(description: "cancelled read returned successful coverage") }
+        catch GWSFailure.readCancelled { try check(runner.invocations.count == 1, "read cancellation must stop before subsequent page") }
+        var coordinator = WorkspaceRefreshCoordinator()
+        let active = coordinator.request(WorkspaceRefreshQuery(range: second, scope: .calendarRange, purpose: .prefetch))!
+        _ = coordinator.request(WorkspaceRefreshQuery(range: first, scope: .tasks))
+        guard case .superseded(let foreground) = coordinator.finish(active) else { throw TestFailure(description: "foreground did not supersede preload") }
+        try check(foreground.key.scope == .tasks && foreground.key.purpose == .foreground,
+                  "failed obsolete preload must not add its range to foreground scope")
+    }
+
+    static func testCachedEventMutation() throws {
+        let first = try syntheticRange(), second = try syntheticRange(1)
+        let event = try CalendarEvent.decode(["id": "e", "summary": "Before", "start": ["date": "2026-10-06"], "end": ["date": "2026-10-07"]], calendarID: "c")
+        let calendar = CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)
+        var snapshot = WorkspaceSnapshot.empty
+        snapshot.calendars = [calendar]
+        snapshot = try calendarRead(range: first, events: [event]).merging(into: snapshot)
+        snapshot = try calendarRead(range: second).merging(into: snapshot)
+        let moved = try CalendarEvent.decode(["id": "e", "summary": "After", "start": ["date": "2026-10-13"], "end": ["date": "2026-10-14"]], calendarID: "c")
+        let patch = try GWSCommandFactory(executableURL: executable).eventPatch(event: event, calendar: calendar, body: ["summary": "After"], authorization: .userSave)
+        let updated = try WorkspaceSnapshotReducer.applying(invocation: patch, result: .eventVerified(moved), to: snapshot)
+        try check(CalendarRangeCache.activate(range: first, in: updated)?.events.isEmpty == true && CalendarRangeCache.activate(range: second, in: updated)?.events == [moved],
+                  "verified event move must remove old identity and insert into every overlapping cached range")
+        let deletion = try GWSCommandFactory(executableURL: executable).eventDelete(event: moved, calendar: calendar, authorization: .confirmedDelete)
+        let deleted = try WorkspaceSnapshotReducer.applying(invocation: deletion, result: .resourceDeleted, to: updated)
+        try check(CalendarRangeCache.entries(in: deleted).allSatisfy { $0.events.isEmpty }, "verified event delete must remove identity from all cached ranges")
+        var acceptance = WorkspaceSnapshotAcceptance()
+        acceptance.verifiedMutation()
+        let store = MemorySnapshotStore(deleted)
+        try check(try acceptance.accept(calendarRead(range: second, events: [event]), startedAt: 0, current: deleted, cache: store, displayRange: second) == nil && store.load() == deleted,
+                  "obsolete preload must not resurrect verified cached event deletion")
+        let day = try DateRange(start: first.start.addingTimeInterval(86400), endExclusive: first.start.addingTimeInterval(2 * 86400), timeZone: first.timeZone)
+        let withWeek = try calendarRead(range: first, events: [event]).merging(into: snapshot)
+        let dayFresh = try calendarRead(range: day).merging(into: withWeek)
+        try check(CalendarRangeCache.activate(range: first, in: dayFresh) == nil,
+                  "fresh overlapping day read must invalidate old complete week to avoid external deletion resurrection")
+        var twoCalendars = withWeek
+        twoCalendars.calendars.append(CalendarInfo(id: "other", title: "Other", accessRole: "owner", timeZoneID: "UTC", colorHex: nil))
+        twoCalendars = CalendarRangeCache.storing(events: [event], range: first, calendarIDs: ["c", "other"], fetchedAt: Date(timeIntervalSince1970: 10), in: twoCalendars)
+        twoCalendars = CalendarRangeCache.activate(range: first, in: twoCalendars)!
+        let targeted = GWSWorkspaceReadResult(calendars: nil, events: [], taskLists: nil, tasks: [], calendarIDs: ["c"], taskListIDs: [], range: first,
+                                              now: Date(timeIntervalSince1970: 20), completeCalendar: false, completeTasks: false)
+        let partial = try targeted.merging(into: twoCalendars)
+        try check(partial.calendarFetchedAt == Date(timeIntervalSince1970: 10), "one-calendar targeted read must not refresh complete-range timestamp")
     }
 
     static func testTargetedCoveredWeek() throws {

@@ -35,6 +35,7 @@ enum GWSFailure: Error, Equatable, LocalizedError {
     case permissionDenied
     case resourceNotFound
     case mutationNotVerified
+    case readCancelled
 
     var errorDescription: String? {
         switch self {
@@ -50,6 +51,7 @@ enum GWSFailure: Error, Equatable, LocalizedError {
         case .cacheFailure: return "Не удалось атомарно сохранить локальный кэш."
         case .permissionDenied: return "macOS не разрешила локальные уведомления."
         case .resourceNotFound: return "Запрошенный ресурс не найден."
+        case .readCancelled: return "Устаревшее чтение отменено."
         case .mutationNotVerified: return "Google принял запрос, но точное чтение не подтвердило ожидаемое состояние."
         }
     }
@@ -357,9 +359,20 @@ private final class BoundedCapture {
     }
 }
 
+final class GWSReadCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    func check() throws {
+        lock.lock(); let value = cancelled; lock.unlock()
+        if value { throw GWSFailure.readCancelled }
+    }
+}
+
 struct GWSReadClient: ExactCalendarEventReading {
     let factory: GWSCommandFactory
     let runner: GWSProcessRunning
+    var cancellation: GWSReadCancellation? = nil
 
     func calendars() throws -> [CalendarInfo] {
         try collect(operation: .calendarList, makeInvocation: factory.readCalendars) { items in
@@ -481,8 +494,10 @@ struct GWSReadClient: ExactCalendarEventReading {
         var result: [T] = [], nextToken: String?
         var seenTokens = Set<String>()
         repeat {
+            try cancellation?.check()
             let invocation = try makeInvocation(nextToken)
             let processResult = try runner.run(invocation)
+            try cancellation?.check()
             guard processResult.exitCode == 0 else { throw GWSFailure.processFailed(operation.rawValue, processResult.exitCode, Self.safeCategory(processResult.stderr)) }
             guard let json = try? JSONSerialization.jsonObject(with: processResult.stdout), let object = json as? [String: Any] else {
                 throw GWSFailure.invalidResponse("json_" + operation.rawValue)
@@ -542,19 +557,26 @@ struct GWSWorkspaceReadResult {
     let completeCalendar: Bool
     let completeTasks: Bool
 
-    func merging(into current: WorkspaceSnapshot) throws -> WorkspaceSnapshot {
-        if !completeCalendar, !calendarIDs.isEmpty, current.calendarCoverage != CalendarRangeCoverage(range: range) {
-            throw GWSFailure.invalidResponse("targeted_calendar_coverage")
-        }
+    func merging(into current: WorkspaceSnapshot, displayRange: DateRange? = nil) throws -> WorkspaceSnapshot {
         var snapshot = current
-        if let calendars { snapshot.calendars = calendars }
+        // Capture legacy coverage before replacing metadata or visible events.
+        snapshot.calendarRangeEntries = CalendarRangeCache.entries(in: current)
+        if let calendars {
+            snapshot.calendars = calendars
+            snapshot.calendarMetadataFetchedAt = now
+        }
         if completeCalendar {
-            snapshot.events = events
-            snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
-            snapshot.calendarFetchedAt = now
+            snapshot = CalendarRangeCache.storing(events: events, range: range, calendarIDs: snapshot.calendars.map(\.id), fetchedAt: now, in: snapshot)
+            let desired = displayRange ?? range
+            if let activated = CalendarRangeCache.activate(range: desired, in: snapshot, now: now) { snapshot = activated }
+            else if calendars != nil && current.calendars.map(\.id).sorted() != snapshot.calendars.map(\.id).sorted() {
+                snapshot.calendarCoverage = nil
+                let validIDs = Set(snapshot.calendars.map(\.id))
+                snapshot.events.removeAll { !validIDs.contains($0.calendarID) }
+            }
         } else if !calendarIDs.isEmpty {
-            snapshot.events.removeAll { calendarIDs.contains($0.calendarID) }
-            snapshot.events.append(contentsOf: events)
+            snapshot = try CalendarRangeCache.replacing(calendarIDs: calendarIDs, events: events, range: range, fetchedAt: now, in: snapshot)
+            if let desired = displayRange, let activated = CalendarRangeCache.activate(range: desired, in: snapshot, now: now) { snapshot = activated }
         }
         if let taskLists {
             snapshot.taskLists = taskLists
@@ -615,18 +637,20 @@ struct GWSWorkspaceService {
         return try results.ordered(count: jobs.count)
     }
 
-    func read(query: WorkspaceRefreshQuery, now: Date = Date()) throws -> GWSWorkspaceReadResult {
+    func read(query: WorkspaceRefreshQuery, baseline: WorkspaceSnapshot? = nil, now: Date = Date()) throws -> GWSWorkspaceReadResult {
         let completeCalendar = query.scope == .full || query.scope == .calendarRange
         let completeTasks = query.scope == .full || query.scope == .tasks
         enum Root { case calendars([CalendarInfo]); case lists([TaskList]) }
         var roots: [() throws -> Root] = []
-        if completeCalendar { roots.append { .calendars(try reader.calendars()) } }
+        let reuseMetadata = completeCalendar && query.scope != .full && query.requestID == nil
+            && baseline.map { CalendarRangeCache.metadataIsFresh(in: $0, now: now) } == true
+        if completeCalendar && !reuseMetadata { roots.append { .calendars(try reader.calendars()) } }
         if completeTasks || query.refreshTaskLists { roots.append { .lists(try reader.taskLists()) } }
         var calendars: [CalendarInfo]?, lists: [TaskList]?
         for root in try parallel(roots) {
             switch root { case .calendars(let value): calendars = value; case .lists(let value): lists = value }
         }
-        let calendarIDs = completeCalendar ? (calendars ?? []).map(\.id) : query.calendarIDs.sorted()
+        let calendarIDs = completeCalendar ? (calendars ?? baseline?.calendars ?? []).map(\.id) : query.calendarIDs.sorted()
         let listIDs: [String]
         if completeTasks { listIDs = (lists ?? []).map(\.id) }
         else if let lists { listIDs = query.taskListIDs.intersection(Set(lists.map(\.id))).sorted() }

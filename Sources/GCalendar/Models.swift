@@ -227,6 +227,11 @@ struct CalendarRangeCoverage: Codable, Equatable {
         timeZoneID = range.timeZone.identifier
     }
 
+    var dateRange: DateRange? {
+        guard let zone = TimeZone(identifier: timeZoneID) else { return nil }
+        return try? DateRange(start: start, endExclusive: endExclusive, timeZone: zone)
+    }
+
     func covers(_ range: DateRange) -> Bool {
         timeZoneID == range.timeZone.identifier && start <= range.start && endExclusive >= range.endExclusive
     }
@@ -241,6 +246,8 @@ struct WorkspaceSnapshot: Codable, Equatable {
     var calendarCoverage: CalendarRangeCoverage? = nil
     var calendarFetchedAt: Date? = nil
     var tasksFetchedAt: Date? = nil
+    var calendarMetadataFetchedAt: Date? = nil
+    var calendarRangeEntries: [CalendarRangeCacheEntry]? = nil
 
     static let empty = WorkspaceSnapshot(calendars: [], events: [], taskLists: [], tasks: [], fetchedAt: .distantPast)
 }

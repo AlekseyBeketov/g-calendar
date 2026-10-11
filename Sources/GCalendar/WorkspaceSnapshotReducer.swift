@@ -15,6 +15,7 @@ enum WorkspaceSnapshotReducer {
             else if let index = updated.tasks.firstIndex(where: { $0.taskListID == task.taskListID && $0.id == task.id }) { updated.tasks[index] = task }
             else { updated.tasks.append(task) }
         case .eventVerified(let event):
+            updated = CalendarRangeCache.applying(event: event, identity: CalendarEventIdentity(calendarID: event.calendarID, eventID: event.id), to: updated)
             if let index = updated.events.firstIndex(where: { $0.calendarID == event.calendarID && $0.id == event.id }) { updated.events[index] = event }
             else { updated.events.append(event) }
         case .taskListVerified(let list):
@@ -27,6 +28,7 @@ enum WorkspaceSnapshotReducer {
                 updated.tasks.removeAll { $0.taskListID == list && $0.id == id }
             case .eventDelete:
                 guard let calendar = params["calendarId"], let id = params["eventId"] else { throw GWSFailure.mutationNotVerified }
+                updated = CalendarRangeCache.applying(event: nil, identity: CalendarEventIdentity(calendarID: calendar, eventID: id), to: updated)
                 updated.events.removeAll { $0.calendarID == calendar && $0.id == id }
             case .taskListDelete:
                 guard let list = params["tasklist"] else { throw GWSFailure.mutationNotVerified }
@@ -65,9 +67,9 @@ struct WorkspaceSnapshotAcceptance {
     func currentGuard() -> () -> Bool { freshness.currentGuard() }
 
     mutating func accept(_ read: GWSWorkspaceReadResult, startedAt revision: Int, current: WorkspaceSnapshot,
-                cache: SnapshotStoring) throws -> WorkspaceSnapshot? {
+                cache: SnapshotStoring, displayRange: DateRange? = nil) throws -> WorkspaceSnapshot? {
         guard revision == self.revision else { return nil }
-        let merged = try read.merging(into: current)
+        let merged = try read.merging(into: current, displayRange: displayRange)
         try cache.commit(merged)
         self.revision += 1
         freshness.invalidate()

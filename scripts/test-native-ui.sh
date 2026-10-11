@@ -8,6 +8,7 @@ configure_swift_compiler "$BUILD_DIR"
 "${G_CALENDAR_SWIFT[@]}" -O -parse-as-library -target arm64-apple-macosx13.0 \
   -framework SwiftUI -framework AppKit -framework UserNotifications \
   "$ROOT/Sources/GCalendar/Models.swift" \
+  "$ROOT/Sources/GCalendar/CalendarRangeCache.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
   "$ROOT/Sources/GCalendar/CalendarTimeGrid.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \

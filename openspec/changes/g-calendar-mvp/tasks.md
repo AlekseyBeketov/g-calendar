@@ -108,7 +108,7 @@ Developer ID credentials, license/publication approval, real published installer
 
 - [x] 13.1 Apply read-back verified changes immediately; reject stale refresh results before persistence.
 - [x] 13.2 Bound independent reads to four and reconcile affected lists/calendars without incomplete reminder pruning.
-- [ ] 13.3 Cache several calendar ranges and prefetch a neighboring week without replacing the current view.
+- [x] 13.3 Cache several calendar ranges and prefetch a neighboring week without replacing the current view.
 - [ ] 13.4 Reduce repeated calendar projections and unnecessary UI work; preserve native cursor and keyboard contracts.
 - [ ] 13.5 Verify synthetic invariants, rebuild the app and push the approved optimization commits to main.
 - [ ] 13.6 Implement Google REST/OAuth in a separate branch, prepare OpenResearch comparison, and verify before the owner's authorization gate.

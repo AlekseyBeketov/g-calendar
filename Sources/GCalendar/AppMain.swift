@@ -50,6 +50,9 @@ final class WorkspaceViewModel: ObservableObject {
     private var refreshRequestSequence = 0
     private var snapshotAcceptance = WorkspaceSnapshotAcceptance()
     private var requiredVerifiedTaskListIDs = Set<String>()
+    private var neighbourPrefetch = CalendarNeighbourPrefetch()
+    private var backgroundRefreshQueue: [WorkspaceRefreshQuery] = []
+    private var activeReadCancellation: GWSReadCancellation?
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
@@ -209,6 +212,7 @@ final class WorkspaceViewModel: ObservableObject {
             return
         }
         guard launchMode == .normal else { return }
+        if let activated = CalendarRangeCache.activate(range: currentRange(), in: snapshot) { installRefreshedSnapshot(activated) }
         requestNormalRefresh(scope: .full)
     }
 
@@ -216,23 +220,70 @@ final class WorkspaceViewModel: ObservableObject {
         guard launchMode == .normal else { refresh(); return }
         guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
         let range = currentRange()
-        if !force, let active = refreshCoordinator.active,
-           active.key.scope == .full, active.key.range == range {
-            _ = refreshCoordinator.request(active.key)
+        if !force, let activated = CalendarRangeCache.activate(range: range, in: snapshot) {
+            installRefreshedSnapshot(activated)
+            if let fetched = activated.calendarFetchedAt, Date().timeIntervalSince(fetched) >= CalendarRangeCache.rangeTTL {
+                let coveredRange = activated.calendarCoverage?.dateRange ?? range
+                enqueueBackground(WorkspaceRefreshQuery(range: coveredRange, scope: .calendarRange, purpose: .revalidation), runner: runner)
+            }
+            offerNeighbourPrefetch(runner: runner)
             return
         }
-        if !force, refreshCoordinator.active == nil, snapshot.calendarCoverage?.covers(range) == true { return }
         guard snapshot.fetchedAt != .distantPast else { refresh(); return }
         let query = makeRefreshQuery(range: range, scope: .calendarRange, force: force)
+        requestRefresh(query, runner: runner)
+    }
+
+    private func requestRefresh(_ query: WorkspaceRefreshQuery, runner: GWSProcessRunning) {
+        if query.purpose == .foreground {
+            backgroundRefreshQueue.removeAll()
+            if let active = refreshCoordinator.active {
+                let obsoleteRange = active.key.scope == .calendarRange && active.key.range != query.range
+                    && active.key.taskListIDs.isEmpty && active.key.calendarIDs.isEmpty && !active.key.refreshTaskLists
+                if active.key.purpose != .foreground || obsoleteRange { activeReadCancellation?.cancel() }
+            }
+        }
         guard let request = refreshCoordinator.request(query) else { return }
         startNormalRefresh(request, runner: runner)
+    }
+
+    private func enqueueBackground(_ query: WorkspaceRefreshQuery, runner: GWSProcessRunning) {
+        guard !backgroundRefreshQueue.contains(query), refreshCoordinator.active?.key != query else { return }
+        if query.purpose == .revalidation {
+            backgroundRefreshQueue.removeAll { $0.purpose == .revalidation }
+            backgroundRefreshQueue.insert(query, at: 0)
+            if let active = refreshCoordinator.active, active.key.purpose != .foreground, active.key.range != query.range {
+                activeReadCancellation?.cancel()
+            }
+        } else { backgroundRefreshQueue.append(query) }
+        startNextBackground(runner: runner)
+    }
+
+    private func startNextBackground(runner: GWSProcessRunning) {
+        guard refreshCoordinator.active == nil else { return }
+        while !backgroundRefreshQueue.isEmpty {
+            let query = backgroundRefreshQueue.removeFirst()
+            let cached = CalendarRangeCache.activate(range: query.range, in: snapshot)
+            if query.purpose == .prefetch, cached != nil { continue }
+            if query.purpose == .revalidation, let fetched = cached?.calendarFetchedAt,
+               Date().timeIntervalSince(fetched) < CalendarRangeCache.rangeTTL { continue }
+            requestRefresh(query, runner: runner)
+            return
+        }
+    }
+
+    private func offerNeighbourPrefetch(runner: GWSProcessRunning) {
+        let range = currentRange()
+        guard snapshot.calendarCoverage?.covers(range) == true else { return }
+        for neighbour in neighbourPrefetch.neighbours(after: range, calendars: snapshot.calendars, snapshot: snapshot) {
+            enqueueBackground(WorkspaceRefreshQuery(range: neighbour, scope: .calendarRange, purpose: .prefetch), runner: runner)
+        }
     }
 
     private func requestNormalRefresh(scope: WorkspaceRefreshScope, force: Bool = false) {
         guard let runner else { syncState = .setupRequired; statusMessage = "Google transport недоступен."; return }
         let query = makeRefreshQuery(range: currentRange(), scope: scope, force: force)
-        guard let request = refreshCoordinator.request(query) else { return }
-        startNormalRefresh(request, runner: runner)
+        requestRefresh(query, runner: runner)
     }
 
     private func makeRefreshQuery(range: DateRange, scope: WorkspaceRefreshScope, force: Bool) -> WorkspaceRefreshQuery {
@@ -241,56 +292,70 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     private func startNormalRefresh(_ request: RefreshTicket<WorkspaceRefreshQuery>, runner: GWSProcessRunning) {
-        syncState = .syncing
-        statusMessage = "Обновление данных…"
+        let foreground = request.key.purpose == .foreground
+        if foreground { syncState = .syncing; statusMessage = "Обновление данных…" }
         let path = gwsPath
         let cache = snapshotStore
+        let baseline = snapshot
         let startedRevision = snapshotAcceptance.revision
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let cancellation = GWSReadCancellation()
+        activeReadCancellation = cancellation
+        DispatchQueue.global(qos: foreground ? .userInitiated : .utility).async { [weak self] in
             let outcome: Result<GWSWorkspaceReadResult, Error>
             do {
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
-                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).read(query: request.key))
+                let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner, cancellation: cancellation)
+                outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).read(query: request.key, baseline: baseline))
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                switch self.refreshCoordinator.finish(request) {
+                guard let self, self.refreshCoordinator.active == request else { return }
+                self.activeReadCancellation = nil
+                var acceptedRead: GWSWorkspaceReadResult?
+                var stale = false
+                var cancelled = false
+                do {
+                    let read = try outcome.get()
+                    if let refreshed = try self.snapshotAcceptance.accept(read, startedAt: startedRevision, current: self.snapshot,
+                                                                          cache: cache, displayRange: self.currentRange()) {
+                        acceptedRead = read
+                        if read.completeTasks { self.requiredVerifiedTaskListIDs.removeAll() }
+                        else { self.requiredVerifiedTaskListIDs.subtract(read.taskListIDs) }
+                        self.installRefreshedSnapshot(refreshed)
+                        let stillCurrent = self.snapshotAcceptance.currentGuard()
+                        if let proof = read.fullProof(accepted: refreshed) {
+                            Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
+                        } else if let proof = read.tasksProof(accepted: refreshed) {
+                            Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
+                        } else if !read.taskListIDs.isEmpty {
+                            Task { await self.reminderCoordinator.reconcile(tasks: read.tasks, stillCurrent: stillCurrent) }
+                        }
+                        if foreground && (read.completeCalendar || !read.calendarIDs.isEmpty) { self.reconcileEventReminders() }
+                    } else { stale = true }
+                } catch {
+                    cancelled = (error as? GWSFailure) == .readCancelled
+                    if foreground && !cancelled {
+                        self.syncState = .afterFailure(error as? GWSFailure)
+                        self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Синхронизация не выполнена. Сохранённые данные не изменены."
+                    }
+                }
+                switch self.refreshCoordinator.finish(request, completed: acceptedRead, discardActive: cancelled) {
                 case .ignored: return
-                case .superseded(let latest):
-                    self.startNormalRefresh(latest, runner: runner)
+                case .superseded(let next):
+                    self.startNormalRefresh(next, runner: runner)
                     return
                 case .accepted: break
                 }
-                do {
-                    let read = try outcome.get()
-                    guard let refreshed = try self.snapshotAcceptance.accept(read, startedAt: startedRevision,
-                                                                            current: self.snapshot, cache: cache) else {
-                        // A verified write occurred during this read. Re-read its
-                        // required scope before publishing or pruning reminders.
-                        if let retry = self.refreshCoordinator.request(request.key) { self.startNormalRefresh(retry, runner: runner) }
-                        return
-                    }
-                    if read.completeTasks { self.requiredVerifiedTaskListIDs.removeAll() }
-                    else { self.requiredVerifiedTaskListIDs.subtract(read.taskListIDs) }
-                    self.installRefreshedSnapshot(refreshed)
+                if stale, foreground { self.requestRefresh(request.key, runner: runner); return }
+                if acceptedRead != nil, foreground {
                     self.syncState = .updated
-                    self.statusMessage = "Обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
-                    let stillCurrent = self.snapshotAcceptance.currentGuard()
-                    if let proof = read.fullProof(accepted: refreshed) {
-                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
-                        self.reconcileEventReminders()
-                    } else if let proof = read.tasksProof(accepted: refreshed) {
-                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
-                    } else if !read.taskListIDs.isEmpty {
-                        Task { await self.reminderCoordinator.reconcile(tasks: read.tasks, stillCurrent: stillCurrent) }
-                    }
-                    if read.completeCalendar || !read.calendarIDs.isEmpty { self.reconcileEventReminders() }
-                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
-                } catch {
-                    self.syncState = .afterFailure(error as? GWSFailure)
-                    self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Синхронизация не выполнена. Сохранённые данные не изменены."
+                    self.statusMessage = "Обновлено · \(self.snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))"
+                    self.offerNeighbourPrefetch(runner: runner)
                 }
+                if acceptedRead != nil, self.snapshot.calendarCoverage?.covers(self.currentRange()) != true {
+                    self.refreshCalendarRangeIfNeeded()
+                    return
+                }
+                self.startNextBackground(runner: runner)
             }
         }
     }
@@ -304,6 +369,8 @@ final class WorkspaceViewModel: ObservableObject {
         requiredVerifiedTaskListIDs.formUnion(WorkspaceSnapshotReducer.affectedTaskListIDs(invocation: invocation, result: result))
         if invocation.operation == .taskListDelete, let list = Self.argument("tasklist", in: invocation) { requiredVerifiedTaskListIDs.remove(list) }
         snapshotAcceptance.verifiedMutation()
+        backgroundRefreshQueue.removeAll()
+        if refreshCoordinator.active?.key.purpose != .foreground { activeReadCancellation?.cancel() }
         installRefreshedSnapshot(updated)
         // A disk failure must not conceal a successful exact GET from the form.
         do { try snapshotStore.commit(updated) }
@@ -601,7 +668,7 @@ final class WorkspaceViewModel: ObservableObject {
         guard let runner else { return }
         refreshRequestSequence += 1
         let query = WorkspaceRefreshQuery(range: currentRange(), scope: .targeted, requestID: refreshRequestSequence, refreshTaskLists: true)
-        if let request = refreshCoordinator.request(query) { startNormalRefresh(request, runner: runner) }
+        requestRefresh(query, runner: runner)
     }
 
     private func requestTargetedRefresh(taskListIDs: Set<String> = [], calendarIDs: Set<String> = []) {
@@ -611,8 +678,7 @@ final class WorkspaceViewModel: ObservableObject {
         let query = WorkspaceRefreshQuery.targeted(range: range, coverage: snapshot.calendarCoverage,
                                                    taskListIDs: taskListIDs, calendarIDs: calendarIDs,
                                                    requestID: refreshRequestSequence)
-        guard let request = refreshCoordinator.request(query) else { return }
-        startNormalRefresh(request, runner: runner)
+        requestRefresh(query, runner: runner)
     }
 
     func queryNotificationStatusAndExit() async {
