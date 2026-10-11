@@ -85,6 +85,10 @@ final class NativeActionCursorBridge: NSView {
     private var timer: Timer?
     private var pendingRefresh: DispatchWorkItem?
     private var disconnected = false
+    private var eventMonitor: Any?
+    private var cursorUpdateQueued = false
+    private var ownsHandCursor = false
+    private var acceptedMouseMovedEvents = false
     private(set) var scanCount = 0
     private(set) var lastVisitedViewCount = 0
     private(set) var lastVisitedAccessibilityCount = 0
@@ -120,6 +124,14 @@ final class NativeActionCursorBridge: NSView {
     }
 
     private func observe(_ window: NSWindow) {
+        acceptedMouseMovedEvents = window.acceptsMouseMovedEvents
+        window.acceptsMouseMovedEvents = true
+        // SwiftUI can overwrite cursor rectangles while dispatching a hover event.
+        // Apply the window's action cursor afterwards, without consuming the event.
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .cursorUpdate, .mouseExited]) { [weak self] event in
+            if let self, event.window === self.window { self.queueCursorUpdate() }
+            return event
+        }
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didUpdateNotification] {
             observations.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
@@ -141,6 +153,42 @@ final class NativeActionCursorBridge: NSView {
             self.requestRefresh()
         }
         requestRefresh()
+    }
+
+    private func queueCursorUpdate() {
+        guard !disconnected, !cursorUpdateQueued else { return }
+        cursorUpdateQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.cursorUpdateQueued = false
+            guard !self.disconnected, let window = self.window,
+                  window.isVisible, NSApp.isActive, window.attachedSheet == nil,
+                  NSEvent.pressedMouseButtons == 0 else { return }
+            let point = window.mouseLocationOutsideOfEventStream
+            let bridgePoint = self.convert(point, from: nil)
+            // Preserve the field editor and native controls that implement editing.
+            var hit = window.contentView.flatMap { $0.hitTest($0.convert(point, from: nil)) }
+            var isText = false
+            var isNativeOnly = false
+            while let view = hit {
+                if let text = view as? NSTextView, text.isEditable || text.isSelectable { isText = true }
+                if let text = view as? NSTextField, text.isEditable || text.isSelectable { isText = true }
+                if view is NSScroller || ((view as? NSControl)?.isEnabled == false) { isNativeOnly = true }
+                hit = view.superview
+            }
+            let actionable = !isText && !isNativeOnly && self.visibleRect.contains(bridgePoint)
+                && self.actionRects.contains { $0.contains(bridgePoint) }
+            if actionable {
+                NSCursor.pointingHand.set()
+                self.ownsHandCursor = true
+            } else if self.ownsHandCursor {
+                // Only undo our cursor; retain a cursor already chosen by AppKit.
+                if NSCursor.current.isEqual(NSCursor.pointingHand) {
+                    (isText ? NSCursor.iBeam : NSCursor.arrow).set()
+                }
+                self.ownsHandCursor = false
+            }
+        }
     }
 
     func requestRefresh() {
@@ -166,6 +214,10 @@ final class NativeActionCursorBridge: NSView {
         func visit(_ view: NSView) {
             lastVisitedViewCount += 1
             guard view !== self, !view.isHiddenOrHasHiddenAncestor, !view.visibleRect.isEmpty else { return }
+            if let region = view as? PointerCursorRegionView {
+                let rect = convert(region.actionCursorRect, from: region).intersection(visibleRect)
+                if !rect.isEmpty { rects.append(rect) }
+            }
             if let control = view as? NSControl {
                 // A disabled composite control may still expose enabled implementation subviews.
                 guard control.isEnabled else { return }
@@ -205,6 +257,9 @@ final class NativeActionCursorBridge: NSView {
 
     private func disconnect() {
         disconnected = true
+        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        eventMonitor = nil
+        window?.acceptsMouseMovedEvents = acceptedMouseMovedEvents
         pendingRefresh?.cancel()
         pendingRefresh = nil
         timer?.invalidate()
