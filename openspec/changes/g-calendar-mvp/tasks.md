@@ -111,4 +111,4 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 13.3 Cache several calendar ranges and prefetch a neighboring week without replacing the current view.
 - [x] 13.4 Reduce repeated calendar projections and unnecessary UI work; preserve native cursor and keyboard contracts.
 - [x] 13.5 Verify synthetic invariants, rebuild the app and push the approved optimization commits to main.
-- [ ] 13.6 Implement Google REST/OAuth in a separate branch, prepare OpenResearch comparison, and verify before the owner's authorization gate.
+- [x] 13.6 Implement Google REST/OAuth in a separate branch, prepare OpenResearch comparison, and verify before the owner's authorization gate.
