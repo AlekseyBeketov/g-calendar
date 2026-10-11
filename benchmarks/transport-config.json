@@ -1,0 +1,9 @@
+{
+	"schema": 1,
+	"mode": "synthetic",
+	"transport": "paired",
+	"samples": 20,
+	"rangeStart": "2026-10-04T21:00:00Z",
+	"rangeEnd": "2026-10-11T21:00:00Z",
+	"timeZone": "Europe/Moscow"
+}
