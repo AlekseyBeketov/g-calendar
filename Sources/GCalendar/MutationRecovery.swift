@@ -263,6 +263,10 @@ struct RecoverableMutationService {
             let result: ProcessResult
             do { result = try runner.run(invocation) }
             catch {
+                if error is GoogleRESTUnsubmittedFailure, invocation.executableURL == GWSCommandFactory.restMarker {
+                    try journal.clear(expectedID: attemptID)
+                    throw error
+                }
                 if let failure = error as? GWSFailure, failure == .executableUnavailable || failure == .invalidExecutablePath || failure == .forbiddenOperation {
                     try journal.clear(expectedID: attemptID) // The process was never started.
                     throw error

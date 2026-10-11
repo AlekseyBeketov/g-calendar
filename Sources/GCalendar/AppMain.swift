@@ -63,7 +63,7 @@ final class WorkspaceViewModel: ObservableObject {
         let defaults = suppliedDefaults ?? (mode == .normal ? .standard : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
         let context = mode == .normal ? WorkspaceTransportContext.load(defaults: defaults) : nil
         transportContext = context
-        googleTransportSettings = GoogleTransportSettings(active: context?.kind ?? .gws, defaults: defaults,
+        googleTransportSettings = GoogleTransportSettings(active: context?.kind ?? .gws, defaults: defaults, activeProfile: context?.profile,
             secrets: mode == .normal ? GoogleKeychainSecretStore() : GoogleMemorySecretStore())
         let journalURL = context?.journalURL
         mutationJournal = MutationJournal(fileURL: journalURL)
@@ -147,6 +147,7 @@ final class WorkspaceViewModel: ObservableObject {
 
     var presentationDefaults: UserDefaults { defaults }
     var transportSettingsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
+    var googleReauthenticationAllowed: Bool { launchMode == .normal && pendingMutation != nil && !mutationInFlight && !mutationJournalBusy && googleTransportSettings.canReauthenticate }
     var mutationsBlocked: Bool { transportContext?.recoveryOnly == true || googleTransportSettings.requiresRestart || googleTransportSettings.signingIn || transportSettingsBlocked }
 
     var sortedCalendars: [CalendarInfo] { CalendarNavigation.sorted(snapshot.calendars) }

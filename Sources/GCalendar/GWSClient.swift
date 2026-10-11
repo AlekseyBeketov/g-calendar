@@ -380,6 +380,14 @@ final class GWSReadCancellation: @unchecked Sendable {
         return id
     }
     func unregister(_ id: UUID) { lock.lock(); handlers.removeValue(forKey: id); lock.unlock() }
+    func waitForRetry(_ duration: TimeInterval) throws {
+        try check()
+        let completed = DispatchSemaphore(value: 0)
+        let registration = register { completed.signal() }
+        defer { unregister(registration) }
+        _ = completed.wait(timeout: .now() + duration)
+        try check()
+    }
     func check() throws {
         lock.lock(); let value = cancelled; lock.unlock()
         if value { throw GWSFailure.readCancelled }

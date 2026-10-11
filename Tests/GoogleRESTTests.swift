@@ -21,6 +21,10 @@ final class FakeGoogleTokens: GoogleAccessTokenProviding, @unchecked Sendable {
     func accessToken(forceRefresh: Bool) throws -> String { if forceRefresh { refreshes += 1 }; return "synthetic-token" }
 }
 
+private struct UnavailableFixtureGoogleTokens: GoogleAccessTokenProviding {
+    func accessToken(forceRefresh: Bool) throws -> String { throw GoogleRESTFailure.authentication }
+}
+
 extension InvariantTests {
     static func testGoogleRESTCore() throws {
         let factory = GWSCommandFactory.googleREST()
@@ -49,6 +53,17 @@ extension InvariantTests {
         do { _ = try builder.build(unsafe); throw TestFailure(description: "unsafe REST params accepted") } catch GWSFailure.forbiddenOperation { assertions += 1 }
         let mismatched = ProcessInvocation(executableURL: GWSCommandFactory.restMarker, arguments: invocations[0].arguments, operation: .taskGet, timeout: 2, outputLimit: 1024)
         do { _ = try builder.build(mismatched); throw TestFailure(description: "mismatched operation accepted") } catch GWSFailure.forbiddenOperation { assertions += 1 }
+        var boundFactory = GWSCommandFactory.googleREST(); boundFactory.contextIdentity = "fixture-context"
+        let unsubmittedHTTP = FakeGoogleHTTPClient([]), unsubmittedJournal = MutationJournal()
+        let unsubmittedRunner = GoogleRESTRunner(http: unsubmittedHTTP, tokens: UnavailableFixtureGoogleTokens())
+        do {
+            _ = try RecoverableMutationService(runner: unsubmittedRunner, journal: unsubmittedJournal)
+                .perform(boundFactory.taskInsert(taskListID: "l", title: "Fixture", notes: nil, due: nil, authorization: .userSave),
+                         reader: GWSReadClient(factory: boundFactory, runner: unsubmittedRunner))
+            throw TestFailure(description: "unsubmitted auth failure accepted")
+        } catch is GoogleRESTUnsubmittedFailure { assertions += 1 }
+        try check(unsubmittedHTTP.requests.isEmpty && !unsubmittedJournal.isBlocked,
+                  "failed preflight auth proves no mutation submission and leaves setup usable")
         let tokens = FakeGoogleTokens()
         let retryHTTP = FakeGoogleHTTPClient([GoogleHTTPResponse(statusCode: 429, headers: ["retry-after": "0"], body: Data()), GoogleHTTPResponse(statusCode: 503, headers: [:], body: Data()), GoogleHTTPResponse(statusCode: 200, headers: [:], body: Data("{}".utf8))])
         // The sleeper uses a locked recorder in production benchmarks; this focused
@@ -73,6 +88,19 @@ extension InvariantTests {
         let cancellationHTTP = FakeGoogleHTTPClient([])
         do { _ = try GoogleRESTRunner(http: cancellationHTTP, tokens: tokens).run(invocations[0], cancellation: cancelled); throw TestFailure(description: "cancelled read started") } catch GWSFailure.readCancelled { assertions += 1 }
         try check(callbacks == 1 && cancellationHTTP.requests.isEmpty, "cancellation handlers cancel HTTP without starting more reads")
+        let retryCancellation = GWSReadCancellation(), interrupted = OAuthTestErrors(), group = DispatchGroup()
+        let delayedHTTP = FakeGoogleHTTPClient([GoogleHTTPResponse(statusCode: 429, headers: ["retry-after": "5"], body: Data())])
+        let started = Date()
+        group.enter()
+        DispatchQueue.global().async {
+            defer { group.leave() }
+            do { _ = try GoogleRESTRunner(http: delayedHTTP, tokens: FakeGoogleTokens()).run(invocations[0], cancellation: retryCancellation) }
+            catch GWSFailure.readCancelled { interrupted.add() } catch { }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { retryCancellation.cancel() }
+        group.wait()
+        try check(interrupted.count == 1 && Date().timeIntervalSince(started) < 1 && delayedHTTP.requests.count == 1,
+                  "cancelled backoff wakes immediately without waiting five seconds or starting another request")
     }
 }
 
@@ -121,6 +149,27 @@ extension InvariantTests {
         try check(preserved.kind == .rest && preserved.identity == profileNamespace && preserved.recoveryOnly && preserved.setupProblem == nil,
                   "startup switch guard retains archived old REST credentials solely for exact recovery")
         try check(try preserved.factory(configuredGWSPath: "").contextIdentity == profileNamespace, "old REST recovery factory retains account binding without gws binary")
+        let recoverySecrets = GoogleMemorySecretStore()
+        try recoverySecrets.write(JSONEncoder().encode(config), key: "configuration")
+        try recoverySecrets.write(JSONEncoder().encode(archivedCredential), key: "credential")
+        let expectedProfile = GoogleOAuthProfile(configuration: config, credential: archivedCredential)
+        let pendingID = MutationJournal(fileURL: oldProfileDirectory.appendingPathComponent("pending-verification.json")).pending?.id
+        let replacement = GoogleOAuthCredential(clientID: config.clientID, subject: "synthetic-sub", refreshToken: "replacement")
+        try GoogleAuthorizationPersistence.save(configuration: config, credential: replacement, recovering: expectedProfile, secrets: recoverySecrets)
+        try check(try JSONDecoder().decode(GoogleOAuthCredential.self, from: recoverySecrets.read("credential")!).refreshToken == "replacement", "same-account reauthentication replaces expired token")
+        try check(MutationJournal(fileURL: oldProfileDirectory.appendingPathComponent("pending-verification.json")).pending?.id == pendingID,
+                  "same-account reauthentication retains the exact pending attempt")
+        let other = GoogleOAuthCredential(clientID: config.clientID, subject: "other-sub", refreshToken: "other")
+        do { try GoogleAuthorizationPersistence.save(configuration: config, credential: other, recovering: expectedProfile, secrets: recoverySecrets); throw TestFailure(description: "pending reauthentication changed subject") }
+        catch GoogleRESTFailure.authentication { assertions += 1 }
+        try check(try JSONDecoder().decode(GoogleOAuthCredential.self, from: recoverySecrets.read("credential")!).subject == "synthetic-sub", "wrong-account login cannot replace active credentials")
+        try recoverySecrets.write(JSONEncoder().encode(other), key: "credential")
+        try GoogleAuthorizationPersistence.save(configuration: config, credential: replacement, recovering: expectedProfile, secrets: recoverySecrets)
+        try check(try JSONDecoder().decode(GoogleOAuthCredential.self, from: recoverySecrets.read("credential")!).subject == "other-sub",
+                  "archived recovery reauth leaves a separately requested account untouched")
+        let updatedArchive = try JSONDecoder().decode(GoogleOAuthProfile.self, from: recoverySecrets.read("profile." + profileNamespace)!)
+        try check(updatedArchive.credential == replacement && preserved.profile?.credential == archivedCredential,
+                  "old context exposes bound profile and archived reauth persists only its own token")
         let a = NamespacedReminderScheduler(base: NoopReminderScheduler(), namespace: first), b = NamespacedReminderScheduler(base: NoopReminderScheduler(), namespace: second)
         try check(a.identifier("task") != b.identifier("task") && a.identifier("task") != "task", "REST notifications isolated from legacy and other subjects")
         let credential = GoogleOAuthCredential(clientID: config.clientID, subject: "synthetic-sub", refreshToken: "synthetic-refresh")

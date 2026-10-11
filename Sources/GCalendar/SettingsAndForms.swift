@@ -784,8 +784,8 @@ private struct GoogleTransportSettingsSection: View {
                     Button("Отменить вход") { settings.cancelSignIn() }.pointingHandCursor()
                 } else {
                     Button("Войти через браузер") {
-                        settings.signIn(blocked: model.transportSettingsBlocked) { !model.transportSettingsBlocked && model.launchMode == .normal }
-                    }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked)
+                        settings.signIn(blocked: model.transportSettingsBlocked, recovering: model.googleReauthenticationAllowed) { model.launchMode == .normal && !model.mutationInFlight && (!model.transportSettingsBlocked || model.googleReauthenticationAllowed) }
+                    }.pointingHandCursor().disabled(model.launchMode != .normal || (model.transportSettingsBlocked && !model.googleReauthenticationAllowed))
                     Button("Выйти") { settings.signOut(blocked: model.transportSettingsBlocked) }
                         .pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked)
                 }

@@ -24,6 +24,12 @@ extension GoogleAccessTokenProviding {
     func accessToken(forceRefresh: Bool, deadline: Date) throws -> String { try accessToken(forceRefresh: forceRefresh) }
 }
 
+// Only errors proven to occur before the mutation HTTP task starts use this type.
+// An HTTP/network failure after send must retain the uncertain journal.
+struct GoogleRESTUnsubmittedFailure: Error, LocalizedError {
+    var errorDescription: String? { "Google REST: запись не отправлена. Проверьте подключение Google и повторите сохранение." }
+}
+
 enum GoogleRESTFailure: Error, LocalizedError {
     case setupRequired, network, redirected, authentication, invalidConfiguration, cancelled
     var errorDescription: String? {
@@ -216,7 +222,7 @@ final class GoogleURLSessionHTTPClient: NSObject, GoogleHTTPClient, URLSessionDa
 struct GoogleRESTRunner: GWSReadProcessRunning {
     let http: GoogleHTTPClient
     let tokens: GoogleAccessTokenProviding
-    var sleep: @Sendable (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    var sleep: (@Sendable (TimeInterval) -> Void)? = nil
     var jitter: @Sendable () -> Double = { Double.random(in: 0...0.25) }
     func run(_ invocation: ProcessInvocation) throws -> ProcessResult { try run(invocation, cancellation: nil) }
     func run(_ invocation: ProcessInvocation, cancellation: GWSReadCancellation?) throws -> ProcessResult {
@@ -229,10 +235,12 @@ struct GoogleRESTRunner: GWSReadProcessRunning {
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { throw GWSFailure.timedOut(invocation.operation.rawValue) }
             var request = original
-            let token = try tokens.accessToken(forceRefresh: forceNextToken, deadline: deadline)
+            let token: String
+            do { token = try tokens.accessToken(forceRefresh: forceNextToken, deadline: deadline) }
+            catch { if !read { throw GoogleRESTUnsubmittedFailure() }; throw error }
             forceNextToken = false
             request.timeoutInterval = deadline.timeIntervalSinceNow
-            guard request.timeoutInterval > 0 else { throw GWSFailure.timedOut(invocation.operation.rawValue) }
+            guard request.timeoutInterval > 0 else { if !read { throw GoogleRESTUnsubmittedFailure() }; throw GWSFailure.timedOut(invocation.operation.rawValue) }
             request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
             let response = try http.send(request, outputLimit: invocation.outputLimit, cancellation: read ? cancellation : nil)
             guard response.body.count <= invocation.outputLimit else { throw GWSFailure.outputTooLarge(invocation.operation.rawValue) }
@@ -243,7 +251,10 @@ struct GoogleRESTRunner: GWSReadProcessRunning {
                 let retry = Self.retryAfter(response.headers["retry-after"])
                 let delay = min(10, retry ?? (pow(2, Double(attempt)) * 0.25 + jitter()))
                 guard delay < deadline.timeIntervalSinceNow else { throw GWSFailure.timedOut(invocation.operation.rawValue) }
-                sleep(delay); continue
+                if let sleep { sleep(delay); try cancellation?.check() }
+                else if let cancellation { try cancellation.waitForRetry(delay) }
+                else { Thread.sleep(forTimeInterval: delay) }
+                continue
             }
             let sanitized = try JSONSerialization.data(withJSONObject: ["error": ["code": response.statusCode]])
             return ProcessResult(exitCode: 1, stdout: Data(), stderr: sanitized)

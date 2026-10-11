@@ -8,6 +8,36 @@ struct GoogleOAuthProfile: Codable {
     let credential: GoogleOAuthCredential
 }
 
+// Reauthentication may replace a token for the same immutable profile while a
+// journal awaits verification. It cannot change the client or trusted subject.
+struct GoogleAuthorizationPersistence {
+    static func save(configuration: GoogleOAuthClientConfiguration, credential: GoogleOAuthCredential,
+                     recovering: GoogleOAuthProfile?, secrets: GoogleSecretStoring) throws {
+        guard credential.clientID == configuration.clientID, !credential.subject.isEmpty, !credential.refreshToken.isEmpty,
+              Set(credential.grantedScopes).isSuperset(of: GoogleOAuthEndpoint.scopes) else { throw GoogleRESTFailure.authentication }
+        let currentConfig = try secrets.read("configuration").map { try JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: $0) }
+        let currentCredential = try secrets.read("credential").map { try JSONDecoder().decode(GoogleOAuthCredential.self, from: $0) }
+        if let recovering {
+            guard configuration == recovering.configuration, credential.clientID == recovering.credential.clientID,
+                  credential.subject == recovering.credential.subject else { throw GoogleRESTFailure.authentication }
+            let identity = WorkspaceTransportContext.namespace(clientID: credential.clientID, subject: credential.subject)
+            try secrets.write(JSONEncoder().encode(GoogleOAuthProfile(configuration: configuration, credential: credential)), key: "profile." + identity)
+            // A separately requested account stays untouched; startup uses the
+            // archived active profile to recover its own journal after restart.
+            if currentConfig == configuration, currentCredential?.clientID == credential.clientID,
+               currentCredential?.subject == credential.subject { try secrets.write(JSONEncoder().encode(credential), key: "credential") }
+        } else {
+            guard currentConfig == configuration else { throw GoogleRESTFailure.authentication }
+            if let currentCredential {
+                guard currentCredential.clientID == configuration.clientID else { throw GoogleRESTFailure.authentication }
+                let identity = WorkspaceTransportContext.namespace(clientID: configuration.clientID, subject: currentCredential.subject)
+                try secrets.write(JSONEncoder().encode(GoogleOAuthProfile(configuration: configuration, credential: currentCredential)), key: "profile." + identity)
+            }
+            try secrets.write(JSONEncoder().encode(credential), key: "credential")
+        }
+    }
+}
+
 struct WorkspaceTransportContext: @unchecked Sendable {
     enum Kind: String, CaseIterable { case gws, rest }
     let kind: Kind
@@ -16,6 +46,7 @@ struct WorkspaceTransportContext: @unchecked Sendable {
     let runner: GWSProcessRunning
     let setupProblem: String?
     var recoveryOnly = false
+    var profile: GoogleOAuthProfile? = nil
     var journalURL: URL { directory.appendingPathComponent("pending-verification.json") }
     var reminderEnabledKey: String { identity.map { "restLocalRemindersEnabled." + $0 } ?? "localRemindersEnabled" }
     func factory(configuredGWSPath: String) throws -> GWSCommandFactory {
@@ -56,6 +87,7 @@ struct WorkspaceTransportContext: @unchecked Sendable {
             // newly requested credentials or starting any network operation.
             let directory = oldKind == .gws ? applicationDirectory : applicationDirectory.appendingPathComponent("rest/" + (oldIdentity ?? "setup"), isDirectory: true)
             var recoveryRunner: GWSProcessRunning = oldKind == .gws ? FoundationProcessRunner() : UnavailableGoogleRESTRunner()
+            var recoveryProfile: GoogleOAuthProfile? = nil
             var recoveryProblem: String? = MutationRecoveryFailure.pendingVerification.errorDescription
             if oldKind == .rest, let oldIdentity {
                 let profile: GoogleOAuthProfile?
@@ -64,10 +96,10 @@ struct WorkspaceTransportContext: @unchecked Sendable {
                 if let profile, profile.configuration.clientID == profile.credential.clientID,
                    namespace(clientID: profile.configuration.clientID, subject: profile.credential.subject) == oldIdentity {
                     recoveryRunner = GoogleRESTRunner(http: http, tokens: GoogleAccessTokenProvider(configuration: profile.configuration, credential: profile.credential, http: http))
-                    recoveryProblem = nil
+                    recoveryProblem = nil; recoveryProfile = profile
                 }
             }
-            return Self(kind: oldKind, identity: oldIdentity, directory: directory, runner: recoveryRunner, setupProblem: recoveryProblem, recoveryOnly: true)
+            return Self(kind: oldKind, identity: oldIdentity, directory: directory, runner: recoveryRunner, setupProblem: recoveryProblem, recoveryOnly: true, profile: recoveryProfile)
         }
         if requested == .gws {
             defaults.set("gws", forKey: "activeGoogleTransport")
@@ -78,7 +110,7 @@ struct WorkspaceTransportContext: @unchecked Sendable {
             return Self(kind: .rest, identity: nil, directory: applicationDirectory.appendingPathComponent("rest/setup", isDirectory: true), runner: UnavailableGoogleRESTRunner(), setupProblem: problem ?? GoogleRESTFailure.setupRequired.errorDescription)
         }
         let token = GoogleAccessTokenProvider(configuration: config, credential: credential, http: http)
-        return Self(kind: .rest, identity: identity, directory: applicationDirectory.appendingPathComponent("rest/" + identity, isDirectory: true), runner: GoogleRESTRunner(http: http, tokens: token), setupProblem: nil)
+        return Self(kind: .rest, identity: identity, directory: applicationDirectory.appendingPathComponent("rest/" + identity, isDirectory: true), runner: GoogleRESTRunner(http: http, tokens: token), setupProblem: nil, profile: GoogleOAuthProfile(configuration: config, credential: credential))
     }
 }
 
@@ -99,11 +131,14 @@ final class GoogleTransportSettings: ObservableObject {
     private var cancelledSignIn = false
     private var listener: GoogleLoopbackListener?
     private var configuration: GoogleOAuthClientConfiguration?
-    init(active: WorkspaceTransportContext.Kind, defaults: UserDefaults, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient()) {
-        self.active = active; self.defaults = defaults; self.secrets = secrets; self.http = http
+    private let activeProfile: GoogleOAuthProfile?
+    var canReauthenticate: Bool { active == .rest && activeProfile != nil && configuration == activeProfile?.configuration }
+    init(active: WorkspaceTransportContext.Kind, defaults: UserDefaults, activeProfile: GoogleOAuthProfile? = nil, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient()) {
+        self.active = active; self.defaults = defaults; self.secrets = secrets; self.http = http; self.activeProfile = activeProfile
         requested = WorkspaceTransportContext.Kind(rawValue: defaults.string(forKey: "requestedGoogleTransport") ?? "gws") ?? .gws
         do {
-            if let data = try secrets.read("configuration") { configuration = try JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: data) }
+            if let activeProfile { configuration = activeProfile.configuration }
+            else if let data = try secrets.read("configuration") { configuration = try JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: data) }
             status = try secrets.read("credential") == nil ? "Вход не выполнен." : "Google аккаунт подключён. Изменения применяются после перезапуска."
         } catch { status = GoogleRESTFailure.authentication.errorDescription ?? "Ошибка Keychain." }
     }
@@ -137,12 +172,15 @@ final class GoogleTransportSettings: ObservableObject {
         catch { status = (error as? LocalizedError)?.errorDescription ?? "Выход заблокирован." }
     }
     func cancelSignIn() { cancelledSignIn = true; listener?.cancel(); status = "Отмена входа…" }
-    func signIn(blocked: Bool, stillAllowed: @escaping @MainActor () -> Bool) {
-        do { try allowed(blocked) } catch { status = MutationRecoveryFailure.pendingVerification.errorDescription ?? "Вход заблокирован."; return }
+    func signIn(blocked: Bool, recovering: Bool = false, stillAllowed: @escaping @MainActor () -> Bool) {
+        do {
+            if recovering { guard canReauthenticate, !signingIn else { throw MutationRecoveryFailure.pendingVerification } }
+            else { try allowed(blocked) }
+        } catch { status = MutationRecoveryFailure.pendingVerification.errorDescription ?? "Вход заблокирован."; return }
         guard let configuration else { status = GoogleRESTFailure.setupRequired.errorDescription ?? "Импортируйте JSON."; return }
-        cancelledSignIn = false; signingIn = true; status = "Ожидается вход в системном браузере…"
+        cancelledSignIn = false; signingIn = true; status = recovering ? "Выберите тот же Google аккаунт для проверки незавершённой записи." : "Ожидается вход в системном браузере…"
         let listener = GoogleLoopbackListener(); self.listener = listener
-        let http = http, secrets = secrets
+        let http = http, secrets = secrets, expectedProfile = recovering ? activeProfile : nil
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result: Result<GoogleOAuthCredential, Error>
             do {
@@ -165,12 +203,8 @@ final class GoogleTransportSettings: ObservableObject {
                 do {
                     let credential = try result.get()
                     guard !self.cancelledSignIn else { throw GoogleRESTFailure.cancelled }
-                    guard stillAllowed(), WorkspaceTransportContext.durableSwitchAllowed() else { throw MutationRecoveryFailure.pendingVerification }
-                    guard let currentData = try secrets.read("configuration"),
-                          let current = try? JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: currentData),
-                          current.clientID == configuration.clientID, current.clientSecret == configuration.clientSecret else { throw GoogleRESTFailure.authentication }
-                    try self.archiveCurrentProfile()
-                    try secrets.write(JSONEncoder().encode(credential), key: "credential")
+                    guard stillAllowed(), expectedProfile != nil || WorkspaceTransportContext.durableSwitchAllowed() else { throw MutationRecoveryFailure.pendingVerification }
+                    try GoogleAuthorizationPersistence.save(configuration: configuration, credential: credential, recovering: expectedProfile, secrets: secrets)
                     self.requiresRestart = true
                     self.status = "Google аккаунт подключён. Перезапустите приложение для применения."
                 } catch { self.status = (error as? LocalizedError)?.errorDescription ?? "Вход не выполнен." }
