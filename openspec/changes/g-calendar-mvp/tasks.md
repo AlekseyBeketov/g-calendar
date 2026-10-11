@@ -103,3 +103,12 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 12.6 Pointer cursor on full interactive hit regions and repository rule; verify, commit and push main.
 - [x] 12.7 All boards by default and columns grouped by board; verify, commit and push main.
 - [x] 12.8 Verified move to another board from task editor; verify, commit and push main.
+
+## 13. Approved asynchronous optimization (2026-10-11)
+
+- [ ] 13.1 Apply read-back verified changes immediately; reject stale refresh results before persistence.
+- [ ] 13.2 Bound independent reads to four and reconcile affected lists/calendars without incomplete reminder pruning.
+- [ ] 13.3 Cache several calendar ranges and prefetch a neighboring week without replacing the current view.
+- [ ] 13.4 Reduce repeated calendar projections and unnecessary UI work; preserve native cursor and keyboard contracts.
+- [ ] 13.5 Verify synthetic invariants, rebuild the app and push the approved optimization commits to main.
+- [ ] 13.6 Implement Google REST/OAuth in a separate branch, prepare OpenResearch comparison, and verify before the owner's authorization gate.
