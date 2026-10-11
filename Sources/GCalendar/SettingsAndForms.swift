@@ -764,9 +764,9 @@ private struct GoogleTransportSettingsSection: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     var body: some View {
         SettingsSection(title: "Транспорт Google") {
-            Text("Активен: \(settings.active == .gws ? "gws" : "Google REST"). Выбор и аккаунт применяются после перезапуска.")
+            Text("Активен: \(settings.active == .gws ? "gws" : "Google REST"). Изменения применяются автоматически.")
                 .font(.caption).foregroundStyle(.secondary)
-            Picker("После перезапуска", selection: Binding(get: { settings.requested }, set: { settings.request($0, blocked: model.transportSettingsBlocked) })) {
+            Picker("Транспорт", selection: Binding(get: { settings.requested }, set: { settings.request($0, blocked: model.transportSettingsBlocked) })) {
                 Text("gws").tag(WorkspaceTransportContext.Kind.gws)
                 Text("Google REST").tag(WorkspaceTransportContext.Kind.rest)
             }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
@@ -777,14 +777,14 @@ private struct GoogleTransportSettingsSection: View {
                     if panel.runModal() == .OK, let url = panel.url {
                         guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 65_536,
                               let data = try? Data(contentsOf: url) else { return }
-                        settings.importDesktopJSON(data, blocked: model.transportSettingsBlocked)
+                        if settings.importDesktopJSON(data, blocked: model.transportSettingsBlocked) { signIn() }
                     }
                 }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
                 if settings.signingIn {
                     Button("Отменить вход") { settings.cancelSignIn() }.pointingHandCursor()
                 } else {
                     Button("Войти через браузер") {
-                        settings.signIn(blocked: model.transportSettingsBlocked, recovering: model.googleReauthenticationAllowed) { model.launchMode == .normal && !model.mutationInFlight && (!model.transportSettingsBlocked || model.googleReauthenticationAllowed) }
+                        signIn()
                     }.pointingHandCursor().disabled(model.launchMode != .normal || (model.transportSettingsBlocked && !model.googleReauthenticationAllowed))
                     Button("Выйти") { settings.signOut(blocked: model.transportSettingsBlocked) }
                         .pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked)
@@ -793,6 +793,11 @@ private struct GoogleTransportSettingsSection: View {
             Text(settings.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("Собственный OAuth client типа Desktop app. JSON и refresh token сохраняются в Keychain этого Mac. REST напоминания включаются отдельно.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    private func signIn() {
+        settings.signIn(blocked: model.transportSettingsBlocked, recovering: model.googleReauthenticationAllowed) {
+            model.launchMode == .normal && !model.mutationInFlight && (!model.transportSettingsBlocked || model.googleReauthenticationAllowed)
         }
     }
 }

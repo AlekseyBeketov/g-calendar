@@ -139,6 +139,28 @@ final class WorkspaceViewModel: ObservableObject {
         }
         selectedCalendarID = CalendarNavigation.selectedID(selectedCalendarID, calendars: snapshot.calendars)
         transportSettingsObserver = googleTransportSettings.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        googleTransportSettings.applyChanges = { [weak self] in self?.applyGoogleTransportChanges() }
+    }
+
+    private var transportRestartInFlight = false
+    private func applyGoogleTransportChanges() {
+        guard launchMode == .normal, !mutationInFlight, !mutationJournalBusy,
+              !transportRestartInFlight, googleTransportSettings.requiresRestart else { return }
+        transportRestartInFlight = true
+        activeReadCancellation?.cancel()
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { [weak self] application, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard error == nil, let application, !application.isEqual(NSRunningApplication.current) else {
+                    self.transportRestartInFlight = false
+                    self.googleTransportSettings.applicationRestartFailed()
+                    return
+                }
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     var preferredColorScheme: ColorScheme? {

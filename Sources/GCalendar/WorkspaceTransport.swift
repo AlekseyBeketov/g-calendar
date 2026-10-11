@@ -132,6 +132,7 @@ final class GoogleTransportSettings: ObservableObject {
     private var listener: GoogleLoopbackListener?
     private var configuration: GoogleOAuthClientConfiguration?
     private let activeProfile: GoogleOAuthProfile?
+    var applyChanges: (() -> Void)?
     var canReauthenticate: Bool { active == .rest && activeProfile != nil && configuration == activeProfile?.configuration }
     init(active: WorkspaceTransportContext.Kind, defaults: UserDefaults, activeProfile: GoogleOAuthProfile? = nil, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient()) {
         self.active = active; self.defaults = defaults; self.secrets = secrets; self.http = http; self.activeProfile = activeProfile
@@ -153,10 +154,16 @@ final class GoogleTransportSettings: ObservableObject {
         try secrets.write(JSONEncoder().encode(GoogleOAuthProfile(configuration: configuration, credential: credential)), key: "profile." + identity)
     }
     func request(_ kind: WorkspaceTransportContext.Kind, blocked: Bool) {
-        do { try allowed(blocked); requiresRestart = requiresRestart || kind != active; requested = kind; defaults.set(kind.rawValue, forKey: "requestedGoogleTransport"); status = "Транспорт применится после перезапуска." }
+        do {
+            try allowed(blocked); requiresRestart = requiresRestart || kind != active
+            requested = kind; defaults.set(kind.rawValue, forKey: "requestedGoogleTransport")
+            status = "Применяем транспорт…"
+            if requiresRestart { applyChanges?() }
+        }
         catch { status = MutationRecoveryFailure.pendingVerification.errorDescription ?? "Изменение заблокировано." }
     }
-    func importDesktopJSON(_ data: Data, blocked: Bool) {
+    @discardableResult
+    func importDesktopJSON(_ data: Data, blocked: Bool) -> Bool {
         do {
             try allowed(blocked)
             let config = try GoogleOAuthClientConfiguration.imported(data)
@@ -165,10 +172,11 @@ final class GoogleTransportSettings: ObservableObject {
             if config.clientID != configuration?.clientID { try secrets.write(nil, key: "credential") }
             try secrets.write(JSONEncoder().encode(config), key: "configuration"); configuration = config; requiresRestart = true
             status = "Desktop OAuth JSON импортирован. Выполните вход; изменения применяются после перезапуска."
-        } catch { status = (error as? LocalizedError)?.errorDescription ?? "Импорт OAuth не выполнен." }
+            return true
+        } catch { status = (error as? LocalizedError)?.errorDescription ?? "Импорт OAuth не выполнен."; return false }
     }
     func signOut(blocked: Bool) {
-        do { try allowed(blocked); try archiveCurrentProfile(); try secrets.write(nil, key: "credential"); requiresRestart = true; status = "Вход удалён. Перезапустите приложение." }
+        do { try allowed(blocked); try archiveCurrentProfile(); try secrets.write(nil, key: "credential"); requiresRestart = true; status = "Вход удалён. Применяем изменения…"; applyChanges?() }
         catch { status = (error as? LocalizedError)?.errorDescription ?? "Выход заблокирован." }
     }
     func cancelSignIn() { cancelledSignIn = true; listener?.cancel(); status = "Отмена входа…" }
@@ -206,10 +214,16 @@ final class GoogleTransportSettings: ObservableObject {
                     guard stillAllowed(), expectedProfile != nil || WorkspaceTransportContext.durableSwitchAllowed() else { throw MutationRecoveryFailure.pendingVerification }
                     try GoogleAuthorizationPersistence.save(configuration: configuration, credential: credential, recovering: expectedProfile, secrets: secrets)
                     self.requiresRestart = true
-                    self.status = "Google аккаунт подключён. Перезапустите приложение для применения."
+                    self.requested = .rest
+                    self.defaults.set("rest", forKey: "requestedGoogleTransport")
+                    self.status = "Google аккаунт подключён. Применяем Google REST…"
+                    self.applyChanges?()
                 } catch { self.status = (error as? LocalizedError)?.errorDescription ?? "Вход не выполнен." }
             }
         }
+    }
+    func applicationRestartFailed() {
+        status = "Не удалось автоматически перезапустить приложение. Закройте и откройте его для применения настроек."
     }
 }
 
