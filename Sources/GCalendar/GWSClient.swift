@@ -44,7 +44,7 @@ enum GWSFailure: Error, Equatable, LocalizedError {
         case .invalidExecutablePath: return "Путь к gws должен быть абсолютным и указывать на исполняемый файл."
         case .timedOut(let operation): return "Операция \(operation) превысила лимит времени. Кэшированные данные сохранены."
         case .outputTooLarge(let operation): return "Ответ \(operation) превышает безопасный лимит."
-        case .processFailed(let operation, let code, let category): return "gws: \(operation), exit \(code) (\(category)). Кэшированные данные сохранены."
+        case .processFailed(let operation, _, let category): return "Google: \(operation), ошибка \(category). Кэшированные данные сохранены."
         case .invalidResponse(let safeField): return "gws вернул некорректный ответ (\(safeField)). Кэшированные данные сохранены."
         case .paginationLoop(let operation): return "gws вернул повторяющийся page token в операции \(operation)."
         case .forbiddenOperation: return "Операция запрещена политикой приложения."

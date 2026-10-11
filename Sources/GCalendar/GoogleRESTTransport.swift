@@ -126,7 +126,12 @@ struct GoogleRESTRequestBuilder {
         var components = URLComponents()
         components.scheme = "https"; components.host = isCalendar ? "www.googleapis.com" : "tasks.googleapis.com"
         let segmentCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
-        components.percentEncodedPath = (isCalendar ? "/calendar/v3/" : "/tasks/v1/") + path.map { $0.addingPercentEncoding(withAllowedCharacters: segmentCharacters)! }.joined(separator: "/")
+        components.percentEncodedPath = (isCalendar ? "/calendar/v3/" : "/tasks/v1/") + path.enumerated().map { index, segment in
+            // Google's routing requires the literal @me alias. Resource IDs still
+            // receive strict segment encoding, including any user-provided @.
+            if !isCalendar, index == 1, path.first == "users", segment == "@me" { return "@me" }
+            return segment.addingPercentEncoding(withAllowedCharacters: segmentCharacters)!
+        }.joined(separator: "/")
         components.queryItems = try params.keys.sorted().filter { !pathKeys.contains($0) }.map { key in
             let value = params[key]!
             let string: String
