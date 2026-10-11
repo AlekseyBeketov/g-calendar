@@ -245,7 +245,7 @@ struct TaskEditorView: View {
 
     private func taskVerified(_ result: GWSMutationResult) {
         if case .resourceDeleted = result {
-            model.refreshTasksAfterSave()
+            model.refreshTasksAfterSave(task: reminder.saveState.verifiedTask ?? task, taskListID: local.contextID, sourceTaskListID: task?.taskListID)
             dismiss()
             return
         }
@@ -286,7 +286,7 @@ struct TaskEditorView: View {
         if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
                                                                      unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
             local.errorMessage = "Задача сохранена. " + problem
-            if reminder.metadataSourceID == nil { model.refreshTasksAfterSave() }
+            if reminder.metadataSourceID == nil { model.refreshTasksAfterSave(task: reminder.saveState.verifiedTask ?? task, taskListID: local.contextID, sourceTaskListID: task?.taskListID) }
             return
         }
         reminder.isSaving = true
@@ -296,7 +296,7 @@ struct TaskEditorView: View {
         Task { @MainActor in
             defer {
                 reminder.isSaving = false
-                if reminder.metadataSourceID == nil { model.refreshTasksAfterSave() }
+                if reminder.metadataSourceID == nil { model.refreshTasksAfterSave(task: reminder.saveState.verifiedTask ?? task, taskListID: local.contextID, sourceTaskListID: task?.taskListID) }
             }
             do {
                 if let sourceID = reminder.metadataSourceID {

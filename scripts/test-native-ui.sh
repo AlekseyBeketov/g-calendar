@@ -12,7 +12,9 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/CalendarTimeGrid.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \
   "$ROOT/Sources/GCalendar/DemoPerformanceProbe.swift" \
+  "$ROOT/Sources/GCalendar/RefreshCoordinator.swift" \
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
+  "$ROOT/Sources/GCalendar/WorkspaceSnapshotReducer.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \
   "$ROOT/Sources/GCalendar/Reminders.swift" \
   "$ROOT/Sources/GCalendar/MutationService.swift" \

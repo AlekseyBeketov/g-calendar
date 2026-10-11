@@ -21,6 +21,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/ThemePalette.swift" \
   "$ROOT/Sources/GCalendar/RefreshCoordinator.swift" \
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
+  "$ROOT/Sources/GCalendar/WorkspaceSnapshotReducer.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \
   "$ROOT/Sources/GCalendar/Reminders.swift" \

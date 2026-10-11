@@ -116,6 +116,8 @@ final class FailingMigrationMetadataStore: LocalMetadataStoring {
 
 final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
     private let lock = NSLock()
+    var onPermission: (() -> Void)?
+    var onCancel: (() -> Void)?
     private var currentPermission: ReminderPermission
     private var resultOfRequest: ReminderPermission
     private let requestFailure: NotificationAuthorizationFailure?
@@ -136,7 +138,8 @@ final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
     }
 
     func permission() async -> ReminderPermission {
-        readPermission()
+        onPermission?()
+        return readPermission()
     }
 
     func requestPermission() async throws -> Bool {
@@ -187,6 +190,7 @@ final class RecordingScheduler: ReminderScheduling, @unchecked Sendable {
 
     func cancel(identifier: String) async {
         recordCancellation(identifier)
+        onCancel?()
     }
 
     private func recordCancellation(_ identifier: String) {
@@ -273,6 +277,13 @@ struct InvariantTests {
         run("calendar-range-coverage-and-cache-migration", testCalendarRangeCoverageAndMigration)
         run("calendar-content-distinguishes-unknown-range", testCalendarContentState)
         run("calendar-range-refresh-skips-task-api", testCalendarRangeRefreshSkipsTaskAPI)
+        run("verified-snapshot-reducer-and-stale-acceptance", testVerifiedSnapshotAcceptance)
+        run("bounded-parallel-read-and-targeted-merge", testParallelAndTargetedRead)
+        run("refresh-required-scopes-survive-navigation", testRequiredRefreshScopes)
+        run("targeted-list-structure-skips-other-task-boards", testTargetedTaskListStructure)
+        run("empty-omitted-items-versus-malformed-items", testOmittedEmptyItems)
+        run("targeted-calendar-edit-day-preserves-covered-week", testTargetedCoveredWeek)
+        await runAsync("accepted-proof-invalidates-across-scheduler-await", testObsoleteReminderProof)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
@@ -540,6 +551,7 @@ struct InvariantTests {
             case .eventsList:
                 if params(invocation)["pageToken"] == nil { return response(try fixture("events-page-1.json")) }
                 return response(Data(), code: 42, stderr: "synthetic later page error")
+            case .taskListsList, .tasksList: return response(Data("{}".utf8))
             default: throw GWSFailure.forbiddenOperation
             }
         }
@@ -2345,6 +2357,238 @@ struct InvariantTests {
         try check(scheduler.cancellations.isEmpty, "failed partial sync canceled an existing notification")
     }
 
+    static func testTargetedCoveredWeek() throws {
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let start = DateOnly(rawValue: "2026-10-05")!.startOfDay(in: zone)!
+        let week = try DateRange(start: start, endExclusive: start.addingTimeInterval(7 * 86400), timeZone: zone)
+        let day = try DateRange(start: start, endExclusive: start.addingTimeInterval(86400), timeZone: zone)
+        let event = try CalendarEvent.decode(["id": "late", "summary": "Late week", "start": ["date": "2026-10-10"], "end": ["date": "2026-10-11"]], calendarID: "c")
+        var baseline = WorkspaceSnapshot.empty
+        baseline.events = [event]
+        baseline.calendarCoverage = CalendarRangeCoverage(range: week)
+        let query = WorkspaceRefreshQuery.targeted(range: day, coverage: baseline.calendarCoverage, taskListIDs: [], calendarIDs: ["c"], requestID: 1)
+        try check(query.scope == .targeted && query.range == week, "editing covered day must read affected calendar across saved week")
+        let runner = FakeProcessRunner { invocation in
+            guard invocation.operation == .eventsList, params(invocation)["timeMin"] as? String == week.startISO8601,
+                  params(invocation)["timeMax"] as? String == week.endISO8601 else { throw GWSFailure.forbiddenOperation }
+            return response(Data(#"{"items":[{"id":"late","summary":"Late week","start":{"date":"2026-10-10"},"end":{"date":"2026-10-11"}}]}"#.utf8))
+        }
+        let read = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner), cache: MemorySnapshotStore())
+            .read(query: query)
+        let updated = try read.merging(into: baseline)
+        try check(updated.events == [event] && updated.calendarCoverage?.covers(week) == true && runner.invocations.count == 1,
+                  "day edit must retain late-week event, complete week coverage, and read only affected calendar")
+        let narrow = GWSWorkspaceReadResult(calendars: nil, events: [], taskLists: nil, tasks: [], calendarIDs: ["c"], taskListIDs: [],
+                                            range: day, now: Date(), completeCalendar: false, completeTasks: false)
+        let cache = MemorySnapshotStore(baseline)
+        var acceptance = WorkspaceSnapshotAcceptance()
+        do {
+            _ = try acceptance.accept(narrow, startedAt: 0, current: baseline, cache: cache)
+            throw TestFailure(description: "narrow calendar payload kept falsely complete week coverage")
+        } catch GWSFailure.invalidResponse { try check(cache.load() == baseline, "invalid narrow calendar payload must not commit or erase week data") }
+    }
+
+    static func testOmittedEmptyItems() throws {
+        let factory = GWSCommandFactory(executableURL: executable)
+        let emptyReader = GWSReadClient(factory: factory, runner: FakeProcessRunner { _ in response(Data("{}".utf8)) })
+        let range = try DateRange(start: Date(timeIntervalSince1970: 1), endExclusive: Date(timeIntervalSince1970: 2))
+        try check(try emptyReader.calendars().isEmpty && emptyReader.taskLists().isEmpty && emptyReader.events(calendarID: "c", range: range).isEmpty && emptyReader.tasks(taskListID: "l").isEmpty,
+                  "omitted items must be valid empty collections in every reader")
+        for body in [#"{"items":null}"#, #"{"items":{}}"#, #"{"items":[1]}"#] {
+            let malformed = GWSReadClient(factory: factory, runner: FakeProcessRunner { _ in response(Data(body.utf8)) })
+            do { _ = try malformed.tasks(taskListID: "l"); throw TestFailure(description: "malformed present items accepted") }
+            catch GWSFailure.invalidResponse { try check(true, "present malformed items must fail") }
+        }
+    }
+
+    static func testObsoleteReminderProof() async throws {
+        let range = try DateRange(start: Date(timeIntervalSince1970: 1), endExclusive: Date(timeIntervalSince1970: 2))
+        let read = GWSWorkspaceReadResult(calendars: [], events: [], taskLists: [], tasks: [], calendarIDs: [], taskListIDs: [],
+                                          range: range, now: Date(), completeCalendar: true, completeTasks: true)
+        for invalidatesAfterPermission in [true, false] {
+            let metadata = MemoryMetadataStore()
+            let date = Date().addingTimeInterval(3600)
+            try metadata.set(LocalTaskMetadata(reminderAt: date, favorite: true), for: "new-task")
+            let scheduler = RecordingScheduler(permission: .authorized)
+            let coordinator = ReminderCoordinator(store: metadata, scheduler: scheduler, defaults: UserDefaults(suiteName: UUID().uuidString)!)
+            var acceptance = WorkspaceSnapshotAcceptance()
+            let accepted = try acceptance.accept(read, startedAt: 0, current: .empty, cache: MemorySnapshotStore())!
+            let stillCurrent = acceptance.currentGuard()
+            if invalidatesAfterPermission { scheduler.onPermission = { acceptance.verifiedMutation() } }
+            else { scheduler.onCancel = { acceptance.verifiedMutation() } }
+            try await coordinator.reconcile(afterSuccessfulFullSync: read.fullProof(accepted: accepted)!, stillCurrent: stillCurrent)
+            try check(metadata.metadata(for: "new-task").reminderAt == date,
+                      "proof invalidated during scheduler await must preserve newer reminder metadata")
+            if invalidatesAfterPermission { try check(scheduler.cancellations.isEmpty, "obsolete proof must not cancel after permission await") }
+        }
+        let partialMetadata = MemoryMetadataStore()
+        let future = Date().addingTimeInterval(3600)
+        try partialMetadata.set(LocalTaskMetadata(reminderAt: future, favorite: false), for: "partial")
+        let partialTask = try GoogleTask.decode(["id": "partial", "title": "Old title"], taskListID: "l")
+        let partialScheduler = RecordingScheduler(permission: .authorized)
+        let partialDefaults = UserDefaults(suiteName: UUID().uuidString)!
+        partialDefaults.set(true, forKey: "localTaskNotificationsEnabled")
+        let partialCoordinator = ReminderCoordinator(store: partialMetadata, scheduler: partialScheduler, defaults: partialDefaults)
+        var partialAcceptance = WorkspaceSnapshotAcceptance()
+        let partialGuard = partialAcceptance.currentGuard()
+        partialScheduler.onPermission = { partialAcceptance.verifiedMutation() }
+        await partialCoordinator.reconcile(tasks: [partialTask], stillCurrent: partialGuard)
+        try check(partialScheduler.requests.isEmpty && partialScheduler.cancellations.isEmpty,
+                  "obsolete targeted read must not schedule or cancel after scheduler await")
+        var acceptance = WorkspaceSnapshotAcceptance()
+        let first = try acceptance.accept(read, startedAt: 0, current: .empty, cache: MemorySnapshotStore())!
+        let guardFirst = acceptance.currentGuard()
+        _ = try acceptance.accept(read, startedAt: acceptance.revision, current: first, cache: MemorySnapshotStore())
+        try check(!guardFirst(), "a later accepted refresh must invalidate previous async proof")
+    }
+
+    static func testVerifiedSnapshotAcceptance() throws {
+        let factory = GWSCommandFactory(executableURL: executable)
+        let task = try GoogleTask.decode(["id": "same", "title": "Verified", "status": "needsAction"], taskListID: "source")
+        let other = try GoogleTask.decode(["id": "same", "title": "Other list", "status": "needsAction"], taskListID: "other")
+        var baseline = WorkspaceSnapshot.empty
+        baseline.taskLists = [TaskList(id: "source", title: "Source"), TaskList(id: "other", title: "Other"), TaskList(id: "destination", title: "Destination")]
+        baseline.tasks = [task, other]
+        let insert = try factory.taskInsert(taskListID: "source", title: task.title, notes: nil, due: nil, authorization: .userSave)
+        let once = try WorkspaceSnapshotReducer.applying(invocation: insert, result: .taskVerified(task), to: baseline)
+        let twice = try WorkspaceSnapshotReducer.applying(invocation: insert, result: .taskVerified(task), to: once)
+        try check(once == twice && twice.tasks.count == 2, "verified task reducer must be idempotent with composite identity")
+        let moved = try GoogleTask.decode(["id": "destination-new-id", "title": "Verified", "status": "needsAction"], taskListID: "destination")
+        let move = try factory.taskMove(task: task, destinationTaskListID: "destination", authorization: .userSave)
+        try check(WorkspaceSnapshotReducer.affectedTaskListIDs(invocation: move, result: .taskVerified(moved)) == ["source", "destination"],
+                  "captured verified move must retain source/destination refresh scope after journal completion")
+        let movedSnapshot = try WorkspaceSnapshotReducer.applying(invocation: move, result: .taskVerified(moved), to: baseline)
+        try check(movedSnapshot.tasks == [other, moved], "move with a new ID must remove only its old source identity")
+        let deletion = try factory.taskDelete(task: task, authorization: .confirmedDelete)
+        let deleted = try WorkspaceSnapshotReducer.applying(invocation: deletion, result: .resourceDeleted, to: baseline)
+        try check(deleted.tasks == [other], "verified task delete must preserve same ID in another list")
+        let listDeletion = try factory.taskListDelete(id: "source", authorization: .confirmedDelete)
+        let deletedList = try WorkspaceSnapshotReducer.applying(invocation: listDeletion, result: .resourceDeleted, to: baseline)
+        try check(deletedList.tasks == [other] && deletedList.taskLists.map(\.id) == ["other", "destination"], "list delete must remove only its list and tasks")
+        let event = try CalendarEvent.decode(["id": "same", "summary": "Event", "start": ["date": "2026-10-01"], "end": ["date": "2026-10-02"]], calendarID: "calendar")
+        var eventBaseline = baseline
+        let otherEvent = try CalendarEvent.decode(["id": "same", "summary": "Other Event", "start": ["date": "2026-10-01"], "end": ["date": "2026-10-02"]], calendarID: "other-calendar")
+        eventBaseline.events = [event, otherEvent]
+        let calendar = CalendarInfo(id: "calendar", title: "Calendar", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)
+        let eventDeletion = try factory.eventDelete(event: event, calendar: calendar, authorization: .confirmedDelete)
+        let eventDeleted = try WorkspaceSnapshotReducer.applying(invocation: eventDeletion, result: .resourceDeleted, to: eventBaseline)
+        try check(eventDeleted.events == [otherEvent], "event delete must preserve other calendar identity")
+        do {
+            _ = try WorkspaceSnapshotReducer.applying(invocation: insert, result: .requestAccepted, to: baseline)
+            throw TestFailure(description: "unverified result entered snapshot")
+        } catch GWSFailure.mutationNotVerified { try check(true, "requestAccepted remains unverified") }
+        let range = try DateRange(start: Date(timeIntervalSince1970: 1), endExclusive: Date(timeIntervalSince1970: 2))
+        let oldFull = GWSWorkspaceReadResult(calendars: [], events: [], taskLists: baseline.taskLists, tasks: baseline.tasks,
+                                           calendarIDs: [], taskListIDs: [], range: range, now: Date(), completeCalendar: true, completeTasks: true)
+        let store = MemorySnapshotStore(deleted)
+        var acceptance = WorkspaceSnapshotAcceptance()
+        let oldRevision = acceptance.revision
+        acceptance.verifiedMutation()
+        let stale = try acceptance.accept(oldFull, startedAt: oldRevision, current: deleted, cache: store)
+        try check(stale == nil && store.load() == deleted, "stale full read must neither resurrect verified delete nor commit cache")
+        let missingInserted = GWSWorkspaceReadResult(calendars: [], events: [], taskLists: [], tasks: [], calendarIDs: [], taskListIDs: [],
+                                                    range: range, now: Date(), completeCalendar: true, completeTasks: true)
+        let insertedStore = MemorySnapshotStore(once)
+        try check(try acceptance.accept(missingInserted, startedAt: oldRevision, current: once, cache: insertedStore) == nil && insertedStore.load() == once,
+                  "stale full read must preserve verified insertion and never produce an accepted prune proof")
+        let accepted = try acceptance.accept(oldFull, startedAt: acceptance.revision, current: deleted, cache: store)
+        try check(accepted == store.load() && accepted != nil, "only current revision may commit a complete read")
+    }
+
+    static func testTargetedTaskListStructure() throws {
+        let range = try DateRange(start: Date(timeIntervalSince1970: 1), endExclusive: Date(timeIntervalSince1970: 2))
+        let existing = try GoogleTask.decode(["id": "task", "title": "Existing"], taskListID: "kept")
+        let removed = try GoogleTask.decode(["id": "removed", "title": "Removed"], taskListID: "removed")
+        var baseline = WorkspaceSnapshot.empty
+        baseline.taskLists = [TaskList(id: "kept", title: "Kept"), TaskList(id: "removed", title: "Removed")]
+        baseline.tasks = [existing, removed]
+        let runner = FakeProcessRunner { invocation in
+            guard invocation.operation == .taskListsList else { throw GWSFailure.forbiddenOperation }
+            return response(Data(#"{"items":[{"id":"kept","title":"Kept"}]}"#.utf8))
+        }
+        let read = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner), cache: MemorySnapshotStore())
+            .read(query: WorkspaceRefreshQuery(range: range, scope: .targeted, refreshTaskLists: true))
+        let merged = try read.merging(into: baseline)
+        try check(runner.invocations.count == 1 && merged.tasks == [existing] && merged.taskLists.map(\.id) == ["kept"],
+                  "list structure reconciliation must preserve other board tasks without reading them")
+        try check(read.tasksProof(accepted: merged) == nil, "list structure read cannot prune individual task reminders")
+    }
+
+    static func testRequiredRefreshScopes() throws {
+        let first = try DateRange(start: Date(timeIntervalSince1970: 1), endExclusive: Date(timeIntervalSince1970: 2))
+        let second = try DateRange(start: Date(timeIntervalSince1970: 3), endExclusive: Date(timeIntervalSince1970: 4))
+        var coordinator = WorkspaceRefreshCoordinator()
+        let ticket = coordinator.request(WorkspaceRefreshQuery(range: first, scope: .targeted, taskListIDs: ["source", "destination"]))!
+        _ = coordinator.request(WorkspaceRefreshQuery(range: second, scope: .calendarRange))
+        guard case .superseded(let next) = coordinator.finish(ticket) else { throw TestFailure(description: "navigation did not queue required refresh") }
+        try check(next.key.range == second && next.key.scope == .calendarRange && next.key.taskListIDs == ["source", "destination"],
+                  "latest navigation must retain both required move lists")
+        _ = coordinator.request(WorkspaceRefreshQuery(range: first, scope: .tasks, requestID: 1))
+        guard case .superseded(let full) = coordinator.finish(next) else { throw TestFailure(description: "full tasks refresh not retained") }
+        try check(full.key.scope == .full && full.key.range == first, "required complete Tasks and calendar reads must coalesce")
+    }
+
+    static func testParallelAndTargetedRead() throws {
+        let condition = NSCondition()
+        var rootsStarted = 0, active = 0, maximum = 0, collectionsStarted = 0
+        var pages: [String: [String]] = [:]
+        let runner = FakeProcessRunner { invocation in
+            let parameters = params(invocation)
+            if invocation.operation == .calendarList || invocation.operation == .taskListsList {
+                condition.lock()
+                rootsStarted += 1
+                condition.broadcast()
+                let deadline = Date().addingTimeInterval(2)
+                while rootsStarted < 2 && condition.wait(until: deadline) {}
+                let bothStarted = rootsStarted >= 2
+                condition.unlock()
+                guard bothStarted else { throw TestFailure(description: "independent root reads did not start together") }
+                if invocation.operation == .calendarList {
+                    let items = (0..<5).map { ["id": "c\($0)", "summary": "Synthetic", "accessRole": "owner"] }
+                    return response(try JSONSerialization.data(withJSONObject: ["items": items]))
+                }
+                return response(Data(#"{"items":[{"id":"l0","title":"L0"},{"id":"l1","title":"L1"}]}"#.utf8))
+            }
+            condition.lock()
+            active += 1
+            maximum = max(maximum, active)
+            collectionsStarted += 1
+            condition.broadcast()
+            let deadline = Date().addingTimeInterval(2)
+            while collectionsStarted < 4 && condition.wait(until: deadline) {}
+            condition.unlock()
+            Thread.sleep(forTimeInterval: 0.005)
+            defer { condition.lock(); active -= 1; condition.unlock() }
+            if invocation.operation == .eventsList { return response(Data(#"{"items":[]}"#.utf8)) }
+            guard invocation.operation == .tasksList, let list = parameters["tasklist"] as? String else { throw GWSFailure.forbiddenOperation }
+            let token = parameters["pageToken"] as? String ?? "first"
+            condition.lock(); pages[list, default: []].append(token); condition.unlock()
+            if token == "first" { return response(Data(#"{"items":[{"id":"one","title":"One","status":"needsAction"}],"nextPageToken":"second"}"#.utf8)) }
+            return response(Data(#"{"items":[{"id":"two","title":"Two","status":"needsAction"}]}"#.utf8))
+        }
+        let range = try DateRange(start: Date(timeIntervalSince1970: 1), endExclusive: Date(timeIntervalSince1970: 2))
+        let store = MemorySnapshotStore()
+        let read = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner), cache: store)
+            .read(query: WorkspaceRefreshQuery(range: range, scope: .full))
+        try check(maximum == 4, "independent collection reads must run concurrently with maximum four")
+        try check(pages["l0"] == ["first", "second"] && pages["l1"] == ["first", "second"], "each collection must paginate in order")
+        try check(read.tasks.map(\.id) == ["one", "two", "one", "two"], "parallel collection results must retain stable collection/page order")
+        try check(store.load() == nil, "read-only worker must not commit before acceptance")
+        let baseline = try read.merging(into: .empty)
+        let targetedRunner = FakeProcessRunner { invocation in
+            guard invocation.operation == .tasksList, params(invocation)["tasklist"] as? String == "l0" else { throw GWSFailure.forbiddenOperation }
+            return response(Data(#"{"items":[]}"#.utf8))
+        }
+        let target = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: targetedRunner), cache: store)
+            .read(query: WorkspaceRefreshQuery(range: range, scope: .targeted, taskListIDs: ["l0"]))
+        let merged = try target.merging(into: baseline)
+        try check(targetedRunner.invocations.count == 1 && merged.tasks == baseline.tasks.filter { $0.taskListID == "l1" },
+                  "targeted refresh must read only affected list and preserve unrelated tasks")
+        try check(merged.calendars == baseline.calendars && merged.calendarCoverage == baseline.calendarCoverage && merged.tasksFetchedAt == baseline.tasksFetchedAt,
+                  "partial refresh must preserve calendar data and complete Tasks freshness")
+        try check(target.fullProof(accepted: merged) == nil && target.tasksProof(accepted: merged) == nil, "partial reads cannot authorize reminder pruning")
+    }
+
     static func testCalendarRangeRefreshSkipsTaskAPI() throws {
         let calendarJSON = Data(#"{"items":[{"id":"synthetic-calendar","summary":"Synthetic Calendar","accessRole":"owner","timeZone":"UTC"}]}"#.utf8)
         let taskListsJSON = Data(#"{"items":[{"id":"synthetic-list","title":"Synthetic Tasks"}]}"#.utf8)
@@ -2368,7 +2612,7 @@ struct InvariantTests {
         let baseline = try GWSWorkspaceService(reader: GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: baselineRunner),
                                                cache: MemorySnapshotStore())
             .refreshCompletedFullSync(range: range, now: now)
-        try check(baselineRunner.invocations.map(\.operation) == [.calendarList, .eventsList, .taskListsList, .tasksList],
+        try check(Set(baselineRunner.invocations.map(\.operation)) == Set([.calendarList, .eventsList, .taskListsList, .tasksList]) && baselineRunner.invocations.count == 4,
                   "full-sync baseline for one calendar and task list must make four process calls")
 
         let rangeRunner = FakeProcessRunner(handler: handler)

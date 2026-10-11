@@ -292,23 +292,28 @@ struct ReminderCoordinator {
     /// Compatibility for the explicit notification-enable UI, whose snapshot may be cached.
     /// This path only schedules/cancels reminders for tasks present in that cache; it never prunes
     /// metadata for absent IDs. Only GWSCompletedFullSync may trigger deletion reconciliation.
-    func reconcile(tasks: [GoogleTask], now: Date = Date()) async {
+    func reconcile(tasks: [GoogleTask], now: Date = Date(), stillCurrent: () -> Bool = { true }) async {
+        guard stillCurrent() else { return }
         let reminderTaskIDs = store.reminderTaskIDs()
         guard !reminderTaskIDs.isEmpty else { return }
         let tasksByID = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let permission = await scheduler.permission()
+        guard stillCurrent() else { return }
         let maySchedule = defaults.bool(forKey: enabledKey) && permission == .authorized
 
         for taskID in reminderTaskIDs {
+            guard stillCurrent() else { return }
             guard let task = tasksByID[taskID] else { continue }
             let identifier = ReminderIdentity.identifier(taskID: taskID)
             let date = store.metadata(for: taskID).reminderAt
             guard maySchedule, !task.completed, !task.deleted, let date, date > now else {
                 await scheduler.cancel(identifier: identifier)
+                guard stillCurrent() else { return }
                 continue
             }
             do {
                 await scheduler.cancel(identifier: identifier)
+                guard stillCurrent() else { return }
                 try await scheduler.schedule(ReminderRequest(identifier: identifier, taskID: taskID, title: task.title, fireDate: date))
             } catch {
                 // Do not log task content or identifiers.
@@ -317,32 +322,37 @@ struct ReminderCoordinator {
     }
 
     func reconcile(afterSuccessfulFullSync fullSync: GWSCompletedFullSync, now: Date = Date(),
-                   preservingTaskIDs: () -> Set<String> = { [] }) async throws {
-        try await reconcile(completedTasks: fullSync.snapshot.tasks, now: now, preservingTaskIDs: preservingTaskIDs)
+                   preservingTaskIDs: () -> Set<String> = { [] }, stillCurrent: () -> Bool = { true }) async throws {
+        try await reconcile(completedTasks: fullSync.snapshot.tasks, now: now, preservingTaskIDs: preservingTaskIDs, stillCurrent: stillCurrent)
     }
 
     func reconcile(afterSuccessfulTasksSync tasksSync: GWSCompletedTasksSync, now: Date = Date(),
-                   preservingTaskIDs: () -> Set<String> = { [] }) async throws {
-        try await reconcile(completedTasks: tasksSync.snapshot.tasks, now: now, preservingTaskIDs: preservingTaskIDs)
+                   preservingTaskIDs: () -> Set<String> = { [] }, stillCurrent: () -> Bool = { true }) async throws {
+        try await reconcile(completedTasks: tasksSync.snapshot.tasks, now: now, preservingTaskIDs: preservingTaskIDs, stillCurrent: stillCurrent)
     }
 
-    private func reconcile(completedTasks: [GoogleTask], now: Date, preservingTaskIDs: () -> Set<String>) async throws {
+    private func reconcile(completedTasks: [GoogleTask], now: Date, preservingTaskIDs: () -> Set<String>, stillCurrent: () -> Bool) async throws {
+        guard stillCurrent() else { return }
         let reminderTaskIDs = store.reminderTaskIDs()
         guard !reminderTaskIDs.isEmpty else { return }
         let tasksByID = Dictionary(completedTasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let permission = await scheduler.permission()
+        guard stillCurrent() else { return }
         let maySchedule = defaults.bool(forKey: enabledKey) && permission == .authorized
 
         for taskID in reminderTaskIDs {
+            guard stillCurrent() else { return }
             let identifier = ReminderIdentity.identifier(taskID: taskID)
             guard let task = tasksByID[taskID] else {
                 await scheduler.cancel(identifier: identifier)
+                guard stillCurrent() else { return }
                 // Read journal protection after the await: refresh may overlap a new move attempt.
                 if !preservingTaskIDs().contains(taskID) { try store.remove(taskID: taskID) }
                 continue
             }
             if task.deleted {
                 await scheduler.cancel(identifier: identifier)
+                guard stillCurrent() else { return }
                 // Read journal protection after the await: refresh may overlap a new move attempt.
                 if !preservingTaskIDs().contains(taskID) { try store.remove(taskID: taskID) }
                 continue
@@ -350,10 +360,12 @@ struct ReminderCoordinator {
             let date = store.metadata(for: taskID).reminderAt
             guard maySchedule, !task.completed, let date, date > now else {
                 await scheduler.cancel(identifier: identifier)
+                guard stillCurrent() else { return }
                 continue
             }
             do {
                 await scheduler.cancel(identifier: identifier)
+                guard stillCurrent() else { return }
                 try await scheduler.schedule(ReminderRequest(identifier: identifier, taskID: taskID, title: task.title, fireDate: date))
             } catch {
                 // Do not log task content or identifiers; the UI can report a generic scheduler failure.

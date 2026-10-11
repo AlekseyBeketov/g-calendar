@@ -2,12 +2,6 @@ import AppKit
 import Foundation
 import SwiftUI
 
-private enum NormalRefreshPayload {
-    case full(GWSCompletedFullSync)
-    case calendarRange(WorkspaceSnapshot)
-    case tasks(GWSCompletedTasksSync)
-}
-
 @MainActor
 final class WorkspaceViewModel: ObservableObject {
     enum Section: String, CaseIterable { case calendar = "Календарь", tasks = "Задачи" }
@@ -52,8 +46,10 @@ final class WorkspaceViewModel: ObservableObject {
     private let demoAdapter: DemoWorkspaceAdapter?
     private var ledgerAcceptanceSession: SyntheticLedgerAcceptanceSession? = nil
     private let notificationStatusProvider: NotificationStatusProviding?
-    private var refreshCoordinator = LatestWinsRefreshCoordinator<WorkspaceRefreshQuery>()
+    private var refreshCoordinator = WorkspaceRefreshCoordinator()
     private var refreshRequestSequence = 0
+    private var snapshotAcceptance = WorkspaceSnapshotAcceptance()
+    private var requiredVerifiedTaskListIDs = Set<String>()
 
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
@@ -246,78 +242,74 @@ final class WorkspaceViewModel: ObservableObject {
 
     private func startNormalRefresh(_ request: RefreshTicket<WorkspaceRefreshQuery>, runner: GWSProcessRunning) {
         syncState = .syncing
-        switch request.key.scope {
-        case .full: statusMessage = "Полная синхронизация…"
-        case .calendarRange: statusMessage = "Обновление календарного диапазона…"
-        case .tasks: statusMessage = "Обновление задач…"
-        }
+        statusMessage = "Обновление данных…"
         let path = gwsPath
         let cache = snapshotStore
+        let startedRevision = snapshotAcceptance.revision
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let outcome: Result<NormalRefreshPayload, Error>
+            let outcome: Result<GWSWorkspaceReadResult, Error>
             do {
                 let executable = try GWSExecutableResolver().resolve(configuredPath: path.isEmpty ? nil : path)
                 let reader = GWSReadClient(factory: GWSCommandFactory(executableURL: executable), runner: runner)
-                let service = GWSWorkspaceService(reader: reader, cache: cache)
-                switch request.key.scope {
-                case .full:
-                    outcome = .success(.full(try service.refreshCompletedFullSync(range: request.key.range)))
-                case .calendarRange:
-                    outcome = .success(.calendarRange(try service.refreshCalendarRange(range: request.key.range)))
-                case .tasks:
-                    outcome = .success(.tasks(try service.refreshTasks()))
-                }
+                outcome = .success(try GWSWorkspaceService(reader: reader, cache: cache).read(query: request.key))
             } catch { outcome = .failure(error) }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 switch self.refreshCoordinator.finish(request) {
-                case .ignored:
+                case .ignored: return
+                case .superseded(let latest):
+                    self.startNormalRefresh(latest, runner: runner)
                     return
-                case .superseded(let latestRequest):
-                    if latestRequest.key.scope == .calendarRange,
-                       case .success(.full(let completedSync)) = outcome {
-                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
-                        self.reconcileEventReminders()
-                    }
-                    if latestRequest.key.scope == .calendarRange,
-                       case .success(.tasks(let completedSync)) = outcome {
-                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
-                    }
-                    self.startNormalRefresh(latestRequest, runner: runner)
-                    return
-                case .accepted:
-                    break
+                case .accepted: break
                 }
-                switch outcome {
-                case .success(.full(let completedFullSync)):
-                    let refreshed = completedFullSync.snapshot
+                do {
+                    let read = try outcome.get()
+                    guard let refreshed = try self.snapshotAcceptance.accept(read, startedAt: startedRevision,
+                                                                            current: self.snapshot, cache: cache) else {
+                        // A verified write occurred during this read. Re-read its
+                        // required scope before publishing or pruning reminders.
+                        if let retry = self.refreshCoordinator.request(request.key) { self.startNormalRefresh(retry, runner: runner) }
+                        return
+                    }
+                    if read.completeTasks { self.requiredVerifiedTaskListIDs.removeAll() }
+                    else { self.requiredVerifiedTaskListIDs.subtract(read.taskListIDs) }
                     self.installRefreshedSnapshot(refreshed)
                     self.syncState = .updated
-                    self.statusMessage = "Полностью обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
-                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: completedFullSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
-                    self.reconcileEventReminders()
+                    self.statusMessage = "Обновлено · \(refreshed.fetchedAt.formatted(date: .omitted, time: .shortened))"
+                    let stillCurrent = self.snapshotAcceptance.currentGuard()
+                    if let proof = read.fullProof(accepted: refreshed) {
+                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
+                        self.reconcileEventReminders()
+                    } else if let proof = read.tasksProof(accepted: refreshed) {
+                        Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
+                    } else if !read.taskListIDs.isEmpty {
+                        Task { await self.reminderCoordinator.reconcile(tasks: read.tasks, stillCurrent: stillCurrent) }
+                    }
+                    if read.completeCalendar || !read.calendarIDs.isEmpty { self.reconcileEventReminders() }
                     if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
-                case .success(.calendarRange(let refreshed)):
-                    self.installRefreshedSnapshot(refreshed)
-                    self.syncState = .updated
-                    let calendarDate = (refreshed.calendarFetchedAt ?? refreshed.fetchedAt).formatted(date: .omitted, time: .shortened)
-                    let taskDate = refreshed.tasksFetchedAt?.formatted(date: .abbreviated, time: .shortened) ?? "не загружались"
-                    self.statusMessage = "Календарь обновлён · \(calendarDate) · задачи из кэша от \(taskDate)"
-                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
-                case .success(.tasks(let completedTasksSync)):
-                    let refreshed = completedTasksSync.snapshot
-                    self.installRefreshedSnapshot(refreshed)
-                    self.syncState = .updated
-                    let tasksDate = (refreshed.tasksFetchedAt ?? refreshed.fetchedAt).formatted(date: .omitted, time: .shortened)
-                    let calendarDate = refreshed.calendarFetchedAt?.formatted(date: .omitted, time: .shortened) ?? "не загружен"
-                    self.statusMessage = "Задачи обновлены · \(tasksDate) · календарь из кэша от \(calendarDate)"
-                    Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: completedTasksSync, preservingTaskIDs: self.pendingMoveMetadataProtection) }
-                    if refreshed.calendarCoverage?.covers(self.currentRange()) != true { self.refreshCalendarRangeIfNeeded() }
-                case .failure(let error):
+                } catch {
                     self.syncState = .afterFailure(error as? GWSFailure)
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Синхронизация не выполнена. Сохранённые данные не изменены."
                 }
             }
+        }
+    }
+
+    private func installVerifiedMutation(_ invocation: ProcessInvocation, result: GWSMutationResult) throws {
+        let deletedTaskIDs: [String]
+        if invocation.operation == .taskListDelete, let list = Self.argument("tasklist", in: invocation) {
+            deletedTaskIDs = snapshot.tasks.filter { $0.taskListID == list }.map(\.id)
+        } else { deletedTaskIDs = [] }
+        let updated = try WorkspaceSnapshotReducer.applying(invocation: invocation, result: result, to: snapshot)
+        requiredVerifiedTaskListIDs.formUnion(WorkspaceSnapshotReducer.affectedTaskListIDs(invocation: invocation, result: result))
+        if invocation.operation == .taskListDelete, let list = Self.argument("tasklist", in: invocation) { requiredVerifiedTaskListIDs.remove(list) }
+        snapshotAcceptance.verifiedMutation()
+        installRefreshedSnapshot(updated)
+        // A disk failure must not conceal a successful exact GET from the form.
+        do { try snapshotStore.commit(updated) }
+        catch { statusMessage = "Изменение подтверждено; локальный кэш пока не сохранён." }
+        if !deletedTaskIDs.isEmpty {
+            Task { for id in deletedTaskIDs { try? await reminderCoordinator.delete(taskID: id) } }
         }
     }
 
@@ -446,6 +438,9 @@ final class WorkspaceViewModel: ObservableObject {
                 switch outcome {
                 case .success(let result) where result.isReadBackVerified:
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
+                    do { try self.installVerifiedMutation(invocation, result: result) }
+                    catch { onFailure?("Не удалось применить подтверждённое изменение."); return }
+                    let mutationStillCurrent = self.snapshotAcceptance.currentGuard()
                     if onVerified == nil, case .taskVerified(let task) = result {
                         if invocation.operation == .taskMove, let sourceID = Self.argument("task", in: invocation) {
                             do { try await self.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: task.id) }
@@ -455,7 +450,7 @@ final class WorkspaceViewModel: ObservableObject {
                                 return
                             }
                         }
-                        await self.reminderCoordinator.reconcile(tasks: [task])
+                        await self.reminderCoordinator.reconcile(tasks: [task], stillCurrent: mutationStillCurrent)
                     }
                     if case .resourceDeleted = result {
                         if invocation.operation == .taskDelete, let taskID = Self.argument("task", in: invocation) {
@@ -469,7 +464,7 @@ final class WorkspaceViewModel: ObservableObject {
                     }
                     onVerified?(result)
                     onSuccess?()
-                    if thenRefresh { self.refreshAfterMutation(invocation.operation) }
+                    if thenRefresh { self.refreshAfterMutation(invocation, result: result) }
                 case .success:
                     let message = "Запрос принят, но точное чтение не подтвердило результат. Форма оставлена открытой."
                     self.statusMessage = message
@@ -490,6 +485,7 @@ final class WorkspaceViewModel: ObservableObject {
         statusMessage = "Проверяем сохранение…"
         let path = gwsPath
         let journal = mutationJournal
+        let pendingInvocation = pendingMutation?.invocation(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
         let pendingOperation = pendingMutation?.operation
         let pendingSourceTaskID = pendingMutation?.sourceTaskID
         let expectedPendingID = pendingMutation?.id
@@ -512,6 +508,10 @@ final class WorkspaceViewModel: ObservableObject {
                 switch result {
                 case .success(let verified):
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
+                    guard let pendingInvocation else { return }
+                    do { try self.installVerifiedMutation(pendingInvocation, result: verified) }
+                    catch { self.statusMessage = "Не удалось применить подтверждённое изменение."; return }
+                    let mutationStillCurrent = self.snapshotAcceptance.currentGuard()
                     if onVerified == nil, case .taskVerified(let task) = verified {
                         if pendingOperation == .taskMove, let sourceID = pendingSourceTaskID {
                             do { try await self.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: task.id) }
@@ -520,12 +520,12 @@ final class WorkspaceViewModel: ObservableObject {
                                 return
                             }
                         }
-                        await self.reminderCoordinator.reconcile(tasks: [task])
+                        await self.reminderCoordinator.reconcile(tasks: [task], stillCurrent: mutationStillCurrent)
                     }
                     onVerified?(verified)
                     onSuccess?()
                     // A domain refresh reconciles deletion reminders using complete, confirmed data.
-                    if thenRefresh, let pendingOperation { self.refreshAfterMutation(pendingOperation) }
+                    if thenRefresh { self.refreshAfterMutation(pendingInvocation, result: verified) }
                 case .failure(let error):
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Проверка пока не завершена."
                 }
@@ -567,20 +567,52 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    func refreshTasksAfterSave() { refreshAfterMutation(.taskPatch) }
-
-    private func refreshAfterMutation(_ operation: GWSOperation) {
+    func refreshTasksAfterSave(task: GoogleTask? = nil, taskListID: String? = nil, sourceTaskListID: String? = nil) {
         guard launchMode == .normal else { refresh(); return }
-        guard let scope = WorkspaceRefreshScope.afterVerifiedMutation(operation) else { refresh(); return }
-        switch scope {
-        case .calendarRange:
-            reconcileEventReminders()
-            refreshCalendarRangeIfNeeded(force: true)
-        case .tasks:
-            requestNormalRefresh(scope: scope, force: true)
-        case .full:
-            refresh()
+        guard let listID = task?.taskListID ?? taskListID else { requestNormalRefresh(scope: .tasks, force: true); return }
+        var lists = requiredVerifiedTaskListIDs.union([listID])
+        if let sourceTaskListID { lists.insert(sourceTaskListID) }
+        requestTargetedRefresh(taskListIDs: lists)
+    }
+
+    private func refreshAfterMutation(_ invocation: ProcessInvocation, result: GWSMutationResult) {
+        guard launchMode == .normal else { refresh(); return }
+        let params = WorkspaceSnapshotReducer.parameters(invocation)
+        switch result {
+        case .eventVerified(let event): requestTargetedRefresh(calendarIDs: [event.calendarID])
+        case .taskVerified:
+            let lists = requiredVerifiedTaskListIDs.union(WorkspaceSnapshotReducer.affectedTaskListIDs(invocation: invocation, result: result))
+            requestTargetedRefresh(taskListIDs: lists)
+        case .taskListVerified: requestTaskListStructureRefresh()
+        case .resourceDeleted:
+            switch invocation.operation {
+            case .taskDelete:
+                if let list = params["tasklist"] { requestTargetedRefresh(taskListIDs: [list]) }
+            case .eventDelete:
+                if let calendar = params["calendarId"] { requestTargetedRefresh(calendarIDs: [calendar]) }
+            case .taskListDelete: requestTaskListStructureRefresh()
+            default: break
+            }
+        case .requestAccepted: break
         }
+    }
+
+    private func requestTaskListStructureRefresh() {
+        guard let runner else { return }
+        refreshRequestSequence += 1
+        let query = WorkspaceRefreshQuery(range: currentRange(), scope: .targeted, requestID: refreshRequestSequence, refreshTaskLists: true)
+        if let request = refreshCoordinator.request(query) { startNormalRefresh(request, runner: runner) }
+    }
+
+    private func requestTargetedRefresh(taskListIDs: Set<String> = [], calendarIDs: Set<String> = []) {
+        guard let runner else { return }
+        refreshRequestSequence += 1
+        let range = currentRange()
+        let query = WorkspaceRefreshQuery.targeted(range: range, coverage: snapshot.calendarCoverage,
+                                                   taskListIDs: taskListIDs, calendarIDs: calendarIDs,
+                                                   requestID: refreshRequestSequence)
+        guard let request = refreshCoordinator.request(query) else { return }
+        startNormalRefresh(request, runner: runner)
     }
 
     func queryNotificationStatusAndExit() async {

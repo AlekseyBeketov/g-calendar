@@ -487,7 +487,11 @@ struct GWSReadClient: ExactCalendarEventReading {
             guard let json = try? JSONSerialization.jsonObject(with: processResult.stdout), let object = json as? [String: Any] else {
                 throw GWSFailure.invalidResponse("json_" + operation.rawValue)
             }
-            guard let rawItems = object["items"] as? [[String: Any]] else { throw GWSFailure.invalidResponse("items_" + operation.rawValue) }
+            let rawItems: [[String: Any]]
+            if let items = object["items"] {
+                guard let decoded = items as? [[String: Any]] else { throw GWSFailure.invalidResponse("items_" + operation.rawValue) }
+                rawItems = decoded
+            } else { rawItems = [] }
             result.append(contentsOf: try decode(rawItems))
             let token = object["nextPageToken"] as? String
             if let token, !token.isEmpty {
@@ -524,53 +528,146 @@ struct GWSCompletedTasksSync {
     }
 }
 
+// Partial payloads carry their replacement scope; they cannot produce a complete
+// reminder-pruning proof. Merging always starts from the accepted current state.
+struct GWSWorkspaceReadResult {
+    let calendars: [CalendarInfo]?
+    let events: [CalendarEvent]
+    let taskLists: [TaskList]?
+    let tasks: [GoogleTask]
+    let calendarIDs: Set<String>
+    let taskListIDs: Set<String>
+    let range: DateRange
+    let now: Date
+    let completeCalendar: Bool
+    let completeTasks: Bool
+
+    func merging(into current: WorkspaceSnapshot) throws -> WorkspaceSnapshot {
+        if !completeCalendar, !calendarIDs.isEmpty, current.calendarCoverage != CalendarRangeCoverage(range: range) {
+            throw GWSFailure.invalidResponse("targeted_calendar_coverage")
+        }
+        var snapshot = current
+        if let calendars { snapshot.calendars = calendars }
+        if completeCalendar {
+            snapshot.events = events
+            snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
+            snapshot.calendarFetchedAt = now
+        } else if !calendarIDs.isEmpty {
+            snapshot.events.removeAll { calendarIDs.contains($0.calendarID) }
+            snapshot.events.append(contentsOf: events)
+        }
+        if let taskLists {
+            snapshot.taskLists = taskLists
+            let validLists = Set(taskLists.map(\.id))
+            snapshot.tasks.removeAll { !validLists.contains($0.taskListID) }
+        }
+        if completeTasks {
+            snapshot.tasks = tasks
+            snapshot.tasksFetchedAt = now
+        } else if !taskListIDs.isEmpty {
+            snapshot.tasks.removeAll { taskListIDs.contains($0.taskListID) }
+            snapshot.tasks.append(contentsOf: tasks)
+        }
+        snapshot.fetchedAt = now
+        if completeCalendar, snapshot.tasksFetchedAt == nil, current.fetchedAt != .distantPast {
+            snapshot.tasksFetchedAt = current.fetchedAt
+        }
+        return snapshot
+    }
+
+    func fullProof(accepted snapshot: WorkspaceSnapshot) -> GWSCompletedFullSync? {
+        guard completeCalendar && completeTasks else { return nil }
+        return GWSCompletedFullSync(snapshot: snapshot)
+    }
+
+    func tasksProof(accepted snapshot: WorkspaceSnapshot) -> GWSCompletedTasksSync? {
+        guard completeTasks else { return nil }
+        return GWSCompletedTasksSync(snapshot: snapshot)
+    }
+}
+
+private final class GWSParallelResults<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Int: Result<Value, Error>] = [:]
+    func set(_ result: Result<Value, Error>, at index: Int) {
+        lock.lock(); defer { lock.unlock() }
+        values[index] = result
+    }
+    func ordered(count: Int) throws -> [Value] {
+        try (0..<count).map { try values[$0]!.get() }
+    }
+}
+
 struct GWSWorkspaceService {
     let reader: GWSReadClient
     let cache: SnapshotStoring
 
+    // Process runners are Sendable. Each collection paginates in its own worker;
+    // independent collections share one queue capped at four concurrent reads.
+    private func parallel<Value>(_ jobs: [() throws -> Value]) throws -> [Value] {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 4
+        let results = GWSParallelResults<Value>()
+        for (index, job) in jobs.enumerated() {
+            queue.addOperation { results.set(Result { try job() }, at: index) }
+        }
+        queue.waitUntilAllOperationsAreFinished()
+        return try results.ordered(count: jobs.count)
+    }
+
+    func read(query: WorkspaceRefreshQuery, now: Date = Date()) throws -> GWSWorkspaceReadResult {
+        let completeCalendar = query.scope == .full || query.scope == .calendarRange
+        let completeTasks = query.scope == .full || query.scope == .tasks
+        enum Root { case calendars([CalendarInfo]); case lists([TaskList]) }
+        var roots: [() throws -> Root] = []
+        if completeCalendar { roots.append { .calendars(try reader.calendars()) } }
+        if completeTasks || query.refreshTaskLists { roots.append { .lists(try reader.taskLists()) } }
+        var calendars: [CalendarInfo]?, lists: [TaskList]?
+        for root in try parallel(roots) {
+            switch root { case .calendars(let value): calendars = value; case .lists(let value): lists = value }
+        }
+        let calendarIDs = completeCalendar ? (calendars ?? []).map(\.id) : query.calendarIDs.sorted()
+        let listIDs: [String]
+        if completeTasks { listIDs = (lists ?? []).map(\.id) }
+        else if let lists { listIDs = query.taskListIDs.intersection(Set(lists.map(\.id))).sorted() }
+        else { listIDs = query.taskListIDs.sorted() }
+        enum Collection { case events([CalendarEvent]); case tasks([GoogleTask]) }
+        var jobs: [() throws -> Collection] = calendarIDs.map { id in { .events(try reader.events(calendarID: id, range: query.range)) } }
+        jobs += listIDs.map { id in { .tasks(try reader.tasks(taskListID: id)) } }
+        var events: [CalendarEvent] = [], tasks: [GoogleTask] = []
+        for collection in try parallel(jobs) {
+            switch collection { case .events(let value): events += value; case .tasks(let value): tasks += value }
+        }
+        return GWSWorkspaceReadResult(calendars: calendars, events: events, taskLists: lists, tasks: tasks,
+                                      calendarIDs: Set(calendarIDs), taskListIDs: Set(listIDs), range: query.range, now: now,
+                                      completeCalendar: completeCalendar, completeTasks: completeTasks)
+    }
+
+    // Compatibility wrappers own acceptance for synchronous callers. AppMain
+    // uses read(query:) and commits only after its ticket/revision is accepted.
     func refresh(range: DateRange, now: Date = Date()) throws -> WorkspaceSnapshot {
         try refreshCompletedFullSync(range: range, now: now).snapshot
     }
 
     func refreshCompletedFullSync(range: DateRange, now: Date = Date()) throws -> GWSCompletedFullSync {
-        let calendars = try reader.calendars()
-        let events = try calendars.flatMap { try reader.events(calendarID: $0.id, range: range) }
-        let lists = try reader.taskLists()
-        let tasks = try lists.flatMap { try reader.tasks(taskListID: $0.id) }
-        var snapshot = WorkspaceSnapshot(calendars: calendars, events: events, taskLists: lists, tasks: tasks, fetchedAt: now)
-        snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
-        snapshot.calendarFetchedAt = now
-        snapshot.tasksFetchedAt = now
+        let result = try read(query: WorkspaceRefreshQuery(range: range, scope: .full), now: now)
+        let snapshot = try result.merging(into: cache.load() ?? .empty)
         try cache.commit(snapshot)
-        return GWSCompletedFullSync(snapshot: snapshot)
+        return result.fullProof(accepted: snapshot)!
     }
 
     func refreshCalendarRange(range: DateRange, now: Date = Date()) throws -> WorkspaceSnapshot {
-        let calendars = try reader.calendars()
-        let events = try calendars.flatMap { try reader.events(calendarID: $0.id, range: range) }
-        var snapshot = cache.load() ?? .empty
-        let previousSnapshotDate = snapshot.fetchedAt
-        snapshot.calendars = calendars
-        snapshot.events = events
-        snapshot.fetchedAt = now
-        snapshot.calendarCoverage = CalendarRangeCoverage(range: range)
-        snapshot.calendarFetchedAt = now
-        if snapshot.tasksFetchedAt == nil, previousSnapshotDate != .distantPast {
-            snapshot.tasksFetchedAt = previousSnapshotDate
-        }
+        let result = try read(query: WorkspaceRefreshQuery(range: range, scope: .calendarRange), now: now)
+        let snapshot = try result.merging(into: cache.load() ?? .empty)
         try cache.commit(snapshot)
         return snapshot
     }
 
     func refreshTasks(now: Date = Date()) throws -> GWSCompletedTasksSync {
-        let lists = try reader.taskLists()
-        let tasks = try lists.flatMap { try reader.tasks(taskListID: $0.id) }
-        var snapshot = cache.load() ?? .empty
-        snapshot.taskLists = lists
-        snapshot.tasks = tasks
-        snapshot.fetchedAt = now
-        snapshot.tasksFetchedAt = now
+        let range = try DateRange(start: now, endExclusive: now.addingTimeInterval(1))
+        let result = try read(query: WorkspaceRefreshQuery(range: range, scope: .tasks), now: now)
+        let snapshot = try result.merging(into: cache.load() ?? .empty)
         try cache.commit(snapshot)
-        return GWSCompletedTasksSync(snapshot: snapshot)
+        return result.tasksProof(accepted: snapshot)!
     }
 }
