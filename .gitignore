@@ -33,11 +33,11 @@ xcuserdata/
 !.env.example
 !.env.template
 /.config/gws/
-/credentials.json
-/client_secret*.json
-/token.json
-/tokens.json
-/service-account*.json
+credentials.json
+client_secret*.json
+token.json
+tokens.json
+service-account*.json
 *.p12
 *.pfx
 *.mobileprovision
