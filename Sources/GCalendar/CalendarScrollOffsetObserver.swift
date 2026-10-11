@@ -1,6 +1,27 @@
 import AppKit
 import SwiftUI
 
+struct CalendarGridContentToken: Equatable {
+    let days: [CalendarDayContent]
+    let calendars: [CalendarInfo]
+    let timeZoneID: String
+    // Changed callback owners rebuild roots even when synthetic values match.
+    var modelIdentity: ObjectIdentifier? = nil
+    var actionOwnerIdentity: ObjectIdentifier? = nil
+    var colorScheme: ColorScheme = .light
+    var sizeCategory: ContentSizeCategory = .large
+    var localeIdentifier: String = Locale.current.identifier
+    var enabled = true
+}
+
+private struct CalendarGridGeometry: Equatable {
+    let axisWidth: CGFloat
+    let headerHeight: CGFloat
+    let documentWidth: CGFloat
+    let documentHeight: CGFloat
+    let initialVerticalOffset: CGFloat
+}
+
 /// Own the native clips rather than infer their ancestry through SwiftUI hosting views.
 /// The hour axis is structurally outside horizontal scrolling; all vertical movement
 /// and header/day horizontal movement use the same observed native clip bounds.
@@ -13,18 +34,30 @@ struct CalendarNativeScrollableGrid: NSViewRepresentable {
     let documentWidth: CGFloat
     let documentHeight: CGFloat
     let initialVerticalOffset: CGFloat
+    var contentToken: CalendarGridContentToken? = nil
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.sizeCategory) private var sizeCategory
+    @Environment(\.locale) private var locale
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeNSView(context: Context) -> CalendarScrollRegionsView { CalendarScrollRegionsView() }
 
     func updateNSView(_ view: CalendarScrollRegionsView, context: Context) {
         view.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
-        view.configure(axis: AnyView(axis.environment(\.colorScheme, colorScheme)),
-                       headers: AnyView(headers.environment(\.colorScheme, colorScheme)),
-                       days: AnyView(days.environment(\.colorScheme, colorScheme)),
+        var resolvedToken = contentToken
+        resolvedToken?.colorScheme = colorScheme
+        resolvedToken?.sizeCategory = sizeCategory
+        resolvedToken?.localeIdentifier = locale.identifier
+        resolvedToken?.enabled = isEnabled
+        view.configure(axis: resolved(axis), headers: resolved(headers), days: resolved(days),
                        axisWidth: axisWidth, headerHeight: headerHeight,
                        documentWidth: documentWidth, documentHeight: documentHeight,
-                       initialVerticalOffset: initialVerticalOffset)
+                       initialVerticalOffset: initialVerticalOffset, contentToken: resolvedToken)
+    }
+
+    private func resolved(_ view: AnyView) -> AnyView {
+        AnyView(view.environment(\.colorScheme, colorScheme).environment(\.sizeCategory, sizeCategory)
+            .environment(\.locale, locale).environment(\.isEnabled, isEnabled))
     }
 
     static func dismantleNSView(_ view: CalendarScrollRegionsView, coordinator: ()) { view.disconnect() }
@@ -46,6 +79,10 @@ final class CalendarScrollRegionsView: NSView {
     private var documentHeight: CGFloat = 1160
     private var initialVerticalOffset: CGFloat = 384
     private let columnGap: CGFloat = 10
+    private var lastContentToken: CalendarGridContentToken?
+    private var lastGeometry: CalendarGridGeometry?
+    private(set) var rootReplacementCount = 0
+    private(set) var configurationLayoutRequests = 0
 
     override var isFlipped: Bool { true }
 
@@ -86,16 +123,29 @@ final class CalendarScrollRegionsView: NSView {
 
     func configure(axis: AnyView, headers: AnyView, days: AnyView,
                    axisWidth: CGFloat, headerHeight: CGFloat,
-                   documentWidth: CGFloat, documentHeight: CGFloat, initialVerticalOffset: CGFloat) {
+                   documentWidth: CGFloat, documentHeight: CGFloat, initialVerticalOffset: CGFloat,
+                   contentToken: CalendarGridContentToken? = nil) {
         self.axisWidth = axisWidth
         self.headerHeight = headerHeight
         self.documentWidth = documentWidth
         self.documentHeight = documentHeight
         self.initialVerticalOffset = initialVerticalOffset
-        axisHost.rootView = AnyView(axis.frame(width: axisWidth, height: documentHeight, alignment: .topLeading))
-        headerHost.rootView = AnyView(headers.frame(width: documentWidth, height: headerHeight, alignment: .topLeading))
-        daysHost.rootView = AnyView(days.frame(width: documentWidth, height: documentHeight, alignment: .topLeading))
-        needsLayout = true
+        let geometry = CalendarGridGeometry(axisWidth: axisWidth, headerHeight: headerHeight, documentWidth: documentWidth,
+                                            documentHeight: documentHeight, initialVerticalOffset: initialVerticalOffset)
+        let geometryChanged = lastGeometry != geometry
+        let contentChanged = contentToken == nil || lastContentToken != contentToken
+        if geometryChanged || contentChanged {
+            rootReplacementCount += 3
+            axisHost.rootView = AnyView(axis.frame(width: axisWidth, height: documentHeight, alignment: .topLeading))
+            headerHost.rootView = AnyView(headers.frame(width: documentWidth, height: headerHeight, alignment: .topLeading))
+            daysHost.rootView = AnyView(days.frame(width: documentWidth, height: documentHeight, alignment: .topLeading))
+        }
+        if geometryChanged {
+            configurationLayoutRequests += 1
+            needsLayout = true
+        }
+        lastContentToken = contentToken
+        lastGeometry = geometry
     }
 
     override func layout() {

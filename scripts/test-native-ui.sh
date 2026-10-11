@@ -10,6 +10,7 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/Models.swift" \
   "$ROOT/Sources/GCalendar/CalendarRangeCache.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
+  "$ROOT/Sources/GCalendar/CalendarProjection.swift" \
   "$ROOT/Sources/GCalendar/CalendarTimeGrid.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \
   "$ROOT/Sources/GCalendar/DemoPerformanceProbe.swift" \

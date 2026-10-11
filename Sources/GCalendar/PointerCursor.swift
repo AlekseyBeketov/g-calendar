@@ -36,7 +36,7 @@ private struct PointerCursorRegion: NSViewRepresentable {
     }
 }
 
-private final class PointerCursorRegionView: NSView {
+final class PointerCursorRegionView: NSView {
     var actionEnabled = true
 
     override init(frame frameRect: NSRect) {
@@ -47,10 +47,15 @@ private final class PointerCursorRegionView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    var actionCursorRect: NSRect {
+        guard actionEnabled, !isHiddenOrHasHiddenAncestor else { return .zero }
+        return visibleRect.intersection(bounds)
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard actionEnabled, !isHiddenOrHasHiddenAncestor, !visibleRect.isEmpty else { return }
-        addCursorRect(visibleRect, cursor: .pointingHand)
+        let rect = actionCursorRect
+        if !rect.isEmpty { addCursorRect(rect, cursor: .pointingHand) }
     }
 
     override func viewDidMoveToWindow() {
@@ -73,12 +78,17 @@ private final class PointerCursorRegionView: NSView {
 /// One transparent cursor owner per application window, including attached editor sheets.
 /// Covers AppKit controls generated outside a SwiftUI label, such as the sidebar toolbar button
 /// and date-picker increment/decrement buttons. Editable text and window drag regions are skipped.
-private final class NativeActionCursorBridge: NSView {
+final class NativeActionCursorBridge: NSView {
     private static let installed = NSMapTable<NSWindow, NativeActionCursorBridge>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     private var actionRects: [NSRect] = []
     private var observations: [NSObjectProtocol] = []
     private var timer: Timer?
-    private var refreshQueued = false
+    private var pendingRefresh: DispatchWorkItem?
+    private var disconnected = false
+    private(set) var scanCount = 0
+    private(set) var lastVisitedViewCount = 0
+    private(set) var lastVisitedAccessibilityCount = 0
+    var debugActionRects: [NSRect] { actionRects }
 
     static func install(in window: NSWindow) -> NativeActionCursorBridge? {
         if let existing = installed.object(forKey: window) { return existing }
@@ -134,26 +144,34 @@ private final class NativeActionCursorBridge: NSView {
     }
 
     func requestRefresh() {
-        guard !refreshQueued else { return }
-        refreshQueued = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.refreshQueued = false
+        guard !disconnected, pendingRefresh == nil else { return }
+        // First request owns a short fixed window. Every request in that window
+        // is reflected by the final tree/AX geometry read, without starvation.
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.disconnected else { return }
+            self.pendingRefresh = nil
             self.refreshRects()
         }
+        pendingRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40), execute: work)
     }
 
     private func refreshRects() {
         guard let frameView = superview, let window else { return }
         if let sheet = window.attachedSheet { Self.install(in: sheet)?.requestRefresh() }
+        scanCount += 1
+        lastVisitedViewCount = 0
+        lastVisitedAccessibilityCount = 0
         var rects: [NSRect] = []
         func visit(_ view: NSView) {
+            lastVisitedViewCount += 1
             guard view !== self, !view.isHiddenOrHasHiddenAncestor, !view.visibleRect.isEmpty else { return }
             if let control = view as? NSControl {
                 // A disabled composite control may still expose enabled implementation subviews.
                 guard control.isEnabled else { return }
                 if control is NSButton || control is NSSegmentedControl || control is NSStepper || control is NSSwitch {
-                    let rect = convert(view.visibleRect, from: view).intersection(visibleRect)
+                    // On macOS 14+, visibleRect may extend beyond bounds when drawing is not clipped.
+                    let rect = convert(view.visibleRect.intersection(view.bounds), from: view).intersection(visibleRect)
                     if !rect.isEmpty { rects.append(rect) }
                 } else if let datePicker = control as? NSDatePicker {
                     collectDateActions(datePicker, into: &rects)
@@ -169,8 +187,9 @@ private final class NativeActionCursorBridge: NSView {
 
     private func collectDateActions(_ picker: NSDatePicker, into rects: inout [NSRect]) {
         guard let window else { return }
-        let clip = convert(picker.visibleRect, from: picker).intersection(visibleRect)
+        let clip = convert(picker.visibleRect.intersection(picker.bounds), from: picker).intersection(visibleRect)
         func visit(_ element: NSAccessibilityProtocol, depth: Int) {
+            lastVisitedAccessibilityCount += 1
             guard depth < 8 else { return }
             if element.accessibilityRole() == .button && element.isAccessibilityEnabled() {
                 let windowRect = window.convertFromScreen(element.accessibilityFrame())
@@ -185,6 +204,9 @@ private final class NativeActionCursorBridge: NSView {
     }
 
     private func disconnect() {
+        disconnected = true
+        pendingRefresh?.cancel()
+        pendingRefresh = nil
         timer?.invalidate()
         timer = nil
         for observation in observations { NotificationCenter.default.removeObserver(observation) }

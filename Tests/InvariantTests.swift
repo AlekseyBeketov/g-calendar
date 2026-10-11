@@ -276,6 +276,7 @@ struct InvariantTests {
         run("refresh-coordinator-keeps-latest-range", testRefreshCoordinatorLatestRange)
         run("calendar-range-coverage-and-cache-migration", testCalendarRangeCoverageAndMigration)
         run("calendar-content-distinguishes-unknown-range", testCalendarContentState)
+        run("calendar-shared-projection-boundaries-and-work-count", testSharedCalendarProjection)
         run("calendar-range-refresh-skips-task-api", testCalendarRangeRefreshSkipsTaskAPI)
         run("verified-snapshot-reducer-and-stale-acceptance", testVerifiedSnapshotAcceptance)
         run("bounded-parallel-read-and-targeted-merge", testParallelAndTargetedRead)
@@ -819,6 +820,80 @@ struct InvariantTests {
         try check(WorkspaceSyncState.afterFailure(.processFailed("synthetic", 1, "network")) == .offline, "network failure must be distinct from setup")
         try check(WorkspaceSyncState.afterFailure(.invalidResponse("synthetic")) == .failed, "invalid response must offer retry without claiming offline")
         try check(WorkspaceSyncState.afterFailure(.timedOut("synthetic")) == .failed, "timeout alone must not claim missing configuration")
+    }
+
+    static func testSharedCalendarProjection() throws {
+        let zone = TimeZone(identifier: "America/Los_Angeles")!
+        let start = DateOnly(rawValue: "2026-03-08")!.startOfDay(in: zone)!
+        let end = DateOnly(rawValue: "2026-03-15")!.startOfDay(in: zone)!
+        let range = try DateRange(start: start, endExclusive: end, timeZone: zone)
+        let boundary = try CalendarEvent.decode(["id": "midnight", "summary": "Needle midnight", "start": ["dateTime": "2026-03-08T08:00:00Z"], "end": ["dateTime": "2026-03-09T07:00:00Z"]], calendarID: "c")
+        let allDay = try CalendarEvent.decode(["id": "all-day", "summary": "Needle all day", "start": ["date": "2026-03-08"], "end": ["date": "2026-03-10"]], calendarID: "c")
+        let hidden = try CalendarEvent.decode(["id": "hidden", "summary": "Needle hidden", "start": ["date": "2026-03-08"], "end": ["date": "2026-03-09"]], calendarID: "hidden")
+        let task = GoogleTask(id: "task", taskListID: "l", title: "Needle task", notes: nil, due: DateOnly(rawValue: "2026-03-08"), completed: true, deleted: false, updated: nil)
+        let undated = GoogleTask(id: "undated", taskListID: "l", title: "Needle undated", notes: nil, due: nil, completed: false, deleted: false, updated: nil)
+        let boundaryProjection = CalendarWorkspaceProjection(range: range, isDayView: false, events: [boundary, allDay, hidden], tasks: [task, undated],
+                                                             visibleCalendarIDs: ["c"], selectedTaskListID: "l", searchText: "needle")
+        try check(boundaryProjection.days.count == 7 && CalendarTimeGridLayout.dayInterval(containing: boundaryProjection.days[0].day, timeZone: zone)?.durationMinutes == 1380,
+                  "shared projection must generate local days across DST rather than fixed 24-hour offsets")
+        try check(boundaryProjection.days[0].events == [boundary, allDay] && boundaryProjection.days[1].events == [allDay] && boundaryProjection.days[2].events.isEmpty,
+                  "timed end at midnight and all-day exclusive end must retain established membership")
+        try check(boundaryProjection.days[0].tasks == [task] && boundaryProjection.undatedTasks == [undated], "calendar tasks retain completion and date-only semantics, undated rows appear once")
+        try check(boundaryProjection.sharedDateOnlyHeight == CalendarGridLayout.dateOnlyHeight(maximumItemCount: 2), "one shared date-only height must cover largest day")
+        let missing = CalendarWorkspaceProjection(range: range, isDayView: true, events: [hidden], tasks: [task], visibleCalendarIDs: ["c"], selectedTaskListID: "other", searchText: "needle")
+        try check(missing.days.count == 1 && missing.contentState(rangeCovered: false, hasSearch: true) == .unknownRange, "hidden/other-list content cannot turn unknown range into empty search")
+        try check(missing.contentState(rangeCovered: true, hasSearch: true) == .noResults, "covered empty search retains no-results state")
+
+        for (taskCount, eventCount) in [(144, 31), (4096, 310)] {
+            let tasks = (0..<taskCount).map { index in
+                GoogleTask(id: "synthetic-\(index)", taskListID: "l", title: "Synthetic task", notes: nil,
+                           due: index.isMultiple(of: 17) ? nil : DateOnly(year: 2026, month: 3, day: 8 + index % 7), completed: index.isMultiple(of: 5), deleted: false, updated: nil)
+            }
+            let events = (0..<eventCount).map { index -> CalendarEvent in
+                let date = start.addingTimeInterval(Double(index % 7) * 86400 + Double(index % 12) * 3600)
+                return CalendarEvent(id: "synthetic-event-\(index)", calendarID: "c", title: "Synthetic event",
+                                     start: EventTime(rawValue: ISO8601.format(date), instant: date, dateOnly: nil, timeZoneID: nil),
+                                     end: EventTime(rawValue: ISO8601.format(date.addingTimeInterval(1800)), instant: date.addingTimeInterval(1800), dateOnly: nil, timeZoneID: nil), recurring: false, status: nil)
+            }
+            var eventCalls = 0, taskCalls = 0
+            func referenceEvents(_ date: Date) -> [CalendarEvent] {
+                eventCalls += 1
+                let value = DateOnly(date: date, timeZone: zone)
+                return events.filter { event in
+                    if event.isAllDay, let start = event.start.dateOnly, let end = event.end.dateOnly { return value >= start && value < end }
+                    guard let start = event.start.instant, let end = event.end.instant else { return false }
+                    return value >= DateOnly(date: start, timeZone: zone) && value <= DateOnly(date: end.addingTimeInterval(-1), timeZone: zone)
+                }
+            }
+            func referenceTasks(_ date: Date) -> [GoogleTask] {
+                taskCalls += 1
+                let value = DateOnly(date: date, timeZone: zone)
+                return tasks.filter { !$0.deleted && $0.due == value }
+            }
+            let measuredStart = DispatchTime.now().uptimeNanoseconds
+            let projection = CalendarWorkspaceProjection(range: range, isDayView: false, events: events, tasks: tasks,
+                                                          visibleCalendarIDs: nil, selectedTaskListID: nil, searchText: "")
+            let projectionMS = Double(DispatchTime.now().uptimeNanoseconds - measuredStart) / 1_000_000
+            try check(projection.days.allSatisfy { $0.events == referenceEvents($0.day) && $0.tasks == referenceTasks($0.day) }, "prepared projection must match original per-day source order")
+            eventCalls = 0; taskCalls = 0
+            func legacySharedHeight() -> Double {
+                CalendarGridLayout.dateOnlyHeight(maximumItemCount: projection.days.map {
+                    CalendarTimeGridLayout.allDayEvents(referenceEvents($0.day), on: $0.day, timeZone: zone).count + referenceTasks($0.day).count
+                }.max() ?? 0)
+            }
+            let legacyStart = DispatchTime.now().uptimeNanoseconds
+            var legacyHeight = legacySharedHeight()
+            for _ in 0..<3 {
+                for day in projection.days {
+                    _ = referenceEvents(day.day); _ = referenceTasks(day.day)
+                    legacyHeight = legacySharedHeight()
+                }
+            }
+            let legacyMS = Double(DispatchTime.now().uptimeNanoseconds - legacyStart) / 1_000_000
+            try check(legacyHeight == projection.sharedDateOnlyHeight && eventCalls == 175 && taskCalls == 175,
+                      "legacy 21 day-column construction paths repeatedly project each source 175 times")
+            print(String(format: "PERF calendar_shared_projection tasks=%d events=%d legacy_event_day_filters=%d legacy_task_day_filters=%d new_event_source_passes=1 new_task_source_passes=1 prepared_days=%d legacy_ms=%.3f prepared_ms=%.3f", taskCount, eventCount, eventCalls, taskCalls, projection.days.count, legacyMS, projectionMS))
+        }
     }
 
     static func testTaskProjectionBaseline() throws {

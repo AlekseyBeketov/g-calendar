@@ -7,6 +7,13 @@ struct CalendarWorkspaceView: View {
     @AppStorage("calendarUndatedTasksCollapsed") private var undatedTasksCollapsed = true
 
     var body: some View {
+        let range = model.currentRange()
+        let projection = CalendarWorkspaceProjection(range: range, isDayView: model.calendarMode == .day,
+                                                     events: model.snapshot.events, tasks: model.snapshot.tasks,
+                                                     visibleCalendarIDs: model.visibleCalendarIDs, selectedTaskListID: model.selectedTaskListID,
+                                                     searchText: model.searchText)
+        let visibleDays = projection.days.map(\.day)
+        let contentState = projection.contentState(rangeCovered: model.calendarRangeIsCovered, hasSearch: !model.searchText.isEmpty)
         VStack(spacing: 16) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -39,11 +46,11 @@ struct CalendarWorkspaceView: View {
                                         ? "Проверьте подключение и выполните синхронизацию."
                                         : "Синхронизация завершена. В подключённом аккаунте нет доступных календарей.",
                                     actionTitle: "Обновить") { model.refresh() }
-            } else if calendarContentState != .hasContent {
-                WorkspaceEmptyState(title: calendarEmptyStateTitle,
+            } else if contentState != .hasContent {
+                WorkspaceEmptyState(title: calendarEmptyStateTitle(contentState),
                                     symbol: "calendar.badge.clock",
-                                    description: calendarEmptyStateDescription,
-                                    actionTitle: calendarEmptyStateAction) {
+                                    description: calendarEmptyStateDescription(contentState),
+                                    actionTitle: calendarEmptyStateAction(contentState)) {
                     if model.searchText.isEmpty { model.refresh() }
                     else { model.searchText = "" }
                 }
@@ -54,8 +61,8 @@ struct CalendarWorkspaceView: View {
                             .font(.caption).foregroundStyle(AppTheme.textSecondary)
                             .padding(.horizontal, 24)
                     }
-                    if !model.undatedTasks.isEmpty {
-                        CalendarUndatedTaskRegion(tasks: model.undatedTasks, isCollapsed: $undatedTasksCollapsed, onToggleTask: toggleTask)
+                    if !projection.undatedTasks.isEmpty {
+                        CalendarUndatedTaskRegion(tasks: projection.undatedTasks, isCollapsed: $undatedTasksCollapsed, onToggleTask: toggleTask)
                             .padding(.horizontal, 24)
                             .disabled(model.mutationsBlocked)
                     }
@@ -68,7 +75,7 @@ struct CalendarWorkspaceView: View {
                             visibleDayCount: visibleDays.count
                         ))
                         let headerHeight = CGFloat(CalendarGridLayout.headerHeight)
-                        let dateOnlyHeight = sharedDateOnlyHeight
+                        let dateOnlyHeight = CGFloat(projection.sharedDateOnlyHeight)
                         let axisDayMinutes = visibleDays.compactMap { CalendarTimeGridLayout.dayInterval(containing: $0, timeZone: model.selectedTimeZone)?.durationMinutes }.max() ?? 1_440
                         let bottomPadding = CalendarTimedCardLayout.bottomPadding(minimumHeight: CalendarTimedCardTypography(sizeCategory: sizeCategory).policy.minimumHeight)
                         let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute + bottomPadding)
@@ -81,21 +88,24 @@ struct CalendarWorkspaceView: View {
                                 .background(AppTheme.canvas)),
                             headers: AnyView(VStack(spacing: 0) {
                                 HStack(alignment: .top, spacing: 10) {
-                                    ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth).dayHeader }
+                                    ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight).dayHeader }
                                 }
                                 HStack(alignment: .top, spacing: 10) {
-                                    ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth).dateOnlyArea }
+                                    ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight).dateOnlyArea }
                                 }
                                 Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
                             }),
                             days: AnyView(HStack(alignment: .top, spacing: 10) {
-                                ForEach(visibleDays, id: \.self) { day in dayColumn(day, width: columnWidth) }
+                                ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight) }
                             }),
                             axisWidth: timeAxisWidth,
                             headerHeight: headerHeight + dateOnlyHeight + 1,
                             documentWidth: documentWidth,
                             documentHeight: axisContentHeight,
-                            initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute)
+                            initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute),
+                            contentToken: CalendarGridContentToken(days: projection.days, calendars: model.snapshot.calendars,
+                                                                  timeZoneID: model.selectedTimeZone.identifier,
+                                                                  modelIdentity: ObjectIdentifier(model), actionOwnerIdentity: ObjectIdentifier(local))
                         )
                         .padding(.horizontal, 24)
                         .background(AppTheme.canvas)
@@ -121,23 +131,12 @@ struct CalendarWorkspaceView: View {
         .accessibilityIdentifier("calendar-workspace")
     }
 
-    private func dayColumn(_ day: Date, width: CGFloat) -> CalendarTimeGridDay {
-        CalendarTimeGridDay(day: day,
-                           events: model.events(on: day),
-                           tasks: model.tasks(on: day),
-                           calendars: model.snapshot.calendars,
-                           timeZone: model.selectedTimeZone,
-                           columnWidth: width,
-                           dateOnlyHeight: sharedDateOnlyHeight,
+    private func dayColumn(_ content: CalendarDayContent, width: CGFloat, dateOnlyHeight: CGFloat) -> CalendarTimeGridDay {
+        CalendarTimeGridDay(day: content.day, events: content.events, tasks: content.tasks,
+                           calendars: model.snapshot.calendars, timeZone: model.selectedTimeZone,
+                           columnWidth: width, dateOnlyHeight: dateOnlyHeight,
                            onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
                            onToggleTask: toggleTask)
-    }
-
-    private var sharedDateOnlyHeight: CGFloat {
-        let maximum = visibleDays.map { day in
-            CalendarTimeGridLayout.allDayEvents(model.events(on: day), on: day, timeZone: model.selectedTimeZone).count + model.tasks(on: day).count
-        }.max() ?? 0
-        return CGFloat(CalendarGridLayout.dateOnlyHeight(maximumItemCount: maximum))
     }
 
     private var editorCalendar: CalendarInfo? {
@@ -145,23 +144,8 @@ struct CalendarWorkspaceView: View {
         return model.snapshot.calendars.first { $0.id == event.calendarID }
     }
 
-    private var visibleDays: [Date] {
-        let range = model.currentRange()
-        if model.calendarMode == .day { return [range.start] }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = model.selectedTimeZone
-        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: range.start) }
-    }
-
-    private var calendarContentState: CalendarContentState {
-        CalendarContentAvailability.state(events: model.eventsInVisibleRange,
-                                         tasks: visibleDays.flatMap(model.tasks(on:)) + model.undatedTasks,
-                                         rangeCovered: model.calendarRangeIsCovered,
-                                         hasSearch: !model.searchText.isEmpty)
-    }
-
-    private var calendarEmptyStateTitle: String {
-        switch calendarContentState {
+    private func calendarEmptyStateTitle(_ state: CalendarContentState) -> String {
+        switch state {
         case .hasContent: return ""
         case .emptyRange: return "Событий и задач нет"
         case .unknownRange: return "Диапазон ещё не загружен"
@@ -169,8 +153,8 @@ struct CalendarWorkspaceView: View {
         }
     }
 
-    private var calendarEmptyStateDescription: String {
-        switch calendarContentState {
+    private func calendarEmptyStateDescription(_ state: CalendarContentState) -> String {
+        switch state {
         case .hasContent: return ""
         case .emptyRange: return "На этот период нет событий и задач с датой."
         case .unknownRange: return "Кэш не подтверждает данные для выбранных дат. Синхронизируйте диапазон, чтобы не принять неполные данные за пустой календарь."
@@ -178,8 +162,8 @@ struct CalendarWorkspaceView: View {
         }
     }
 
-    private var calendarEmptyStateAction: String? {
-        switch calendarContentState {
+    private func calendarEmptyStateAction(_ state: CalendarContentState) -> String? {
+        switch state {
         case .hasContent, .emptyRange: return nil
         case .unknownRange: return "Синхронизировать"
         case .noResults: return "Очистить поиск"

@@ -6,6 +6,16 @@ struct TaskWorkspaceView: View {
     @AppStorage("taskWorkspacePresentation") private var presentationRawValue = TaskWorkspacePresentation.defaultMode.rawValue
 
     var body: some View {
+        let visibleTasks = model.visibleTasks
+        let boardGroups = TaskWorkspaceLayout.boardGroups(visibleTasks, lists: model.snapshot.taskLists)
+        let workspaceGroups = usesBoardGroups
+            ? boardGroups.map { TaskPresentationGroup(id: "board:" + $0.id, title: $0.board.title, tasks: $0.tasks) }
+            : TaskWorkspaceLayout.groups(visibleTasks, today: model.localToday).map { TaskPresentationGroup(id: $0.0, title: $0.0, tasks: $0.1) }
+        let keyboardTasks = TaskKeyboardNavigation.visibleTasks(filteredTasks: visibleTasks, groups: workspaceGroups.map { ($0.id, $0.tasks) },
+                                                                 usesGroups: usesBoardGroups || model.taskFilter == .all,
+                                                                 usesColumns: usesBoardGroups && local.taskColumnsVisible,
+                                                                 collapsedGroups: local.collapsedGroups)
+        let visibleTaskIdentities = keyboardTasks.map(\.selectionIdentity)
         GeometryReader { viewport in
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 12) {
@@ -36,7 +46,7 @@ struct TaskWorkspaceView: View {
                 WorkspaceEmptyState(title: "Списков задач нет", symbol: "checklist", description: "Создайте список, чтобы добавлять задачи.", actionTitle: "Управлять списками") {
                     local.showTaskLists = true
                 }
-            } else if model.visibleTasks.isEmpty {
+            } else if visibleTasks.isEmpty {
                 WorkspaceEmptyState(title: emptyTitle,
                                     symbol: "checkmark.circle",
                                     description: emptyDescription,
@@ -45,6 +55,7 @@ struct TaskWorkspaceView: View {
                 }
             } else if usesBoardGroups || model.taskFilter == .all {
                 GeometryReader { geometry in
+                    let columnWidth = CGFloat(TaskWorkspaceLayout.boardColumnWidth(availableWidth: Double(geometry.size.width), boardCount: boardGroups.count))
                     let usesColumns = TaskWorkspaceLayout.usesColumnBoard(presentation: presentation, availableWidth: Double(geometry.size.width), selectedTaskListID: model.selectedTaskListID)
                     Group {
                         if !usesColumns {
@@ -90,7 +101,7 @@ struct TaskWorkspaceView: View {
                                             TaskColumn(title: group.board.title, tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity,
                                                        keyboardFocused: local.taskKeyboardFocused,
                                                        onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
-                                                .frame(width: CGFloat(TaskWorkspaceLayout.boardColumnWidth(availableWidth: Double(geometry.size.width), boardCount: boardGroups.count)),
+                                                .frame(width: columnWidth,
                                                        height: max(120, geometry.size.height - 8))
                                                 .id(group.id)
                                         }
@@ -114,7 +125,7 @@ struct TaskWorkspaceView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(model.visibleTasks, id: \.selectionIdentity) { task in taskRow(task) }
+                            ForEach(visibleTasks, id: \.selectionIdentity) { task in taskRow(task) }
                         }
                         .padding(.horizontal, 24)
                         .padding(.vertical, 6)
@@ -300,6 +311,9 @@ private struct TaskColumn: View {
                         }
                     }
                 }.scrollIndicators(.visible)
+                .onAppear {
+                    if let selectedIdentity, tasks.contains(where: { $0.selectionIdentity == selectedIdentity }) { proxy.scrollTo(selectedIdentity) }
+                }
                 .onChange(of: selectedIdentity) { identity in
                     if let identity, tasks.contains(where: { $0.selectionIdentity == identity }) { proxy.scrollTo(identity) }
                 }
