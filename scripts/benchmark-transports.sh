@@ -35,7 +35,12 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/LedgerAcceptance.swift" \
   "$ROOT/benchmarks/TransportComparison.swift" \
   -o "$BUILD_DIR/transport-benchmark"
-G_CALENDAR_BENCHMARK_COMMIT="$(rtk git -C "$ROOT" rev-parse HEAD 2>/dev/null || cat "$ROOT/benchmarks/source-revision.txt")"
+ARCHIVE_REVISION="$(cat "$ROOT/benchmarks/source-revision.txt")"
+if [[ "$ARCHIVE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  G_CALENDAR_BENCHMARK_COMMIT="$ARCHIVE_REVISION"
+else
+  G_CALENDAR_BENCHMARK_COMMIT="$(rtk git -C "$ROOT" rev-parse HEAD)"
+fi
 G_CALENDAR_BENCHMARK_SWIFT="$("${G_CALENDAR_SWIFT[@]}" --version)"
 export G_CALENDAR_BENCHMARK_COMMIT G_CALENDAR_BENCHMARK_SWIFT
 "$BUILD_DIR/transport-benchmark" "$ROOT/benchmarks/transport-config.json" "${1:-}"
