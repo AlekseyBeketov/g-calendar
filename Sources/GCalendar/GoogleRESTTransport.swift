@@ -48,7 +48,7 @@ struct GoogleRESTRequestBuilder {
     func build(_ invocation: ProcessInvocation) throws -> URLRequest {
         guard invocation.executableURL == GWSCommandFactory.restMarker, invocation.timeout > 0,
               invocation.outputLimit > 0 else { throw GWSFailure.forbiddenOperation }
-        let expected = invocation.operation.rawValue.split(separator: ".").map(String.init)
+        let expected = invocation.operation == .taskReorder ? ["tasks", "tasks", "move"] : invocation.operation.rawValue.split(separator: ".").map(String.init)
         guard Array(invocation.arguments.prefix(3)) == expected else { throw GWSFailure.forbiddenOperation }
         var params: [String: Any] = [:], body: [String: Any]? = nil, seen = Set<String>()
         var index = 3
@@ -82,17 +82,18 @@ struct GoogleRESTRequestBuilder {
             path = ["users", "@me", "lists"]
             allowed = op == .taskListsList ? ["pageToken", "maxResults"] : []
             if [.taskListGet, .taskListPatch, .taskListDelete].contains(op) { path += [try id("tasklist")]; allowed.insert("tasklist") }
-        case .tasksList, .taskGet, .taskInsert, .taskPatch, .taskMove, .taskDelete:
+        case .tasksList, .taskGet, .taskInsert, .taskPatch, .taskMove, .taskReorder, .taskDelete:
             path = ["lists", try id("tasklist"), "tasks"]; allowed = ["tasklist"]
             if op == .tasksList { allowed.formUnion(["showCompleted", "showHidden", "showDeleted", "maxResults", "pageToken"]) }
-            if [.taskGet, .taskPatch, .taskMove, .taskDelete].contains(op) { path += [try id("task")]; allowed.insert("task") }
+            if [.taskGet, .taskPatch, .taskMove, .taskReorder, .taskDelete].contains(op) { path += [try id("task")]; allowed.insert("task") }
             if op == .taskMove { path += ["move"]; allowed.insert("destinationTasklist"); guard let destination = params["destinationTasklist"] as? String, !destination.isEmpty else { throw GWSFailure.invalidInput("destination") } }
+            if op == .taskReorder { path += ["move"]; allowed.formUnion(["previous", "parent"]) }
         }
         guard Set(params.keys).isSubset(of: allowed) else { throw GWSFailure.forbiddenOperation }
-        if [.eventInsert, .taskListInsert, .taskInsert, .taskMove].contains(op) { method = "POST" }
+        if [.eventInsert, .taskListInsert, .taskInsert, .taskMove, .taskReorder].contains(op) { method = "POST" }
         if [.eventPatch, .taskListPatch, .taskPatch].contains(op) { method = "PATCH" }
         if [.eventDelete, .taskListDelete, .taskDelete].contains(op) { method = "DELETE" }
-        let expectsBody = method == "PATCH" || (method == "POST" && op != .taskMove)
+        let expectsBody = method == "PATCH" || (method == "POST" && op != .taskMove && op != .taskReorder)
         guard expectsBody == (body != nil) else { throw GWSFailure.forbiddenOperation }
         if let body {
             let bodyKeys: Set<String>
@@ -118,7 +119,7 @@ struct GoogleRESTRequestBuilder {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.rounded() == number.doubleValue,
                   number.intValue > 0, number.intValue <= 250 else { throw GWSFailure.forbiddenOperation }
         }
-        for key in ["pageToken", "timeMin", "timeMax", "timeZone", "orderBy", "destinationTasklist", "sendUpdates"] where params[key] != nil {
+        for key in ["pageToken", "timeMin", "timeMax", "timeZone", "orderBy", "destinationTasklist", "sendUpdates", "previous", "parent"] where params[key] != nil {
             guard let value = params[key] as? String, !value.isEmpty else { throw GWSFailure.forbiddenOperation }
         }
         if let status = body?["status"] as? String, !["completed", "needsAction"].contains(status) { throw GWSFailure.forbiddenOperation }

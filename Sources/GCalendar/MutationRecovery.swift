@@ -23,7 +23,7 @@ struct PendingMutation: Codable, Equatable, Identifiable {
         let params = Self.object("--params", arguments: arguments)
         switch operation {
         case .eventPatch, .eventDelete: resourceID = params["eventId"] as? String
-        case .taskPatch, .taskMove, .taskDelete: resourceID = params["task"] as? String
+        case .taskPatch, .taskMove, .taskReorder, .taskDelete: resourceID = params["task"] as? String
         case .taskListPatch, .taskListDelete: resourceID = params["tasklist"] as? String
         default: resourceID = nil
         }
@@ -259,6 +259,43 @@ struct RecoverableMutationService {
         guard invocation.contextIdentity == reader.factory.contextIdentity,
               (reader.factory.executableURL == GWSCommandFactory.restMarker) == (invocation.contextIdentity != nil) else { throw GWSFailure.forbiddenOperation }
         return try journal.withExclusiveAccess {
+            if invocation.operation == .taskReorder {
+                guard let expected = invocation.expectedTask, !expected.completed, !expected.deleted,
+                      let paramsIndex = invocation.arguments.firstIndex(of: "--params"),
+                      invocation.arguments.indices.contains(paramsIndex + 1),
+                      let data = invocation.arguments[paramsIndex + 1].data(using: .utf8),
+                      let params = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      params["task"] as? String == expected.id, params["tasklist"] as? String == expected.taskListID,
+                      params["parent"] as? String == expected.parent, params["destinationTasklist"] == nil,
+                      !invocation.arguments.contains("--json"),
+                      let current = try reader.task(taskListID: expected.taskListID, taskID: expected.id),
+                      !current.deleted, !current.completed, current.parent == expected.parent,
+                      current.title == expected.title, (current.notes ?? "") == (expected.notes ?? ""), current.due == expected.due else {
+                    throw GWSFailure.mutationNotVerified
+                }
+                if let previousID = params["previous"] as? String {
+                    guard previousID != expected.id,
+                          let previous = try reader.task(taskListID: expected.taskListID, taskID: previousID),
+                          !previous.completed, !previous.deleted, previous.parent == expected.parent else {
+                        throw GWSFailure.mutationNotVerified
+                    }
+                }
+            }
+            if invocation.operation == .taskDelete, let expected = invocation.expectedTask {
+                guard let paramsIndex = invocation.arguments.firstIndex(of: "--params"),
+                      invocation.arguments.indices.contains(paramsIndex + 1),
+                      let data = invocation.arguments[paramsIndex + 1].data(using: .utf8),
+                      let params = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      params["task"] as? String == expected.id, params["tasklist"] as? String == expected.taskListID else {
+                    throw GWSFailure.forbiddenOperation
+                }
+                guard expected.completed, !expected.deleted,
+                      let current = try reader.task(taskListID: expected.taskListID, taskID: expected.id),
+                      current.id == expected.id, current.taskListID == expected.taskListID,
+                      current.completed, !current.deleted, current.parent == expected.parent else {
+                    throw GWSFailure.mutationNotVerified
+                }
+            }
             let attemptID = try journal.begin(invocation)
             let result: ProcessResult
             do { result = try runner.run(invocation) }

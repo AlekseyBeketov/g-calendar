@@ -35,6 +35,8 @@ final class WorkspaceViewModel: ObservableObject {
     @Published var newItemRequestID = 0
     @Published var sidebarToggleRequestID = 0
     @Published private(set) var shortcutSettings: WorkspaceShortcutSettings
+    @Published private(set) var taskPreferences = TaskWorkspacePreferences()
+    @Published private(set) var completedDeletionInProgress = false
 
     let launchMode: AppLaunchMode
     let metadataStore: LocalMetadataStoring
@@ -75,6 +77,7 @@ final class WorkspaceViewModel: ObservableObject {
         shortcutSettings = WorkspaceShortcutSettings.load(from: defaults)
         gwsPath = mode == .normal ? (defaults.string(forKey: "gwsExecutablePath") ?? "") : ""
         appearance = mode == .normal ? (Appearance(rawValue: defaults.string(forKey: "appAppearance") ?? "Система") ?? .system) : .system
+        taskPreferences = TaskWorkspacePreferences.load(from: defaults, key: "taskWorkspacePreferences." + (context?.identity ?? "gws"))
 
         if mode == .normal {
             let appDirectory = context!.directory
@@ -170,7 +173,80 @@ final class WorkspaceViewModel: ObservableObject {
     var presentationDefaults: UserDefaults { defaults }
     var transportSettingsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
     var googleReauthenticationAllowed: Bool { launchMode == .normal && pendingMutation != nil && !mutationInFlight && !mutationJournalBusy && googleTransportSettings.canReauthenticate }
-    var mutationsBlocked: Bool { transportContext?.recoveryOnly == true || googleTransportSettings.requiresRestart || googleTransportSettings.signingIn || transportSettingsBlocked }
+    private var mutationAccessBlocked: Bool { transportContext?.recoveryOnly == true || googleTransportSettings.requiresRestart || googleTransportSettings.signingIn || transportSettingsBlocked }
+    var mutationsBlocked: Bool { mutationAccessBlocked || completedDeletionInProgress }
+
+    func taskSortMode(for boardID: String) -> TaskSortMode { taskPreferences.sortMode(for: boardID) }
+
+    func setTaskSortMode(_ mode: TaskSortMode, for boardID: String?) {
+        let ids = boardID.map { [$0] } ?? snapshot.taskLists.map(\.id)
+        for id in ids { taskPreferences.setSortMode(mode, for: id) }
+        taskPreferences.save(to: defaults, key: "taskWorkspacePreferences." + (transportContext?.identity ?? "gws"))
+    }
+
+    func reorderTask(_ task: GoogleTask, before target: GoogleTask) {
+        guard !mutationsBlocked, taskSortMode(for: task.taskListID) == .manual,
+              task.id != target.id, task.taskListID == target.taskListID, task.parent == target.parent,
+              !task.completed, !target.completed,
+              let current = snapshot.tasks.first(where: { $0.selectionIdentity == task.selectionIdentity }),
+              let destination = snapshot.tasks.first(where: { $0.selectionIdentity == target.selectionIdentity }),
+              current.parent == destination.parent, !current.completed, !destination.completed else { return }
+        do {
+            let previous = TaskOrdering.previousForMove(current, before: destination, in: snapshot.tasks)
+            let invocation = try commandFactory().taskReorder(task: current, previous: previous, authorization: .userSave)
+            performMutation(invocation)
+        } catch { statusMessage = (error as? LocalizedError)?.errorDescription ?? "Не удалось изменить порядок задач." }
+    }
+
+    func canShiftTask(_ task: GoogleTask, direction: Int) -> Bool {
+        guard !mutationsBlocked, taskSortMode(for: task.taskListID) == .manual, !task.completed else { return false }
+        let siblings = TaskOrdering.siblings(task, in: snapshot.tasks)
+        guard let index = siblings.firstIndex(where: { $0.id == task.id }) else { return false }
+        return siblings.indices.contains(index + direction)
+    }
+
+    func shiftTask(_ task: GoogleTask, direction: Int) {
+        guard canShiftTask(task, direction: direction) else { return }
+        let siblings = TaskOrdering.siblings(task, in: snapshot.tasks)
+        guard let index = siblings.firstIndex(where: { $0.id == task.id }) else { return }
+        if direction < 0 { reorderTask(task, before: siblings[index - 1]); return }
+        do {
+            let invocation = try commandFactory().taskReorder(task: task, previous: siblings[index + 1], authorization: .userSave)
+            performMutation(invocation)
+        } catch { statusMessage = (error as? LocalizedError)?.errorDescription ?? "Не удалось изменить порядок задач." }
+    }
+
+    func deleteCompletedTasks(_ confirmedTasks: [GoogleTask]) {
+        guard !mutationsBlocked, !confirmedTasks.isEmpty, confirmedTasks.allSatisfy({ $0.completed && !$0.deleted }) else { return }
+        completedDeletionInProgress = true
+        deleteNextCompleted(confirmedTasks, index: 0, deleted: 0, skipped: 0)
+    }
+
+    private func deleteNextCompleted(_ confirmed: [GoogleTask], index: Int, deleted: Int, skipped: Int) {
+        guard confirmed.indices.contains(index) else {
+            completedDeletionInProgress = false
+            statusMessage = "Удалено выполненных задач: \(deleted)." + (skipped > 0 ? " Пропущено: \(skipped)." : "")
+            requestTargetedRefresh(taskListIDs: Set(confirmed.map(\.taskListID)))
+            return
+        }
+        let task = confirmed[index]
+        guard let current = snapshot.tasks.first(where: { $0.selectionIdentity == task.selectionIdentity }), current.completed, !current.deleted else {
+            DispatchQueue.main.async { [weak self] in self?.deleteNextCompleted(confirmed, index: index + 1, deleted: deleted, skipped: skipped + 1) }
+            return
+        }
+        do {
+            let invocation = try commandFactory().completedTaskDelete(task: current, authorization: .confirmedDelete)
+            performMutation(invocation, thenRefresh: false, asCompletedDeletion: true, onSuccess: { [weak self] in
+                DispatchQueue.main.async { [weak self] in self?.deleteNextCompleted(confirmed, index: index + 1, deleted: deleted + 1, skipped: skipped) }
+            }, onFailure: { [weak self] message in
+                self?.completedDeletionInProgress = false
+                self?.statusMessage = "Удалено: \(deleted). Удаление остановлено: \(message)"
+            })
+        } catch {
+            completedDeletionInProgress = false
+            statusMessage = "Удалено: \(deleted). " + ((error as? LocalizedError)?.errorDescription ?? "Удаление остановлено.")
+        }
+    }
 
     var sortedCalendars: [CalendarInfo] { CalendarNavigation.sorted(snapshot.calendars) }
     var selectedCalendar: CalendarInfo? { snapshot.calendars.first(where: { $0.id == selectedCalendarID }) }
@@ -465,11 +541,12 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    func performMutation(_ invocation: ProcessInvocation, thenRefresh: Bool = true,
+    func performMutation(_ invocation: ProcessInvocation, thenRefresh: Bool = true, asCompletedDeletion: Bool = false,
                          onSuccess: (() -> Void)? = nil, onFailure: ((String) -> Void)? = nil,
                          onVerified: ((GWSMutationResult) -> Void)? = nil) {
+        guard !completedDeletionInProgress || asCompletedDeletion else { onFailure?("Дождитесь удаления выполненных задач."); return }
         if launchMode == .demo {
-            guard !mutationsBlocked else { onFailure?(mutationRecoveryProblem ?? MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка."); return }
+            guard !mutationAccessBlocked else { onFailure?(mutationRecoveryProblem ?? MutationRecoveryFailure.pendingVerification.errorDescription ?? "Требуется проверка."); return }
             do {
                 let existingTaskIDs = Set(snapshot.tasks.map(\.id))
                 try demoAdapter?.perform(invocation)

@@ -1,153 +1,43 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TaskWorkspaceView: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var local = ViewLocalState()
     @AppStorage("taskWorkspacePresentation") private var presentationRawValue = TaskWorkspacePresentation.defaultMode.rawValue
+    @StateObject private var interaction = TaskWorkspaceInteraction()
+
+    private var presentation: TaskWorkspacePresentation {
+        TaskWorkspacePresentation(rawValue: presentationRawValue) ?? .defaultMode
+    }
+    private var boardGroups: [TaskBoardGroup] {
+        let lists = model.snapshot.taskLists.filter { model.selectedTaskListID == nil || $0.id == model.selectedTaskListID }
+        return TaskWorkspaceLayout.boardGroups(model.visibleTasks, lists: lists).map {
+            TaskBoardGroup(board: $0.board, tasks: TaskOrdering.sorted($0.tasks, mode: model.taskSortMode(for: $0.id)))
+        }
+    }
+    private var keyboardVisibleTasks: [GoogleTask] {
+        boardGroups.filter { local.taskColumnsVisible || !local.collapsedGroups.contains("board:" + $0.id) }.flatMap(\.tasks)
+    }
+    private var visibleTaskIdentities: [TaskSelectionIdentity] { keyboardVisibleTasks.map(\.selectionIdentity) }
 
     var body: some View {
-        let visibleTasks = model.visibleTasks
-        let boardGroups = TaskWorkspaceLayout.boardGroups(visibleTasks, lists: model.snapshot.taskLists)
-        let workspaceGroups = usesBoardGroups
-            ? boardGroups.map { TaskPresentationGroup(id: "board:" + $0.id, title: $0.board.title, tasks: $0.tasks) }
-            : TaskWorkspaceLayout.groups(visibleTasks, today: model.localToday).map { TaskPresentationGroup(id: $0.0, title: $0.0, tasks: $0.1) }
-        let keyboardTasks = TaskKeyboardNavigation.visibleTasks(filteredTasks: visibleTasks, groups: workspaceGroups.map { ($0.id, $0.tasks) },
-                                                                 usesGroups: usesBoardGroups || model.taskFilter == .all,
-                                                                 usesColumns: usesBoardGroups && local.taskColumnsVisible,
-                                                                 collapsedGroups: local.collapsedGroups)
-        let visibleTaskIdentities = keyboardTasks.map(\.selectionIdentity)
         GeometryReader { viewport in
-        VStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 16) { listSelector; Spacer(minLength: 16); workspaceActions }
-                    VStack(alignment: .leading, spacing: 12) { listSelector; workspaceActions }
-                }
-                ScrollView(.horizontal) {
-                    HStack(spacing: 6) {
-                        ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in
-                            Button { model.taskFilter = filter } label: {
-                                Text(filter.rawValue).font(.callout.weight(.medium))
-                                    .padding(.horizontal, 12).frame(height: 32)
-                                    .background(model.taskFilter == filter ? AppTheme.selection : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
-                                    .contentShape(.interaction, Rectangle())
-                            }.pointingHandCursor()
-                            .buttonStyle(.plain)
-                            .foregroundStyle(model.taskFilter == filter ? AppTheme.accent : AppTheme.textSecondary)
-                            .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
-                        }
-                    }
-                }.scrollIndicators(.hidden)
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-
-            if model.snapshot.taskLists.isEmpty {
-                WorkspaceEmptyState(title: "Списков задач нет", symbol: "checklist", description: "Создайте список, чтобы добавлять задачи.", actionTitle: "Управлять списками") {
-                    local.showTaskLists = true
-                }
-            } else if visibleTasks.isEmpty {
-                WorkspaceEmptyState(title: emptyTitle,
-                                    symbol: "checkmark.circle",
-                                    description: emptyDescription,
-                                    actionTitle: model.searchText.isEmpty ? nil : "Очистить поиск") {
-                    model.searchText = ""
-                }
-            } else if usesBoardGroups || model.taskFilter == .all {
-                GeometryReader { geometry in
-                    let columnWidth = CGFloat(TaskWorkspaceLayout.boardColumnWidth(availableWidth: Double(geometry.size.width), boardCount: boardGroups.count))
-                    let usesColumns = TaskWorkspaceLayout.usesColumnBoard(presentation: presentation, availableWidth: Double(geometry.size.width), selectedTaskListID: model.selectedTaskListID)
-                    Group {
-                        if !usesColumns {
-                            ScrollViewReader { proxy in
-                                ScrollView {
-                                    LazyVStack(alignment: .leading, spacing: 16) {
-                                        ForEach(workspaceGroups.filter { !$0.tasks.isEmpty }) { group in
-                                            let title = group.title
-                                            let tasks = group.tasks
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Button {
-                                                    if local.collapsedGroups.contains(group.id) { local.collapsedGroups.remove(group.id) }
-                                                    else { local.collapsedGroups.insert(group.id) }
-                                                } label: {
-                                                    HStack(spacing: 8) {
-                                                        Image(systemName: local.collapsedGroups.contains(group.id) ? "chevron.right" : "chevron.down").font(.caption)
-                                                        Text(title).font(.callout.weight(.semibold))
-                                                        Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
-                                                        Spacer()
-                                                    }.frame(minHeight: 32).contentShape(.interaction, Rectangle())
-                                                }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("\(title), \(tasks.count), \(local.collapsedGroups.contains(group.id) ? "свёрнуто" : "развёрнуто")")
-                                                if !local.collapsedGroups.contains(group.id) {
-                                                    LazyVStack(spacing: 0) { ForEach(tasks, id: \.selectionIdentity) { task in taskRow(task) } }
-                                                }
-                                            }
-                                        }
-                                        .id(TaskWorkspaceLayout.topScrollAnchorID)
-                                    }
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 8)
-                                }
-                                .scrollIndicators(.visible)
-                                .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .top) }
-                                .onChange(of: local.selectedTaskIdentity) { identity in
-                                    if let identity { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) } }
-                                }
-                            }
-                        } else {
-                            ScrollViewReader { proxy in
-                                ScrollView(.horizontal) {
-                                    HStack(alignment: .top, spacing: 16) {
-                                        ForEach(boardGroups) { group in
-                                            TaskColumn(title: group.board.title, tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity,
-                                                       keyboardFocused: local.taskKeyboardFocused,
-                                                       onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
-                                                .frame(width: columnWidth,
-                                                       height: max(120, geometry.size.height - 8))
-                                                .id(group.id)
-                                        }
-                                    }
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 4)
-                                    .id(TaskWorkspaceLayout.topScrollAnchorID)
-                                }
-                                .scrollIndicators(.visible)
-                                .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .topLeading) }
-                                .onChange(of: local.selectedTaskIdentity) { identity in
-                                    if let identity { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity.taskListID, anchor: .leading) } }
-                                }
-                            }
-                        }
-                    }
-                    .onAppear { local.taskColumnsVisible = usesColumns }
-                    .onChange(of: usesColumns) { local.taskColumnsVisible = $0 }
-                }
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(visibleTasks, id: \.selectionIdentity) { task in taskRow(task) }
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 6)
-                        .id(TaskWorkspaceLayout.topScrollAnchorID)
-                    }
-                    .scrollIndicators(.visible)
-                    .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .top) }
-                    .onChange(of: local.selectedTaskIdentity) { identity in
-                        if let identity { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) } }
-                    }
+            VStack(spacing: 16) {
+                workspaceHeader
+                if model.snapshot.taskLists.isEmpty {
+                    WorkspaceEmptyState(title: "Списков задач нет", symbol: "checklist", description: "Создайте список, чтобы добавлять задачи.", actionTitle: "Управлять списками") { local.showTaskLists = true }
+                } else if model.visibleTasks.isEmpty {
+                    WorkspaceEmptyState(title: model.searchText.isEmpty ? "Нет задач по выбранному фильтру" : "Ничего не найдено", symbol: "checkmark.circle", description: "Создайте задачу или измените фильтр.", actionTitle: model.searchText.isEmpty ? nil : "Очистить поиск") { model.searchText = "" }
+                } else {
+                    taskBoards
                 }
             }
-            Spacer(minLength: 0)
+            .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
         }
-        .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
-        }
-        .background(TaskKeyboardFocusView(focusRequest: local.taskKeyboardFocusRequest,
-                                         onFocusChange: taskKeyboardFocusChanged, onCommand: handleTaskKeyboardCommand))
-        .sheet(isPresented: $local.showingNewTask) {
-            TaskEditorView(task: nil, taskListID: model.selectedTaskListID).environmentObject(model)
-        }
+        .background(TaskKeyboardFocusView(focusRequest: local.taskKeyboardFocusRequest, onFocusChange: taskKeyboardFocusChanged, onCommand: handleTaskKeyboardCommand))
+        .sheet(isPresented: $local.showingNewTask) { TaskEditorView(task: nil, taskListID: model.selectedTaskListID).environmentObject(model) }
         .sheet(isPresented: $local.showTaskLists) { TaskListManagerView().environmentObject(model) }
         .sheet(item: $local.keyboardTaskEditor, onDismiss: restoreTaskKeyboardFocus) { task in
             TaskEditorView(task: task, taskListID: task.taskListID).environmentObject(model)
@@ -161,24 +51,101 @@ struct TaskWorkspaceView: View {
         .accessibilityIdentifier("task-workspace")
     }
 
+    private var workspaceHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { listSelector; Spacer(minLength: 16); workspaceActions }
+                VStack(alignment: .leading, spacing: 12) { listSelector; workspaceActions }
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in
+                        Button { model.taskFilter = filter } label: {
+                            Text(filter.rawValue).font(.callout.weight(.medium)).padding(.horizontal, 12).frame(height: 32)
+                                .background(model.taskFilter == filter ? AppTheme.selection : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(.interaction, Rectangle())
+                        }.pointingHandCursor().buttonStyle(.plain)
+                        .foregroundStyle(model.taskFilter == filter ? AppTheme.accent : AppTheme.textSecondary)
+                        .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
+                    }
+                }
+            }.scrollIndicators(.hidden)
+        }.padding(.horizontal, 24).padding(.top, 16)
+    }
+
+    private var taskBoards: some View {
+        GeometryReader { geometry in
+            let columns = TaskWorkspaceLayout.usesColumnBoard(presentation: presentation, availableWidth: Double(geometry.size.width), selectedTaskListID: model.selectedTaskListID)
+            let width = CGFloat(TaskWorkspaceLayout.boardColumnWidth(availableWidth: Double(geometry.size.width), boardCount: boardGroups.count))
+            ScrollViewReader { proxy in
+                ScrollView(columns ? .horizontal : .vertical) {
+                    if columns {
+                        HStack(alignment: .top, spacing: 16) {
+                            ForEach(boardGroups) { group in
+                                TaskBoardView(group: group, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
+                                              draggedTask: $interaction.draggedTask, onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
+                                    .frame(width: width, height: max(120, geometry.size.height - 8)).id(group.id)
+                            }
+                        }.padding(.horizontal, 24).padding(.vertical, 4)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            ForEach(boardGroups.filter { !$0.tasks.isEmpty }) { group in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 8) {
+                                        Button {
+                                            let id = "board:" + group.id
+                                            if local.collapsedGroups.contains(id) { local.collapsedGroups.remove(id) }
+                                            else { local.collapsedGroups.insert(id) }
+                                        } label: {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: local.collapsedGroups.contains("board:" + group.id) ? "chevron.right" : "chevron.down").font(.caption)
+                                                Text(group.board.title).font(.callout.weight(.semibold))
+                                                Text("\(group.tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
+                                                Spacer()
+                                            }.frame(minHeight: 32).contentShape(Rectangle())
+                                        }.pointingHandCursor().buttonStyle(.plain)
+                                        .accessibilityLabel("\(group.board.title), \(group.tasks.count), \(local.collapsedGroups.contains("board:" + group.id) ? "свёрнуто" : "развёрнуто")")
+                                        TaskBoardMenu(board: group.board)
+                                    }
+                                    if !local.collapsedGroups.contains("board:" + group.id) {
+                                        TaskBoardRows(tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
+                                                      draggedTask: $interaction.draggedTask, onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
+                                    }
+                                }.id(group.id)
+                            }
+                        }.padding(.horizontal, 24).padding(.vertical, 8)
+                    }
+                }
+                .scrollIndicators(.visible)
+                .onChange(of: local.selectedTaskIdentity) { identity in
+                    if let identity {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
+                            if columns { proxy.scrollTo(identity.taskListID, anchor: .leading) }
+                            else { proxy.scrollTo(identity) }
+                        }
+                    }
+                }
+                .onAppear { local.taskColumnsVisible = columns }
+                .onChange(of: columns) { local.taskColumnsVisible = $0 }
+            }
+        }
+    }
+
     private var listSelector: some View {
         Menu {
             Button { model.selectedTaskListID = nil } label: {
-                if model.selectedTaskListID == nil { Label("Все доски", systemImage: "checkmark") }
-                else { Text("Все доски") }
+                if model.selectedTaskListID == nil { Label("Все доски", systemImage: "checkmark") } else { Text("Все доски") }
             }
             Divider()
             ForEach(model.snapshot.taskLists) { list in
                 Button { model.selectedTaskListID = list.id } label: {
-                    if model.selectedTaskListID == list.id { Label(list.title, systemImage: "checkmark") }
-                    else { Text(list.title) }
+                    if model.selectedTaskListID == list.id { Label(list.title, systemImage: "checkmark") } else { Text(list.title) }
                 }
             }
             Divider()
             Button("Управлять списками…") { local.showTaskLists = true }
-        } label: {
-            Text(model.selectedTaskList?.title ?? "Все доски").font(.title2.weight(.semibold)).lineLimit(1)
-        }.pointingHandCursor().menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+        } label: { Text(model.selectedTaskList?.title ?? "Все доски").font(.title2.weight(.semibold)).lineLimit(1) }
+        .pointingHandCursor().menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
         .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "Все доски")")
     }
 
@@ -186,156 +153,170 @@ struct TaskWorkspaceView: View {
         HStack(spacing: 12) {
             if model.selectedTaskListID == nil {
                 Picker("Представление задач", selection: $presentationRawValue) {
-                    ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
-                        Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue)
-                    }
+                    ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue) }
                 }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 112)
                 .accessibilityIdentifier("task-presentation-picker")
-                .help("Колонки показывают доски. В узком окне доски отображаются вертикальным списком.")
             }
-            Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }.pointingHandCursor()
-                .buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked)
-                .help("Создать задачу")
+            TaskBoardMenu(board: model.selectedTaskList)
+            Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }
+                .pointingHandCursor().buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked).help("Создать задачу")
         }
     }
 
-    private var presentation: TaskWorkspacePresentation {
-        TaskWorkspacePresentation(rawValue: presentationRawValue) ?? .defaultMode
-    }
-
-    private var usesBoardGroups: Bool { model.selectedTaskListID == nil && presentation == .columns }
-    private var boardGroups: [TaskBoardGroup] { TaskWorkspaceLayout.boardGroups(model.visibleTasks, lists: model.snapshot.taskLists) }
-    private var workspaceGroups: [TaskPresentationGroup] {
-        if usesBoardGroups { return boardGroups.map { TaskPresentationGroup(id: "board:" + $0.id, title: $0.board.title, tasks: $0.tasks) } }
-        return model.taskGroups().map { TaskPresentationGroup(id: $0.0, title: $0.0, tasks: $0.1) }
-    }
-
-    private var keyboardVisibleTasks: [GoogleTask] {
-        TaskKeyboardNavigation.visibleTasks(filteredTasks: model.visibleTasks, groups: workspaceGroups.map { ($0.id, $0.tasks) },
-                                            usesGroups: usesBoardGroups || model.taskFilter == .all,
-                                            usesColumns: usesBoardGroups && local.taskColumnsVisible,
-                                            collapsedGroups: local.collapsedGroups)
-    }
-
-    private var visibleTaskIdentities: [TaskSelectionIdentity] { keyboardVisibleTasks.map(\.selectionIdentity) }
-
-    private func taskRow(_ task: GoogleTask) -> some View {
-        TaskRowView(task: task, selectedIdentity: local.selectedTaskIdentity,
-                    keyboardFocused: local.taskKeyboardFocused,
-                    onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
-            .id(task.selectionIdentity)
-    }
-
     private func selectTask(_ task: GoogleTask) { DemoPerformanceProbe.shared.begin(.selection); local.selectedTaskIdentity = task.selectionIdentity }
-
     private func reconcileTaskSelection() {
         let visible = visibleTaskIdentities
-        local.selectedTaskIdentity = TaskKeyboardNavigation.reconciledSelection(local.selectedTaskIdentity,
-                                                                                 previous: local.previousVisibleTaskIdentities,
-                                                                                 visible: visible)
+        local.selectedTaskIdentity = TaskKeyboardNavigation.reconciledSelection(local.selectedTaskIdentity, previous: local.previousVisibleTaskIdentities, visible: visible)
         local.previousVisibleTaskIdentities = visible
     }
-
     private func taskKeyboardFocusChanged(_ focused: Bool) {
         local.taskKeyboardFocused = focused
         if focused, local.selectedTaskIdentity == nil { local.selectedTaskIdentity = visibleTaskIdentities.first }
     }
-
     private func restoreTaskKeyboardFocus() { local.taskKeyboardFocusRequest = UUID() }
-
     private func handleTaskKeyboardCommand(_ command: TaskKeyboardCommand) {
-        guard model.section == .tasks, !local.showingNewTask, !local.showTaskLists, local.keyboardTaskEditor == nil else { return }
         let tasks = keyboardVisibleTasks
         if command == .previous || command == .next {
             DemoPerformanceProbe.shared.begin(.selection)
-            local.selectedTaskIdentity = TaskKeyboardNavigation.movedSelection(local.selectedTaskIdentity,
-                                                                               in: tasks.map(\.selectionIdentity), command: command)
+            local.selectedTaskIdentity = TaskKeyboardNavigation.movedSelection(local.selectedTaskIdentity, in: tasks.map(\.selectionIdentity), command: command)
             return
         }
-        guard let identity = local.selectedTaskIdentity,
-              let task = tasks.first(where: { $0.selectionIdentity == identity }) else { return }
+        guard let identity = local.selectedTaskIdentity, let task = tasks.first(where: { $0.selectionIdentity == identity }) else { return }
         if command == .edit { DemoPerformanceProbe.shared.begin(.form); local.keyboardTaskEditor = task; return }
         guard !model.mutationsBlocked else { return }
-        DemoPerformanceProbe.shared.begin(.taskCompletion)
         do {
-            let invocation = try model.commandFactory().taskPatch(task: task, title: task.title, notes: task.notes,
-                                                                  due: task.due, completed: !task.completed,
-                                                                  authorization: .userCompletionToggle)
+            let invocation = try model.commandFactory().taskPatch(task: task, title: task.title, notes: task.notes, due: task.due,
+                                                                  completed: !task.completed, authorization: .userCompletionToggle)
             model.performMutation(invocation)
         } catch { model.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Не удалось изменить задачу." }
     }
+}
 
-    private var tasksInSelectedList: [GoogleTask] {
-        model.snapshot.tasks.filter {
-            !$0.deleted && (model.selectedTaskListID == nil || $0.taskListID == model.selectedTaskListID)
-        }
+private struct TaskBoardMenu: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
+    let board: TaskList?
+    @StateObject private var interaction = TaskWorkspaceInteraction()
+
+    private var completedTasks: [GoogleTask] {
+        model.snapshot.tasks.filter { $0.completed && !$0.deleted && (board == nil || $0.taskListID == board?.id) }
     }
-
-    private var emptyTitle: String {
-        if !model.searchText.isEmpty { return tasksInSelectedList.isEmpty ? "Задач нет" : "Ничего не найдено" }
-        if tasksInSelectedList.isEmpty { return model.selectedTaskListID == nil ? "На досках нет задач" : "В этой доске нет задач" }
-        return "Нет задач по выбранному фильтру"
+    private var chosenMode: TaskSortMode? {
+        if let board { return model.taskSortMode(for: board.id) }
+        let modes = Set(model.snapshot.taskLists.map { model.taskSortMode(for: $0.id) })
+        return modes.count == 1 ? modes.first : nil
     }
-
-    private var emptyDescription: String {
-        if !model.searchText.isEmpty && !tasksInSelectedList.isEmpty { return "Измените запрос или очистите поиск." }
-        if tasksInSelectedList.isEmpty { return "Создайте задачу или выберите другой список." }
-        return "Выберите другой фильтр, чтобы увидеть задачи."
+    var body: some View {
+        Menu {
+            Text(board == nil ? "Сортировать все доски" : "Сортировать")
+            ForEach(TaskSortMode.allCases, id: \.self) { mode in
+                Button { model.setTaskSortMode(mode, for: board?.id) } label: {
+                    if chosenMode == mode { Label(mode.title, systemImage: "checkmark") } else { Text(mode.title) }
+                }
+            }
+            Divider()
+            Button("Удалить выполненные…", role: .destructive) {
+                interaction.confirmedTasks = completedTasks
+                interaction.showingDelete = true
+            }.disabled(completedTasks.isEmpty || model.mutationsBlocked)
+        } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
+        .pointingHandCursor().menuStyle(.borderlessButton).fixedSize()
+        .accessibilityLabel("Настройки задач: \(board?.title ?? "Все доски")").help("Сортировка и выполненные задачи")
+        .alert("Удалить выполненные задачи?", isPresented: $interaction.showingDelete) {
+            Button("Отмена", role: .cancel) { interaction.confirmedTasks = [] }
+            Button("Удалить", role: .destructive) { model.deleteCompletedTasks(interaction.confirmedTasks); interaction.confirmedTasks = [] }
+        } message: { Text("\(board?.title ?? "Все доски"): \(interaction.confirmedTasks.count) задач. Они будут удалены из Google. Поиск и фильтр не ограничивают этот набор.") }
     }
 }
 
-private struct TaskColumn: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let title: String
-    let tasks: [GoogleTask]
+private struct TaskDragSession {
+    let token = UUID().uuidString
+    let task: GoogleTask
+}
+
+private final class TaskWorkspaceInteraction: ObservableObject {
+    @Published var draggedTask: TaskDragSession?
+    @Published var confirmedTasks: [GoogleTask] = []
+    @Published var showingDelete = false
+}
+
+private struct TaskBoardView: View {
+    let group: TaskBoardGroup
     let selectedIdentity: TaskSelectionIdentity?
     let keyboardFocused: Bool
+    @Binding var draggedTask: TaskDragSession?
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
-
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text(title).font(.headline).lineLimit(2)
+                Text(group.board.title).font(.headline).lineLimit(2)
                 Spacer()
-                Text("\(tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
+                Text("\(group.tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
+                TaskBoardMenu(board: group.board)
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if tasks.isEmpty {
-                            Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 5)
-                        }
-                        ForEach(tasks, id: \.selectionIdentity) { task in
-                            TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
-                                        onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: false)
-                                .id(task.selectionIdentity)
-                        }
-                    }
+                    TaskBoardRows(tasks: group.tasks, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
+                                  draggedTask: $draggedTask, onSelect: onSelect, onEditorDismiss: onEditorDismiss)
                 }.scrollIndicators(.visible)
-                .onAppear {
-                    if let selectedIdentity, tasks.contains(where: { $0.selectionIdentity == selectedIdentity }) { proxy.scrollTo(selectedIdentity) }
-                }
                 .onChange(of: selectedIdentity) { identity in
-                    if let identity, tasks.contains(where: { $0.selectionIdentity == identity }) {
+                    if let identity, group.tasks.contains(where: { $0.selectionIdentity == identity }) {
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) }
                     }
                 }
             }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1)
-            .allowsHitTesting(false).accessibilityHidden(true))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1).allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)
     }
 }
 
-private struct TaskPresentationGroup: Identifiable {
-    let id: String
-    let title: String
+private struct TaskBoardRows: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
     let tasks: [GoogleTask]
+    let selectedIdentity: TaskSelectionIdentity?
+    let keyboardFocused: Bool
+    @Binding var draggedTask: TaskDragSession?
+    let onSelect: (GoogleTask) -> Void
+    let onEditorDismiss: () -> Void
+    var body: some View {
+        let firstCompleted = tasks.first(where: { $0.completed })?.selectionIdentity
+        LazyVStack(alignment: .leading, spacing: 0) {
+            if tasks.isEmpty { Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 5) }
+            ForEach(tasks, id: \.selectionIdentity) { task in
+                if task.completed && firstCompleted == task.selectionIdentity {
+                    Text("Готово").font(.caption.weight(.semibold)).foregroundStyle(AppTheme.textSecondary).padding(.top, 12).padding(.bottom, 4)
+                }
+                draggableRow(task)
+            }
+        }
+    }
+    @ViewBuilder private func draggableRow(_ task: GoogleTask) -> some View {
+        let row = TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
+                              onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: false).id(task.selectionIdentity)
+        if model.taskSortMode(for: task.taskListID) == .manual && !task.completed && !model.mutationsBlocked {
+            row.onDrag {
+                let session = TaskDragSession(task: task)
+                draggedTask = session
+                return NSItemProvider(object: ("g-calendar-task:" + session.token) as NSString)
+            }.onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
+                guard let session = draggedTask, session.task.taskListID == task.taskListID,
+                      session.task.parent == task.parent, session.task.id != task.id,
+                      let provider = providers.first, provider.canLoadObject(ofClass: NSString.self) else { return false }
+                provider.loadObject(ofClass: NSString.self) { value, _ in
+                    guard let value = value as? String, value == "g-calendar-task:" + session.token else { return }
+                    DispatchQueue.main.async {
+                        guard draggedTask?.token == session.token else { return }
+                        draggedTask = nil
+                        model.reorderTask(session.task, before: task)
+                    }
+                }
+                return true
+            }
+        } else { row }
+    }
 }
 
 private struct TaskRowView: View {
@@ -398,6 +379,13 @@ private struct TaskRowView: View {
                     Button("Редактировать…", systemImage: "pencil") { onSelect(task); local.showEditor = true }
                     Button("Локальное напоминание…", systemImage: "bell") { local.showReminderEditor = true }
                     Button(metadata.favorite ? "Убрать из избранного" : "В избранное", systemImage: "star") { toggleFavorite() }
+                    if model.taskSortMode(for: task.taskListID) == .manual && !task.completed {
+                        Divider()
+                        Button("Переместить выше", systemImage: "arrow.up") { model.shiftTask(task, direction: -1) }
+                            .disabled(!model.canShiftTask(task, direction: -1))
+                        Button("Переместить ниже", systemImage: "arrow.down") { model.shiftTask(task, direction: 1) }
+                            .disabled(!model.canShiftTask(task, direction: 1))
+                    }
                     Divider()
                     Button("Удалить…", systemImage: "trash", role: .destructive) { local.showingDeleteConfirmation = true }.disabled(model.mutationsBlocked)
                 } label: { Image(systemName: "ellipsis").frame(width: 36, height: 44).contentShape(Rectangle()) }.pointingHandCursor()

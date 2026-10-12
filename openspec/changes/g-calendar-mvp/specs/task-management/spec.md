@@ -125,3 +125,26 @@ Editing a task MUST allow selecting a destination board. Moves MUST use tasks.mo
 - **WHEN** a refresh no longer finds the source task while its move journal remains unresolved
 - **THEN** reconciliation preserves the source local metadata until exact move verification persists the destination metadata
 - **AND** unrelated confirmed deletions continue to reconcile normally
+
+
+### Requirement: Board sorting and explicit completed-task deletion
+Each board SHALL support Manual, Date and Title sorting through a three-dot menu in both list and column presentation. The selected mode SHALL persist for the active workspace and board. A workspace menu SHALL allow applying a mode to all boards. Completed tasks SHALL remain visually separate at the end; search and date filters SHALL preserve their predicates. Keyboard traversal SHALL follow the displayed order.
+
+#### Scenario: Choose and restore a board sort
+- **WHEN** a user chooses Date or Title for a board and restarts or switches presentation
+- **THEN** the same mode is restored without a remote mutation, dates place undated tasks last and titles use natural localized ordering
+
+#### Scenario: Reorder tasks manually
+- **WHEN** a user drags a task before another sibling or uses Move Up/Down in its menu while Manual is selected
+- **THEN** a same-list tasks.move with the preserved parent and previous sibling is issued and full-list read-back verifies the sibling order before acceptance
+- **AND** an uncertain result retains read-only journal recovery and is never automatically written again
+
+#### Scenario: Switch away from manual sorting
+- **WHEN** Date or Title sorting is selected
+- **THEN** task dragging and manual move commands are disabled, and switching back restores the confirmed Google positions
+
+#### Scenario: Delete completed tasks
+- **WHEN** a user confirms the exact completed-task set and scope displayed in the deletion dialog
+- **THEN** those exact identities are deleted sequentially, with a fresh completed-state read before each delete and exact absence verification afterward
+- **AND** tasks reopened meanwhile are protected, partial progress is reported and unverified writes stop the sequence without repeating them
+- **AND** search and filters do not silently narrow or widen the confirmed deletion set

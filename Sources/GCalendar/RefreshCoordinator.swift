@@ -33,7 +33,7 @@ enum WorkspaceRefreshScope: Equatable {
     static func afterVerifiedMutation(_ operation: GWSOperation) -> WorkspaceRefreshScope? {
         switch operation {
         case .eventInsert, .eventPatch, .eventDelete: return .calendarRange
-        case .taskListInsert, .taskListPatch, .taskListDelete, .taskInsert, .taskPatch, .taskMove, .taskDelete: return .tasks
+        case .taskListInsert, .taskListPatch, .taskListDelete, .taskInsert, .taskPatch, .taskMove, .taskReorder, .taskDelete: return .tasks
         default: return nil
         }
     }

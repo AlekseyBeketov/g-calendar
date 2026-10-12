@@ -170,12 +170,40 @@ final class DemoWorkspaceAdapter {
             let task = updated.tasks[index]
             updated.tasks[index] = GoogleTask(id: task.id, taskListID: destination, title: task.title, notes: task.notes,
                                               due: task.due, completed: task.completed, deleted: task.deleted, updated: Date())
+        case .taskReorder:
+            guard !invocation.arguments.contains("--json") else { throw GWSFailure.forbiddenOperation }
+            let parameters = try Self.dictionaryArgument("--params", in: invocation)
+            let listID = try Self.requiredString("tasklist", in: parameters)
+            let taskID = try Self.requiredString("task", in: parameters)
+            guard parameters["destinationTasklist"] == nil,
+                  let index = updated.tasks.firstIndex(where: { $0.id == taskID && $0.taskListID == listID }),
+                  !updated.tasks[index].deleted, !updated.tasks[index].completed,
+                  updated.tasks[index].parent == (parameters["parent"] as? String) else { throw GWSFailure.forbiddenOperation }
+            let task = updated.tasks[index]
+            var siblings = TaskOrdering.siblings(task, in: updated.tasks).filter { $0.id != taskID }
+            let insertion: Int
+            if let previous = parameters["previous"] as? String {
+                guard let previousIndex = siblings.firstIndex(where: { $0.id == previous }) else { throw GWSFailure.forbiddenOperation }
+                insertion = previousIndex + 1
+            } else { insertion = 0 }
+            siblings.insert(task, at: insertion)
+            for (position, sibling) in siblings.enumerated() {
+                guard let source = updated.tasks.firstIndex(where: { $0.id == sibling.id && $0.taskListID == listID }) else { continue }
+                updated.tasks[source].position = String(format: "%020d", position)
+            }
+            updated.tasks[index].updated = Date()
         case .taskDelete:
             let parameters = try Self.dictionaryArgument("--params", in: invocation)
             let listID = try Self.requiredString("tasklist", in: parameters)
             let taskID = try Self.requiredString("task", in: parameters)
             guard updated.tasks.contains(where: { $0.id == taskID && $0.taskListID == listID }) else {
                 throw GWSFailure.resourceNotFound
+            }
+            if let expected = invocation.expectedTask {
+                guard expected.id == taskID, expected.taskListID == listID, expected.completed,
+                      updated.tasks.contains(where: { $0.id == taskID && $0.taskListID == listID && $0.completed && !$0.deleted && $0.parent == expected.parent }) else {
+                    throw GWSFailure.mutationNotVerified
+                }
             }
             updated.tasks.removeAll { $0.id == taskID && $0.taskListID == listID }
         default:
@@ -196,7 +224,7 @@ final class DemoWorkspaceAdapter {
         case .taskListDelete: return ["tasks", "tasklists", "delete"]
         case .taskInsert: return ["tasks", "tasks", "insert"]
         case .taskPatch: return ["tasks", "tasks", "patch"]
-        case .taskMove: return ["tasks", "tasks", "move"]
+        case .taskMove, .taskReorder: return ["tasks", "tasks", "move"]
         case .taskDelete: return ["tasks", "tasks", "delete"]
         default: return nil
         }

@@ -76,6 +76,7 @@ enum GWSOperation: String, Equatable, Codable {
     case taskInsert = "tasks.tasks.insert"
     case taskPatch = "tasks.tasks.patch"
     case taskMove = "tasks.tasks.move"
+    case taskReorder = "tasks.tasks.reorder"
     case taskDelete = "tasks.tasks.delete"
 }
 
@@ -221,6 +222,28 @@ struct GWSCommandFactory {
     func taskDelete(task: GoogleTask, authorization: MutationAuthorization) throws -> ProcessInvocation {
         guard authorization == .confirmedDelete, !task.id.isEmpty, !task.taskListID.isEmpty else { throw GWSFailure.forbiddenOperation }
         return try mutation(.taskDelete, command: ["tasks", "tasks", "delete"], params: ["tasklist": task.taskListID, "task": task.id])
+    }
+
+    func taskReorder(task: GoogleTask, previous: GoogleTask?, authorization: MutationAuthorization) throws -> ProcessInvocation {
+        guard authorization == .userSave, !task.id.isEmpty, !task.taskListID.isEmpty, !task.deleted, !task.completed,
+              task.parent == nil || task.parent?.isEmpty == false else { throw GWSFailure.forbiddenOperation }
+        var params: [String: Any] = ["tasklist": task.taskListID, "task": task.id]
+        if let parent = task.parent { params["parent"] = parent }
+        if let previous {
+            guard !previous.id.isEmpty, previous.id != task.id, previous.taskListID == task.taskListID,
+                  previous.parent == task.parent, !previous.completed, !previous.deleted else { throw GWSFailure.forbiddenOperation }
+            params["previous"] = previous.id
+        }
+        var invocation = try mutation(.taskReorder, command: ["tasks", "tasks", "move"], params: params)
+        invocation.expectedTask = task
+        return invocation
+    }
+
+    func completedTaskDelete(task: GoogleTask, authorization: MutationAuthorization) throws -> ProcessInvocation {
+        guard task.completed, !task.deleted else { throw GWSFailure.forbiddenOperation }
+        var invocation = try taskDelete(task: task, authorization: authorization)
+        invocation.expectedTask = task
+        return invocation
     }
 
     private func read(_ operation: GWSOperation, command: [String], params: [String: Any]) throws -> ProcessInvocation {

@@ -192,6 +192,8 @@ struct GoogleTask: Codable, Equatable, Identifiable {
     var completed: Bool
     var deleted: Bool
     var updated: Date?
+    var position: String? = nil
+    var parent: String? = nil
 
     static func decode(_ dictionary: [String: Any], taskListID: String) throws -> GoogleTask {
         guard let id = dictionary["id"] as? String, let title = dictionary["title"] as? String else {
@@ -212,7 +214,9 @@ struct GoogleTask: Codable, Equatable, Identifiable {
                           due: due,
                           completed: status == "completed",
                           deleted: dictionary["deleted"] as? Bool ?? false,
-                          updated: (dictionary["updated"] as? String).flatMap(ISO8601.parse))
+                          updated: (dictionary["updated"] as? String).flatMap(ISO8601.parse),
+                          position: dictionary["position"] as? String,
+                          parent: dictionary["parent"] as? String)
     }
 }
 

@@ -79,6 +79,31 @@ struct GWSMutationService {
             let remainingSource = try reader.task(taskListID: source, taskID: sourceID)
             guard remainingSource == nil || remainingSource?.deleted == true else { throw GWSFailure.mutationNotVerified }
             return .taskVerified(moved)
+        case .taskReorder:
+            guard let reader, let listID = params["tasklist"] as? String, let taskID = params["task"] as? String,
+                  let expected = invocation.expectedTask, expected.id == taskID, expected.taskListID == listID,
+                  !expected.completed, !expected.deleted, !invocation.arguments.contains("--json"),
+                  params["destinationTasklist"] == nil, (params["parent"] as? String) == expected.parent else {
+                throw GWSFailure.mutationNotVerified
+            }
+            // Complete pagination is mandatory: a filtered/partial board cannot prove adjacency.
+            let allTasks = try reader.tasks(taskListID: listID)
+            guard let task = allTasks.first(where: { $0.id == taskID && $0.taskListID == listID }),
+                  !task.deleted, task.parent == expected.parent, task.completed == expected.completed,
+                  task.title == expected.title, (task.notes ?? "") == (expected.notes ?? ""), task.due == expected.due else {
+                throw GWSFailure.mutationNotVerified
+            }
+            let siblings = allTasks.filter { $0.taskListID == listID && $0.parent == expected.parent && !$0.deleted }
+            guard siblings.allSatisfy({ !($0.position ?? "").isEmpty }),
+                  Set(siblings.compactMap(\.position)).count == siblings.count else { throw GWSFailure.mutationNotVerified }
+            let ordered = siblings.sorted { $0.position! < $1.position! }
+            guard let index = ordered.firstIndex(where: { $0.id == taskID }) else { throw GWSFailure.mutationNotVerified }
+            if let previous = params["previous"] as? String {
+                guard index > 0, ordered[index - 1].id == previous else { throw GWSFailure.mutationNotVerified }
+            } else {
+                guard index == 0 else { throw GWSFailure.mutationNotVerified }
+            }
+            return .taskVerified(task)
         case .eventDelete:
             guard let reader, let calendarID = params["calendarId"] as? String, let resourceID = params["eventId"] as? String,
                   try reader.event(identity: CalendarEventIdentity(calendarID: calendarID, eventID: resourceID)) == nil else {
