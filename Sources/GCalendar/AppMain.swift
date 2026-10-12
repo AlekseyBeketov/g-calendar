@@ -177,6 +177,24 @@ final class WorkspaceViewModel: ObservableObject {
     var mutationsBlocked: Bool { mutationAccessBlocked || completedDeletionInProgress }
 
     func taskSortMode(for boardID: String) -> TaskSortMode { taskPreferences.sortMode(for: boardID) }
+    var orderedTaskLists: [TaskList] { taskPreferences.orderedBoards(snapshot.taskLists) }
+
+    func moveTaskBoard(_ boardID: String, toward targetID: String) {
+        guard taskPreferences.moveBoard(boardID, toward: targetID, in: snapshot.taskLists) else { return }
+        taskPreferences.save(to: defaults, key: "taskWorkspacePreferences." + (transportContext?.identity ?? "gws"))
+    }
+
+    func canShiftTaskBoard(_ boardID: String, direction: Int) -> Bool {
+        let ids = orderedTaskLists.map(\.id)
+        guard let index = ids.firstIndex(of: boardID) else { return false }
+        return ids.indices.contains(index + direction)
+    }
+
+    func shiftTaskBoard(_ boardID: String, direction: Int) {
+        let ids = orderedTaskLists.map(\.id)
+        guard let index = ids.firstIndex(of: boardID), ids.indices.contains(index + direction) else { return }
+        moveTaskBoard(boardID, toward: ids[index + direction])
+    }
 
     func setTaskSortMode(_ mode: TaskSortMode, for boardID: String?) {
         let ids = boardID.map { [$0] } ?? snapshot.taskLists.map(\.id)

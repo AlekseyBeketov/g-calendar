@@ -157,3 +157,15 @@ Date sorting SHALL use the same date groups in list and column presentation: Ove
 - **WHEN** date-sorted tasks cover several days, missing dates and completion states
 - **THEN** each task appears once in chronological groups, with undated and completed tasks last
 - **AND** changing the local day updates relative labels and overdue membership while concrete date IDs remain stable
+
+
+### Requirement: Persistent board arrangement
+Board columns SHALL support dragging a board header to another header and moving left/right through the board menu. Order SHALL persist with the active workspace preferences and SHALL apply to both list and column projections and keyboard traversal. These presentation changes SHALL not mutate Google task lists. Deleted IDs SHALL be omitted, new boards appended in server order, and duplicate saved IDs ignored.
+
+#### Scenario: Reorder and switch presentation
+- **WHEN** a user rearranges board columns, switches to a list and returns to columns or restarts the app
+- **THEN** the saved order remains intact along with each board's sort mode
+
+#### Scenario: Refresh changed boards
+- **WHEN** Google adds or removes a board after a local arrangement
+- **THEN** existing boards keep their saved relative order, removed boards vanish, and new boards append once

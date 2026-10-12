@@ -90,16 +90,42 @@ enum TaskOrdering {
 
 struct TaskWorkspacePreferences: Codable, Equatable {
     var sortModes: [String: TaskSortMode] = [:]
+    var boardOrder: [String] = []
 
-    init(sortModes: [String: TaskSortMode] = [:]) { self.sortModes = sortModes }
-    private enum CodingKeys: String, CodingKey { case sortModes }
+    init(sortModes: [String: TaskSortMode] = [:], boardOrder: [String] = []) {
+        self.sortModes = sortModes
+        self.boardOrder = boardOrder
+    }
+    private enum CodingKeys: String, CodingKey { case sortModes, boardOrder }
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sortModes = try container.decodeIfPresent([String: TaskSortMode].self, forKey: .sortModes) ?? [:]
+        boardOrder = try container.decodeIfPresent([String].self, forKey: .boardOrder) ?? []
     }
 
     func sortMode(for boardID: String) -> TaskSortMode { sortModes[boardID] ?? .manual }
     mutating func setSortMode(_ mode: TaskSortMode, for boardID: String) { sortModes[boardID] = mode }
+
+    func orderedBoards(_ lists: [TaskList]) -> [TaskList] {
+        var byID: [String: TaskList] = [:]
+        for list in lists { byID[list.id] = list }
+        var seen = Set<String>()
+        let saved = boardOrder.compactMap { id -> TaskList? in
+            guard let list = byID[id], seen.insert(id).inserted else { return nil }
+            return list
+        }
+        return saved + lists.filter { seen.insert($0.id).inserted }
+    }
+
+    @discardableResult
+    mutating func moveBoard(_ boardID: String, toward targetID: String, in lists: [TaskList]) -> Bool {
+        var ids = orderedBoards(lists).map(\.id)
+        guard boardID != targetID, let source = ids.firstIndex(of: boardID), let target = ids.firstIndex(of: targetID) else { return false }
+        ids.remove(at: source)
+        ids.insert(boardID, at: target)
+        boardOrder = ids
+        return true
+    }
 
     static func load(from defaults: UserDefaults = .standard, key: String) -> Self {
         guard let data = defaults.data(forKey: key), let value = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }

@@ -19,6 +19,30 @@ extension InvariantTests {
         return object
     }
 
+    static func testTaskBoardOrder() throws {
+        let boards = ["a", "b", "c"].map { TaskList(id: $0, title: $0, updated: nil) }
+        var preferences = TaskWorkspacePreferences(sortModes: ["a": .date])
+        try check(preferences.orderedBoards(boards) == boards, "initial board order follows the server without losing boards")
+        try check(preferences.moveBoard("a", toward: "c", in: boards) && preferences.boardOrder == ["b", "c", "a"], "dragging toward last moves the source to the target index")
+        try check(preferences.moveBoard("a", toward: "b", in: boards) && preferences.boardOrder == ["a", "b", "c"], "dragging toward first moves the source to the target index")
+        let before = preferences
+        try check(!preferences.moveBoard("foreign", toward: "a", in: boards) && preferences == before, "unknown drag identity cannot mutate saved order")
+        try check(!preferences.moveBoard("a", toward: "a", in: boards) && preferences == before, "self drop is a no-op")
+        preferences.boardOrder = ["c", "gone", "c", "a"]
+        let newBoard = TaskList(id: "d", title: "d", updated: nil)
+        let current = [boards[0], boards[2], newBoard]
+        try check(preferences.orderedBoards(current).map(\.id) == ["c", "a", "d"], "deleted boards and duplicate saved IDs are omitted, new boards append")
+        let suite = "board-order-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        preferences.save(to: defaults, key: "account-a")
+        let restored = TaskWorkspacePreferences.load(from: defaults, key: "account-a")
+        try check(restored.orderedBoards(current).map(\.id) == ["c", "a", "d"] && restored.sortMode(for: "a") == .date, "restart preserves ordering and board sorting together")
+        try check(TaskWorkspacePreferences.load(from: defaults, key: "account-b").boardOrder.isEmpty, "board order stays isolated by workspace")
+        let legacy = try JSONDecoder().decode(TaskWorkspacePreferences.self, from: Data("{\"sortModes\":{\"a\":\"date\"}}".utf8))
+        try check(legacy.boardOrder.isEmpty && legacy.sortMode(for: "a") == .date, "old sorting preferences migrate without losing selections")
+    }
+
     static func testTaskDateGroups() throws {
         let today = DateOnly(rawValue: "2026-10-12")!
         let tasks = [orderedTask("later", due: "2026-11-01"), orderedTask("old", due: "2026-10-11"),

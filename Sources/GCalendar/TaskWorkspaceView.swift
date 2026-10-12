@@ -12,7 +12,7 @@ struct TaskWorkspaceView: View {
         TaskWorkspacePresentation(rawValue: presentationRawValue) ?? .defaultMode
     }
     private var boardGroups: [TaskBoardGroup] {
-        let lists = model.snapshot.taskLists.filter { model.selectedTaskListID == nil || $0.id == model.selectedTaskListID }
+        let lists = model.orderedTaskLists.filter { model.selectedTaskListID == nil || $0.id == model.selectedTaskListID }
         return TaskWorkspaceLayout.boardGroups(model.visibleTasks, lists: lists).map {
             TaskBoardGroup(board: $0.board, tasks: TaskOrdering.sorted($0.tasks, mode: model.taskSortMode(for: $0.id)))
         }
@@ -83,7 +83,8 @@ struct TaskWorkspaceView: View {
                         HStack(alignment: .top, spacing: 16) {
                             ForEach(boardGroups) { group in
                                 TaskBoardView(group: group, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
-                                              draggedTask: $interaction.draggedTask, onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
+                                              draggedTask: $interaction.draggedTask, draggedBoard: $interaction.draggedBoard,
+                                              onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
                                     .frame(width: width, height: max(120, geometry.size.height - 8)).id(group.id)
                             }
                         }.padding(.horizontal, 24).padding(.vertical, 4)
@@ -137,7 +138,7 @@ struct TaskWorkspaceView: View {
                 if model.selectedTaskListID == nil { Label("Все доски", systemImage: "checkmark") } else { Text("Все доски") }
             }
             Divider()
-            ForEach(model.snapshot.taskLists) { list in
+            ForEach(model.orderedTaskLists) { list in
                 Button { model.selectedTaskListID = list.id } label: {
                     if model.selectedTaskListID == list.id { Label(list.title, systemImage: "checkmark") } else { Text(list.title) }
                 }
@@ -195,6 +196,7 @@ struct TaskWorkspaceView: View {
 private struct TaskBoardMenu: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     let board: TaskList?
+    var allowsBoardReordering = false
     @StateObject private var interaction = TaskWorkspaceInteraction()
 
     private var completedTasks: [GoogleTask] {
@@ -214,6 +216,13 @@ private struct TaskBoardMenu: View {
                 }
             }
             Divider()
+            if allowsBoardReordering, let board {
+                Button("Переместить доску левее", systemImage: "arrow.left") { model.shiftTaskBoard(board.id, direction: -1) }
+                    .disabled(!model.canShiftTaskBoard(board.id, direction: -1))
+                Button("Переместить доску правее", systemImage: "arrow.right") { model.shiftTaskBoard(board.id, direction: 1) }
+                    .disabled(!model.canShiftTaskBoard(board.id, direction: 1))
+                Divider()
+            }
             Button("Удалить выполненные…", role: .destructive) {
                 interaction.confirmedTasks = completedTasks
                 interaction.showingDelete = true
@@ -233,8 +242,15 @@ private struct TaskDragSession {
     let task: GoogleTask
 }
 
+private struct TaskBoardDragSession {
+    let token = UUID().uuidString
+    let boardID: String
+}
+
 private final class TaskWorkspaceInteraction: ObservableObject {
     @Published var draggedTask: TaskDragSession?
+    @Published var draggedBoard: TaskBoardDragSession?
+    @Published var isDropTargeted = false
     @Published var confirmedTasks: [GoogleTask] = []
     @Published var showingDelete = false
 }
@@ -244,17 +260,13 @@ private struct TaskBoardView: View {
     let selectedIdentity: TaskSelectionIdentity?
     let keyboardFocused: Bool
     @Binding var draggedTask: TaskDragSession?
+    @Binding var draggedBoard: TaskBoardDragSession?
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text(group.board.title).font(.headline).lineLimit(2)
-                Spacer()
-                Text("\(group.tasks.count)").font(.caption).foregroundStyle(AppTheme.textSecondary)
-                TaskBoardMenu(board: group.board)
-            }
+            TaskBoardHeader(board: group.board, taskCount: group.tasks.count, draggedBoard: $draggedBoard)
             ScrollViewReader { proxy in
                 ScrollView {
                     TaskBoardRows(tasks: group.tasks, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
@@ -270,6 +282,47 @@ private struct TaskBoardView: View {
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1).allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct TaskBoardHeader: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
+    let board: TaskList
+    let taskCount: Int
+    @Binding var draggedBoard: TaskBoardDragSession?
+    @StateObject private var interaction = TaskWorkspaceInteraction()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal").font(.caption).foregroundStyle(AppTheme.textSecondary).accessibilityHidden(true)
+                Text(board.title).font(.headline).lineLimit(2)
+                Spacer()
+                Text("\(taskCount)").font(.caption).foregroundStyle(AppTheme.textSecondary)
+            }
+            .padding(.vertical, 4).contentShape(Rectangle())
+            .background(interaction.isDropTargeted ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+            .pointingHandCursor().help("Перетащите заголовок, чтобы изменить порядок досок")
+            .onDrag {
+                let session = TaskBoardDragSession(boardID: board.id)
+                draggedBoard = session
+                return NSItemProvider(object: ("g-calendar-board:" + session.token) as NSString)
+            }
+            .onDrop(of: [UTType.plainText], isTargeted: $interaction.isDropTargeted) { providers in
+                guard let session = draggedBoard, session.boardID != board.id,
+                      let provider = providers.first, provider.canLoadObject(ofClass: NSString.self) else { return false }
+                provider.loadObject(ofClass: NSString.self) { value, _ in
+                    guard let value = value as? String, value == "g-calendar-board:" + session.token else { return }
+                    DispatchQueue.main.async {
+                        guard draggedBoard?.token == session.token else { return }
+                        draggedBoard = nil
+                        model.moveTaskBoard(session.boardID, toward: board.id)
+                    }
+                }
+                return true
+            }
+            TaskBoardMenu(board: board, allowsBoardReordering: true)
+        }
     }
 }
 
