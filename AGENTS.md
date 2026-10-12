@@ -4,6 +4,7 @@
 - This is a native SwiftUI/AppKit macOS app; no package-manager workflow is required.
 - Use `./scripts/build-app.sh` and `./scripts/test.sh` for the project build and invariant suite.
 - After completing an implementation session (one or several features/fixes), rebuild with `./scripts/build-app.sh` so `dist/g-calendar.app` contains the latest changes before handing off for manual UI testing. Report the resulting bundle path; do not claim UI verification from a successful build.
+- Use computer-use for checks only when the user explicitly requests it.
 
 ## Commit Attribution
 - Repository scope: `/Users/alexbeketov/g-calendar` only.
