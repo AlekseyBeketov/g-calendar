@@ -161,3 +161,11 @@ The application MUST expose launch-at-login registration with actual system stat
 #### Scenario: Toggle launch at login
 - **WHEN** The user enables launch at login
 - **THEN** SMAppService registers the main app and settings show the resulting status
+
+
+### Requirement: Sidebar workspace boundary
+The visible sidebar SHALL have a thin native gray separator along the leading edge of the detail workspace, matching the native window separator tone in light and dark appearances. The decoration SHALL not receive pointer or accessibility input and SHALL disappear when the sidebar is hidden, preserving native split resizing.
+
+#### Scenario: Hide or resize the sidebar
+- **WHEN** a user hides, restores or resizes the sidebar
+- **THEN** the boundary follows visibility and detail geometry without adding a control or changing resizing behavior

@@ -36,6 +36,12 @@ struct RootView: View {
             .clipped()
             }
             .background(AppTheme.surface)
+            .overlay(alignment: .leading) {
+                if local.columnVisibility != .detailOnly {
+                    Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
             .toolbar {
                 WorkspaceToolbar(isCalendar: model.section == .calendar,
                                  searchText: $model.searchText,

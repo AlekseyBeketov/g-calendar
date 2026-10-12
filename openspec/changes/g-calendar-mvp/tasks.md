@@ -120,7 +120,7 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 14.3 Responsive smooth scrolling with native precise input and Reduce Motion.
 - [x] 14.4 Task sorting, manual ordering and board menus with verified completed-task deletion.
 - [x] 14.5 Readable date groups in date sorting.
-- [ ] 14.6 Thin sidebar separator.
+- [x] 14.6 Thin sidebar separator.
 - [ ] 14.7 Persistent board ordering in column presentation.
 - [ ] 14.8 Add task directly to a board from its header.
 - [ ] 14.2 Deferred: verify Google task-time transport, then implement automatic notifications.
