@@ -297,6 +297,7 @@ struct InvariantTests {
         run("cached-event-mutations-and-overlap-invalidation", testCachedEventMutation)
         run("navigation-during-day-revalidation-recovers-week-coverage", testNavigationDuringDayRevalidation)
         await runAsync("accepted-proof-invalidates-across-scheduler-await", testObsoleteReminderProof)
+        run("responsive-scroll-interpolation", testScrollInterpolation)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
@@ -2984,5 +2985,22 @@ struct InvariantTests {
         }
         try check(failedRangeStore.load() == baseline.snapshot,
                   "failed calendar range refresh must preserve the last complete cache snapshot")
+    }
+
+    static func testScrollInterpolation() throws {
+        var motion = ScrollInterpolation(value: 20, time: 0)
+        motion.retarget(by: 100, at: 0, lowerBound: 0, upperBound: 200)
+        try check(motion.value(at: 0) == 20 && motion.targetValue == 120, "wheel starts at current position")
+        let samples = (0...10).map { motion.value(at: Double($0) / 100) }
+        try check(zip(samples, samples.dropFirst()).allSatisfy { $0 <= $1 }, "scroll must approach the target monotonically")
+        try check(motion.isComplete(at: 0.11) && motion.value(at: 0.11) == 120, "wheel settles within a short bounded interval")
+        motion.retarget(by: 500, at: 0.11, lowerBound: 0, upperBound: 200)
+        try check(motion.targetValue == 200, "scroll target cannot cross the document boundary")
+        let before = motion.value(at: 0.14)
+        motion.retarget(by: 30, at: 0.14, lowerBound: 0, upperBound: 200)
+        try check(abs(motion.value(at: 0.14) - before) < 0.000001 && motion.targetValue == 200, "repeated wheel input stays continuous and bounded")
+        let reversal = motion.value(at: 0.16)
+        motion.retarget(by: -20, at: 0.16, lowerBound: 0, upperBound: 200)
+        try check(abs(motion.value(at: 0.16) - reversal) < 0.000001 && motion.targetValue < reversal, "direction reversal responds immediately without old inertia")
     }
 }

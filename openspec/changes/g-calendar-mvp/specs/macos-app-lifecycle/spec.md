@@ -1,5 +1,20 @@
 ## ADDED Requirements
 
+### Requirement: Responsive smooth scrolling
+The application SHALL smooth coarse mouse-wheel steps over a short bounded interval in scrollable task, calendar, sidebar and form surfaces. Precise trackpad input and native momentum SHALL keep native behavior. New direct input SHALL cancel an outstanding interpolation without jumping to its target; exhausted inner scroll regions SHALL permit their scrollable parent to receive input. Reduce Motion SHALL disable added interpolation and selection animations.
+
+#### Scenario: Use a coarse wheel
+- **WHEN** a non-precise wheel step reaches a scrollable application surface
+- **THEN** its displacement settles within approximately 0.12 seconds, with bounded coordinates and without long additional inertia
+
+#### Scenario: Use precise input or interrupt scrolling
+- **WHEN** the user uses a trackpad, drags a scrollbar or presses a key during interpolation
+- **THEN** pending interpolation stops and the new native input remains responsive
+
+#### Scenario: Navigate tasks with the keyboard
+- **WHEN** keyboard selection moves to an offscreen task and Reduce Motion is disabled
+- **THEN** the selection scrolls into view with a short ease-out animation; initial placement remains immediate
+
 ### Requirement: Approved Pixel Paper identity includes Color Atlas task metadata
 The app SHALL use the owner-approved Pixel Paper visual foundation with solid light-first surfaces, blue primary accent, native SF typography and classic sidebar. Task rows SHALL adopt aligned due/status, list tags and existing local metadata from Color Atlas. System/Dark SHALL remain supported; the rejected rail/glass/combined-calendar-pane concepts SHALL NOT be introduced by this change.
 

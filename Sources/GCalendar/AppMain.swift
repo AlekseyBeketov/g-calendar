@@ -962,6 +962,10 @@ final class WorkspaceViewModel: ObservableObject {
 }
 
 final class GCalendarAppDelegate: NSObject, NSApplicationDelegate {
+    private let smoothScrolling = SmoothScrollController()
+
+    func applicationDidFinishLaunching(_ notification: Notification) { smoothScrolling.start() }
+    func applicationWillTerminate(_ notification: Notification) { smoothScrolling.stop() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 

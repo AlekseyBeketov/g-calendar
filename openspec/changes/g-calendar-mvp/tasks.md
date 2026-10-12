@@ -117,7 +117,7 @@ Developer ID credentials, license/publication approval, real published installer
 ## 14. Workspace improvements (2026-10-12)
 
 - [x] 14.1 Local Graphify/tgrep indexes, ignored caches and repeatable refresh instructions.
-- [ ] 14.3 Responsive smooth scrolling with native precise input and Reduce Motion.
+- [x] 14.3 Responsive smooth scrolling with native precise input and Reduce Motion.
 - [ ] 14.4 Task sorting, manual ordering and board menus with verified completed-task deletion.
 - [ ] 14.5 Readable date groups in date sorting.
 - [ ] 14.6 Thin sidebar separator.

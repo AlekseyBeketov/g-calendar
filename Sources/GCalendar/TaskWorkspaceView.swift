@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TaskWorkspaceView: View {
     @EnvironmentObject private var model: WorkspaceViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var local = ViewLocalState()
     @AppStorage("taskWorkspacePresentation") private var presentationRawValue = TaskWorkspacePresentation.defaultMode.rawValue
 
@@ -90,7 +91,7 @@ struct TaskWorkspaceView: View {
                                 .scrollIndicators(.visible)
                                 .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .top) }
                                 .onChange(of: local.selectedTaskIdentity) { identity in
-                                    if let identity { proxy.scrollTo(identity) }
+                                    if let identity { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) } }
                                 }
                             }
                         } else {
@@ -113,7 +114,7 @@ struct TaskWorkspaceView: View {
                                 .scrollIndicators(.visible)
                                 .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .topLeading) }
                                 .onChange(of: local.selectedTaskIdentity) { identity in
-                                    if let identity { proxy.scrollTo(identity.taskListID, anchor: .leading) }
+                                    if let identity { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity.taskListID, anchor: .leading) } }
                                 }
                             }
                         }
@@ -134,7 +135,7 @@ struct TaskWorkspaceView: View {
                     .scrollIndicators(.visible)
                     .onAppear { proxy.scrollTo(TaskWorkspaceLayout.topScrollAnchorID, anchor: .top) }
                     .onChange(of: local.selectedTaskIdentity) { identity in
-                        if let identity { proxy.scrollTo(identity) }
+                        if let identity { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) } }
                     }
                 }
             }
@@ -284,6 +285,7 @@ struct TaskWorkspaceView: View {
 }
 
 private struct TaskColumn: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let tasks: [GoogleTask]
     let selectedIdentity: TaskSelectionIdentity?
@@ -315,7 +317,9 @@ private struct TaskColumn: View {
                     if let selectedIdentity, tasks.contains(where: { $0.selectionIdentity == selectedIdentity }) { proxy.scrollTo(selectedIdentity) }
                 }
                 .onChange(of: selectedIdentity) { identity in
-                    if let identity, tasks.contains(where: { $0.selectionIdentity == identity }) { proxy.scrollTo(identity) }
+                    if let identity, tasks.contains(where: { $0.selectionIdentity == identity }) {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) }
+                    }
                 }
             }
         }
