@@ -19,6 +19,23 @@ extension InvariantTests {
         return object
     }
 
+    static func testTaskDateGroups() throws {
+        let today = DateOnly(rawValue: "2026-10-12")!
+        let tasks = [orderedTask("later", due: "2026-11-01"), orderedTask("old", due: "2026-10-11"),
+                     orderedTask("today-b", due: "2026-10-12"), orderedTask("today-a", due: "2026-10-12"),
+                     orderedTask("tomorrow", due: "2026-10-13"), orderedTask("undated"), orderedTask("done", due: "2026-10-11", completed: true)]
+        let groups = TaskOrdering.dateGroups(tasks, today: today)
+        try check(groups.map(\.id) == ["overdue", "date:2026-10-12", "date:2026-10-13", "date:2026-11-01", "undated", "completed"], "date groups are chronological, sparse and stable")
+        try check(groups[0].isOverdue && groups[1].isToday && groups[1].title == "Сегодня" && groups[2].title == "Завтра", "date group semantics and relative labels")
+        try check(groups[1].tasks.map(\.id) == ["today-a", "today-b"] && groups.last?.tasks.map(\.id) == ["done"], "same-date ties and completed isolation")
+        try check(groups.flatMap(\.tasks).count == tasks.count && Set(groups.flatMap(\.tasks).map(\.id)).count == tasks.count, "date grouping retains each identity once")
+        let shifted = TaskOrdering.dateGroups(tasks, today: today.adding(days: 1)!)
+        try check(shifted.first?.tasks.count == 3 && shifted.first(where: { $0.id == "date:2026-10-13" })?.isToday == true, "day rollover updates overdue scope and today without changing date identity")
+        try check(TaskOrdering.dateGroups([], today: today).isEmpty, "empty scopes create no empty date headers")
+        let newYear = TaskOrdering.dateGroups([orderedTask("next-year", due: "2027-01-01")], today: DateOnly(rawValue: "2026-12-31")!)
+        try check(newYear.first?.title == "Завтра", "tomorrow handles month and year rollover")
+    }
+
     static func testTaskOrdering() throws {
         let old = Data("{\"id\":\"old\",\"taskListID\":\"board\",\"title\":\"Old cache\",\"completed\":false,\"deleted\":false}".utf8)
         let legacy = try JSONDecoder().decode(GoogleTask.self, from: old)

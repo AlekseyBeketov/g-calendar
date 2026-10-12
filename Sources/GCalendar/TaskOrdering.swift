@@ -110,3 +110,39 @@ struct TaskWorkspacePreferences: Codable, Equatable {
         if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: key) }
     }
 }
+
+struct TaskDateGroup: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let tasks: [GoogleTask]
+    var isOverdue = false
+    var isToday = false
+}
+
+extension TaskOrdering {
+    static func dateGroups(_ tasks: [GoogleTask], today: DateOnly) -> [TaskDateGroup] {
+        let ordered = sorted(tasks.filter { !$0.deleted }, mode: .date)
+        let active = ordered.filter { !$0.completed }
+        var groups: [TaskDateGroup] = []
+        let overdue = active.filter { $0.due.map { $0 < today } ?? false }
+        if !overdue.isEmpty { groups.append(TaskDateGroup(id: "overdue", title: "Просроченные", tasks: overdue, isOverdue: true)) }
+        let dated = active.filter { $0.due.map { $0 >= today } ?? false }
+        let byDate = Dictionary(grouping: dated, by: { $0.due! })
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "d MMMM yyyy"
+        for day in byDate.keys.sorted() {
+            let title: String
+            if day == today { title = "Сегодня" }
+            else if day == today.adding(days: 1) { title = "Завтра" }
+            else { title = day.startOfDay(in: formatter.timeZone).map(formatter.string(from:)) ?? day.description }
+            groups.append(TaskDateGroup(id: "date:" + day.description, title: title, tasks: byDate[day] ?? [], isToday: day == today))
+        }
+        let undated = active.filter { $0.due == nil }
+        if !undated.isEmpty { groups.append(TaskDateGroup(id: "undated", title: "Без срока", tasks: undated)) }
+        let completed = ordered.filter(\.completed)
+        if !completed.isEmpty { groups.append(TaskDateGroup(id: "completed", title: "Готово", tasks: completed)) }
+        return groups
+    }
+}

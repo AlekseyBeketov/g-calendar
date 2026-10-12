@@ -148,3 +148,12 @@ Each board SHALL support Manual, Date and Title sorting through a three-dot menu
 - **THEN** those exact identities are deleted sequentially, with a fresh completed-state read before each delete and exact absence verification afterward
 - **AND** tasks reopened meanwhile are protected, partial progress is reported and unverified writes stop the sequence without repeating them
 - **AND** search and filters do not silently narrow or widen the confirmed deletion set
+
+
+### Requirement: Readable date boundaries
+Date sorting SHALL use the same date groups in list and column presentation: Overdue, Today, Tomorrow, each later date, Without Due, and Completed. Only nonempty groups SHALL render. Headers SHALL have a larger top gap between groups, accessible heading semantics and distinct overdue/today emphasis without increasing every task row height. Manual and Title sorts SHALL not group by date.
+
+#### Scenario: Display and advance date groups
+- **WHEN** date-sorted tasks cover several days, missing dates and completion states
+- **THEN** each task appears once in chronological groups, with undated and completed tasks last
+- **AND** changing the local day updates relative labels and overdue membership while concrete date IDs remain stable

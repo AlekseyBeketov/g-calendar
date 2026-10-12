@@ -297,6 +297,7 @@ struct InvariantTests {
         run("cached-event-mutations-and-overlap-invalidation", testCachedEventMutation)
         run("navigation-during-day-revalidation-recovers-week-coverage", testNavigationDuringDayRevalidation)
         await runAsync("accepted-proof-invalidates-across-scheduler-await", testObsoleteReminderProof)
+        run("task-date-group-spacing-projection", testTaskDateGroups)
         run("responsive-scroll-interpolation", testScrollInterpolation)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)

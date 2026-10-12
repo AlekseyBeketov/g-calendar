@@ -285,11 +285,24 @@ private struct TaskBoardRows: View {
         let firstCompleted = tasks.first(where: { $0.completed })?.selectionIdentity
         LazyVStack(alignment: .leading, spacing: 0) {
             if tasks.isEmpty { Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 5) }
-            ForEach(tasks, id: \.selectionIdentity) { task in
-                if task.completed && firstCompleted == task.selectionIdentity {
-                    Text("Готово").font(.caption.weight(.semibold)).foregroundStyle(AppTheme.textSecondary).padding(.top, 12).padding(.bottom, 4)
+            if let boardID = tasks.first?.taskListID, model.taskSortMode(for: boardID) == .date {
+                let groups = TaskOrdering.dateGroups(tasks, today: model.localToday)
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(group.title).font(.callout.weight(.semibold))
+                            .foregroundStyle(group.isOverdue ? AppTheme.overdue : group.isToday ? AppTheme.accent : AppTheme.textSecondary)
+                            .padding(.leading, 8).padding(.top, index == 0 ? 4 : 18).padding(.bottom, 6)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(group.tasks, id: \.selectionIdentity) { task in draggableRow(task) }
+                    }
                 }
-                draggableRow(task)
+            } else {
+                ForEach(tasks, id: \.selectionIdentity) { task in
+                    if task.completed && firstCompleted == task.selectionIdentity {
+                        Text("Готово").font(.caption.weight(.semibold)).foregroundStyle(AppTheme.textSecondary).padding(.top, 12).padding(.bottom, 4)
+                    }
+                    draggableRow(task)
+                }
             }
         }
     }
