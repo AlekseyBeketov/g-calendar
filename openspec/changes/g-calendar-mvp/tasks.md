@@ -112,3 +112,17 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 13.4 Reduce repeated calendar projections and unnecessary UI work; preserve native cursor and keyboard contracts.
 - [x] 13.5 Verify synthetic invariants, rebuild the app and push the approved optimization commits to main.
 - [x] 13.6 Implement Google REST/OAuth in a separate branch, prepare OpenResearch comparison, and verify before the owner's authorization gate.
+
+
+## 14. Workspace improvements (2026-10-12)
+
+- [x] 14.1 Local Graphify/tgrep indexes, ignored caches and repeatable refresh instructions.
+- [ ] 14.3 Responsive smooth scrolling with native precise input and Reduce Motion.
+- [ ] 14.4 Task sorting, manual ordering and board menus with verified completed-task deletion.
+- [ ] 14.5 Readable date groups in date sorting.
+- [ ] 14.6 Thin sidebar separator.
+- [ ] 14.7 Persistent board ordering in column presentation.
+- [ ] 14.8 Add task directly to a board from its header.
+- [ ] 14.2 Deferred: verify Google task-time transport, then implement automatic notifications.
+
+Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. No push.

@@ -23,3 +23,10 @@
 ## Local Skills
 - Follow the active Hermes `coder` profile skills when relevant; do not copy profile skill content into this repository.
 - For structured product changes, use the repository's OpenSpec change at `openspec/changes/g-calendar-mvp/` when the installed CLI is available.
+
+## Code Navigation
+- Use `structural-code-search-v3` for retrieval and `code-indexing` for explicit index updates. This repository keeps derived caches in ignored `/.local-indexes/` by owner request.
+- After important source commits, run `rtk proxy ./scripts/index-code.sh`; use `--force` after large renames/deletions, branch changes or index corruption. Indexing includes uncommitted source changes.
+- Graph: `.local-indexes/graphify/graphify-out/graph.json`; text index: `.local-indexes/tgrep`; verified snapshot: `.local-indexes/manifest.json`.
+- Run Graphify retrieval from `.local-indexes/`: `rtk proxy graphify query "symbol" --graph graphify/graphify-out/graph.json` (Graphify writes auxiliary caches in the current directory). From the repository root use `rtk proxy tgrep --index-path .local-indexes/tgrep "symbol" .`.
+- Swift AST relationships are navigation hints; verify overloads, dynamic dispatch and SwiftUI result-builder behavior against current source. Retrieval never rebuilds indexes automatically.

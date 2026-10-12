@@ -22,6 +22,8 @@ xcuserdata/
 .codegraph/
 .hermes/
 /.worktrees/
+/.local-indexes/
+/graphify-out/
 
 # macOS Finder and AppleDouble metadata
 .DS_Store
