@@ -125,7 +125,7 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 14.8 Add task directly to a board from its header.
 - [ ] 14.2 Deferred: verify Google task-time transport, then implement automatic notifications.
 
-Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. No push.
+Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. Push to main when explicitly requested by the owner.
 
 ## 15. Unified task list (2026-10-13)
 
