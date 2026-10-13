@@ -11,6 +11,8 @@ struct PendingMutation: Codable, Equatable, Identifiable {
     var expectedTask: GoogleTask?
     var taskDestinationListID: String?
     var contextIdentity: String?
+    // One durable lease covers a bounded group of independent completed deletes.
+    var relatedCompletedDeletes: [PendingMutation]?
 
     init(invocation: ProcessInvocation) {
         id = UUID()
@@ -129,12 +131,18 @@ final class MutationJournal: @unchecked Sendable {
     }
 
     @discardableResult
-    func begin(_ invocation: ProcessInvocation) throws -> UUID {
+    func begin(_ invocation: ProcessInvocation, relatedCompletedDeletes: [ProcessInvocation] = []) throws -> UUID {
         try withExclusiveAccess {
             try reload()
             guard !invalid else { throw MutationRecoveryFailure.corruptJournal }
             guard record == nil else { throw MutationRecoveryFailure.pendingVerification }
-            let value = PendingMutation(invocation: invocation)
+            var value = PendingMutation(invocation: invocation)
+            if !relatedCompletedDeletes.isEmpty {
+                guard ([invocation] + relatedCompletedDeletes).allSatisfy({ $0.operation == .taskDelete && $0.expectedTask?.completed == true && $0.contextIdentity == invocation.contextIdentity }) else {
+                    throw GWSFailure.forbiddenOperation
+                }
+                value.relatedCompletedDeletes = relatedCompletedDeletes.map { PendingMutation(invocation: $0) }
+            }
             try persist(value)
             record = value
             reviewState = .pending(value.id)
@@ -161,6 +169,24 @@ final class MutationJournal: @unchecked Sendable {
             if let fileURL { try FileManager.default.removeItem(at: fileURL) }
             record = nil
             reviewState = .absent
+        }
+    }
+
+    func retainCompletedDeletes(_ unresolved: Set<TaskSelectionIdentity>, expectedID: UUID) throws {
+        try withExclusiveAccess {
+            try reload()
+            guard !invalid, let value = record, value.id == expectedID else { throw MutationRecoveryFailure.pendingVerification }
+            var remaining = ([value] + (value.relatedCompletedDeletes ?? [])).filter {
+                $0.expectedTask.map { unresolved.contains($0.selectionIdentity) } ?? false
+            }
+            guard !remaining.isEmpty else { try clear(expectedID: expectedID); return }
+            var first = remaining.removeFirst()
+            first.relatedCompletedDeletes = remaining.isEmpty ? nil : remaining.map { item in
+                var item = item; item.relatedCompletedDeletes = nil; return item
+            }
+            try persist(first)
+            record = first
+            reviewState = .pending(first.id)
         }
     }
 
@@ -249,11 +275,131 @@ final class MutationJournal: @unchecked Sendable {
     }
 }
 
+struct CompletedTaskDeletionResult {
+    var verified: [ProcessInvocation] = []
+    var skipped = 0
+    var failure: Error?
+}
+
+private final class CompletedDeleteResults<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Int: Result<Value, Error>] = [:]
+
+    func set(_ value: Result<Value, Error>, at index: Int) {
+        lock.lock(); defer { lock.unlock() }
+        values[index] = value
+    }
+
+    static func map(_ invocations: [ProcessInvocation], action: @escaping (ProcessInvocation) throws -> Value) -> [Result<Value, Error>] {
+        let results = CompletedDeleteResults<Value>()
+        DispatchQueue.concurrentPerform(iterations: invocations.count) { index in
+            results.set(Result { try action(invocations[index]) }, at: index)
+        }
+        return invocations.indices.map { results.values[$0]! }
+    }
+}
+
+private struct CompletedDeleteUnsubmittedFailure: Error {
+    let cause: Error
+}
+
 struct RecoverableMutationService {
     let runner: GWSProcessRunning
     let journal: MutationJournal
     var onAccepted: ((PendingMutation) throws -> Void)? = nil
     var beforeCompletion: ((GWSMutationResult, PendingMutation) throws -> Void)? = nil
+
+    func performCompletedDeletes(_ invocations: [ProcessInvocation], reader: GWSReadClient) -> CompletedTaskDeletionResult {
+        var outcome = CompletedTaskDeletionResult()
+        do {
+            var identities = Set<TaskSelectionIdentity>()
+            for invocation in invocations {
+                guard invocation.operation == .taskDelete, let task = invocation.expectedTask, task.completed, !task.deleted,
+                      invocation.contextIdentity == reader.factory.contextIdentity,
+                      invocation.executableURL == reader.factory.executableURL,
+                      (reader.factory.executableURL == GWSCommandFactory.restMarker) == (invocation.contextIdentity != nil),
+                      WorkspaceSnapshotReducer.parameters(invocation)["task"] == task.id,
+                      WorkspaceSnapshotReducer.parameters(invocation)["tasklist"] == task.taskListID,
+                      !invocation.arguments.contains("--json"), identities.insert(task.selectionIdentity).inserted else {
+                    throw GWSFailure.forbiddenOperation
+                }
+            }
+            let tasksByList = Dictionary(grouping: invocations.compactMap(\.expectedTask), by: \.taskListID).mapValues {
+                Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
+            }
+            func isAncestor(_ ancestor: GoogleTask, of task: GoogleTask) -> Bool {
+                guard ancestor.taskListID == task.taskListID else { return false }
+                var parent = task.parent, visited = Set<String>()
+                while let id = parent, visited.insert(id).inserted {
+                    if id == ancestor.id { return true }
+                    parent = tasksByList[task.taskListID]?[id]?.parent
+                }
+                return false
+            }
+            try journal.withExclusiveAccess {
+                guard !journal.isBlocked else { throw journal.blockingFailure ?? MutationRecoveryFailure.pendingVerification }
+                var remaining = invocations
+                while !remaining.isEmpty {
+                    var window: [ProcessInvocation] = [], selected = Set<Int>()
+                    for (index, invocation) in remaining.enumerated() {
+                        let task = invocation.expectedTask!
+                        // A task and its confirmed ancestors never share a concurrent window.
+                        let dependent = window.contains { other in
+                            let otherTask = other.expectedTask!
+                            return isAncestor(task, of: otherTask) || isAncestor(otherTask, of: task)
+                        }
+                        if !dependent { window.append(invocation); selected.insert(index) }
+                        if window.count == 4 { break }
+                    }
+                    remaining = remaining.enumerated().filter { !selected.contains($0.offset) }.map(\.element)
+                    let preflight = CompletedDeleteResults<Bool>.map(window) { invocation in
+                        let expected = invocation.expectedTask!
+                        guard let current = try reader.task(taskListID: expected.taskListID, taskID: expected.id) else { return false }
+                        return current.id == expected.id && current.taskListID == expected.taskListID && current.completed && !current.deleted && current.parent == expected.parent
+                    }
+                    var ready: [ProcessInvocation] = []
+                    for (invocation, result) in zip(window, preflight) {
+                        if try result.get() { ready.append(invocation) } else { outcome.skipped += 1 }
+                    }
+                    guard let first = ready.first else { continue }
+                    let attemptID = try journal.begin(first, relatedCompletedDeletes: Array(ready.dropFirst()))
+                    let writes = CompletedDeleteResults<GWSMutationResult>.map(ready) { invocation in
+                        let response: ProcessResult
+                        do { response = try runner.run(invocation) }
+                        catch {
+                            let unsubmitted = invocation.executableURL == GWSCommandFactory.restMarker && error is GoogleRESTUnsubmittedFailure
+                            let processNotStarted = (error as? GWSFailure).map { [.executableUnavailable, .invalidExecutablePath, .forbiddenOperation].contains($0) } ?? false
+                            if unsubmitted || processNotStarted { throw CompletedDeleteUnsubmittedFailure(cause: error) }
+                            throw error
+                        }
+                        // Even a failed DELETE response can follow a successful remote deletion.
+                        let verified = try GWSMutationService(runner: runner).verifyAccepted(invocation, response: response.stdout, reader: reader)
+                        guard verified == .resourceDeleted else { throw MutationRecoveryFailure.pendingVerification }
+                        return verified
+                    }
+                    var unresolved = Set<TaskSelectionIdentity>()
+                    for (invocation, result) in zip(ready, writes) {
+                        switch result {
+                        case .success:
+                            outcome.verified.append(invocation)
+                        case .failure(let error):
+                            if let unsubmitted = error as? CompletedDeleteUnsubmittedFailure {
+                                outcome.failure = unsubmitted.cause
+                            } else {
+                                unresolved.insert(invocation.expectedTask!.selectionIdentity)
+                                outcome.failure = error
+                            }
+                        }
+                    }
+                    try journal.retainCompletedDeletes(unresolved, expectedID: attemptID)
+                    if outcome.failure != nil { break }
+                }
+            }
+        } catch {
+            outcome.failure = error
+        }
+        return outcome
+    }
 
     func perform(_ invocation: ProcessInvocation, reader: GWSReadClient) throws -> GWSMutationResult {
         guard invocation.contextIdentity == reader.factory.contextIdentity,
@@ -336,6 +482,16 @@ struct RecoverableMutationService {
             guard record.contextIdentity == reader.factory.contextIdentity,
                   (reader.factory.executableURL == GWSCommandFactory.restMarker) == (record.contextIdentity != nil) else { throw GWSFailure.forbiddenOperation }
             guard let id = record.resourceID else { throw MutationRecoveryFailure.unknownIdentity }
+            if let related = record.relatedCompletedDeletes {
+                for item in related {
+                    guard item.operation == .taskDelete, item.expectedTask?.completed == true,
+                          item.contextIdentity == record.contextIdentity, let resourceID = item.resourceID else { throw GWSFailure.forbiddenOperation }
+                    let response = try JSONSerialization.data(withJSONObject: ["id": resourceID])
+                    let verified = try GWSMutationService(runner: runner).verifyAccepted(item.invocation(executableURL: reader.factory.executableURL), response: response, reader: reader)
+                    guard verified == .resourceDeleted else { throw MutationRecoveryFailure.pendingVerification }
+                    try beforeCompletion?(verified, item)
+                }
+            }
             let response = try JSONSerialization.data(withJSONObject: ["id": id])
             let result = try GWSMutationService(runner: runner).verifyAccepted(record.invocation(executableURL: reader.factory.executableURL),
                                                                              response: response, reader: reader)

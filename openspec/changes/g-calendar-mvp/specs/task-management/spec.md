@@ -145,8 +145,8 @@ Each board SHALL support Manual, Date and Title sorting through a three-dot menu
 
 #### Scenario: Delete completed tasks
 - **WHEN** a user confirms the exact completed-task set and scope displayed in the deletion dialog
-- **THEN** those exact identities are deleted sequentially, with a fresh completed-state read before each delete and exact absence verification afterward
-- **AND** tasks reopened meanwhile are protected, partial progress is reported and unverified writes stop the sequence without repeating them
+- **THEN** those exact identities are deleted with bounded parallelism (at most four independent deletes), with a fresh completed-state read before each delete and exact absence verification afterward; confirmed parent/child dependencies remain serial
+- **AND** tasks reopened meanwhile are skipped, partial progress is reported and unverified writes stop new groups without repeating writes; every unresolved identity remains durably recoverable after restart
 - **AND** search and filters do not silently narrow or widen the confirmed deletion set
 
 

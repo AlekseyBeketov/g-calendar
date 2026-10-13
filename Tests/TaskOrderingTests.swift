@@ -222,6 +222,35 @@ extension InvariantTests {
         }
     }
 
+    static func testParallelCompletedTaskDelete() throws {
+        let factory = GWSCommandFactory(executableURL: executable)
+        let tasks = (0..<9).map { orderedTask("parallel-\($0)", completed: true) }
+        let lock = NSLock()
+        var deleted = Set<String>(), active = 0, peak = 0
+        let runner = FakeProcessRunner { call in
+            let id = params(call)["task"] as! String
+            if call.operation == .taskDelete {
+                lock.lock(); active += 1; peak = max(peak, active); lock.unlock()
+                Thread.sleep(forTimeInterval: 0.02)
+                lock.lock(); deleted.insert(id); active -= 1; lock.unlock()
+                return response(Data())
+            }
+            lock.lock(); let missing = deleted.contains(id); lock.unlock()
+            if missing { return response(Data(), code: 404, stderr: "404 not found") }
+            return response(try JSONSerialization.data(withJSONObject: taskObject(tasks.first { $0.id == id }!)))
+        }
+        let journal = MutationJournal()
+        let invocations = try tasks.map { try factory.completedTaskDelete(task: $0, authorization: .confirmedDelete) }
+        let result = RecoverableMutationService(runner: runner, journal: journal).performCompletedDeletes(invocations, reader: GWSReadClient(factory: factory, runner: runner))
+        try check(result.failure == nil && result.verified.count == tasks.count && !journal.isBlocked, "all parallel deletes are exactly verified")
+        try check(peak > 1 && peak <= 4, "completed-task DELETE requests must overlap with a maximum of four in flight")
+        try check(runner.invocations.filter { $0.operation == .taskDelete }.count == tasks.count, "parallel deletes never repeat writes")
+        var snapshot = WorkspaceSnapshot.empty
+        let otherBoard = GoogleTask(id: tasks[0].id, taskListID: "other-board", title: "Other", notes: nil, due: nil, completed: true, deleted: false, updated: nil)
+        snapshot.tasks = tasks + [otherBoard]
+        try check(try WorkspaceSnapshotReducer.applyingCompletedDeletes(result.verified, to: snapshot).tasks == [otherBoard], "bulk local removal uses composite identities and preserves the same ID on another board")
+    }
+
     static func testCompletedTaskDelete() throws {
         let factory = GWSCommandFactory(executableURL: executable)
         let completed = orderedTask("completed", parent: "parent", completed: true)
@@ -256,6 +285,85 @@ extension InvariantTests {
             try check(runner.invocations.first?.operation == .taskGet && params(runner.invocations.first!)["task"] as? String == completed.id,
                       "preflight must exact-read intended task before write")
         }
+    }
+
+    static func testParallelCompletedDeleteRecovery() throws {
+        let factory = GWSCommandFactory(executableURL: executable)
+        let tasks = (0..<9).map { orderedTask("recovery-\($0)", completed: true) }
+        let invocations = try tasks.map { try factory.completedTaskDelete(task: $0, authorization: .confirmedDelete) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("completed-delete-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("pending.json")
+        let journal = MutationJournal(fileURL: url)
+        let lock = NSLock()
+        var written = Set<String>()
+        var observedDurableGroup = false, recovery = false
+        let runner = FakeProcessRunner { call in
+            let id = params(call)["task"] as! String
+            if call.operation == .taskDelete {
+                let saved = try JSONDecoder().decode(PendingMutation.self, from: Data(contentsOf: url))
+                let durableIDs = Set(([saved] + (saved.relatedCompletedDeletes ?? [])).compactMap(\.resourceID))
+                lock.lock(); observedDurableGroup = durableIDs == Set(tasks.prefix(4).map(\.id)); written.insert(id); lock.unlock()
+                return response(Data())
+            }
+            lock.lock(); let sent = written.contains(id), rechecking = recovery; lock.unlock()
+            if sent && (rechecking || id == tasks[0].id) { return response(Data(), code: 404, stderr: "404 not found") }
+            return response(try JSONSerialization.data(withJSONObject: taskObject(tasks.first { $0.id == id }!)))
+        }
+        let reader = GWSReadClient(factory: factory, runner: runner)
+        let result = RecoverableMutationService(runner: runner, journal: journal).performCompletedDeletes(invocations, reader: reader)
+        try check(result.verified.count == 1 && result.failure != nil && written.count == 4, "uncertain parallel deletes stop new groups but finish the four already started")
+        try check(observedDurableGroup, "all four exact identities must be durably recorded before any DELETE")
+        let restored = MutationJournal(fileURL: url)
+        let pending = restored.pending!
+        try check(Set(([pending] + (pending.relatedCompletedDeletes ?? [])).compactMap(\.resourceID)) == Set(tasks[1..<4].map(\.id)), "restart retains every uncertain identity and removes verified deletes")
+        let service = RecoverableMutationService(runner: runner, journal: restored)
+        do { _ = try service.recheck(reader: reader); throw TestFailure(description: "still-existing batch was accepted") }
+        catch GWSFailure.mutationNotVerified { assertions += 1 }
+        try check(restored.isBlocked && written.count == 4, "failed read-only recovery never repeats a DELETE or releases the batch")
+        lock.lock(); recovery = true; lock.unlock()
+        try check(try service.recheck(reader: reader) == .resourceDeleted && !restored.isBlocked && written.count == 4, "exact absence of every pending identity releases the durable batch without writes")
+
+        let reopenedRunner = FakeProcessRunner { call in
+            guard call.operation == .taskGet else { throw TestFailure(description: "reopened task was deleted") }
+            var task = tasks.first { $0.id == params(call)["task"] as? String }!
+            task.completed = false
+            return response(try JSONSerialization.data(withJSONObject: taskObject(task)))
+        }
+        let skippedJournal = MutationJournal()
+        let skipped = RecoverableMutationService(runner: reopenedRunner, journal: skippedJournal).performCompletedDeletes(invocations, reader: GWSReadClient(factory: factory, runner: reopenedRunner))
+        try check(skipped.skipped == tasks.count && skipped.verified.isEmpty && skipped.failure == nil && !skippedJournal.isBlocked, "reopened tasks are skipped with no writes or pending journal")
+        let duplicate = RecoverableMutationService(runner: reopenedRunner, journal: skippedJournal).performCompletedDeletes([invocations[0], invocations[0]], reader: GWSReadClient(factory: factory, runner: reopenedRunner))
+        try check(duplicate.failure != nil && duplicate.verified.isEmpty && !skippedJournal.isBlocked, "duplicate confirmed identities are rejected before mutation")
+
+        let verificationFailureRunner = FakeProcessRunner { call in
+            if call.operation == .taskDelete { return response(Data()) }
+            if written.contains("verification") { throw GWSFailure.forbiddenOperation }
+            written.insert("verification")
+            return response(try JSONSerialization.data(withJSONObject: taskObject(tasks[0])))
+        }
+        let failedReadJournal = MutationJournal()
+        let failedRead = RecoverableMutationService(runner: verificationFailureRunner, journal: failedReadJournal).performCompletedDeletes([invocations[0]], reader: GWSReadClient(factory: factory, runner: verificationFailureRunner))
+        try check(failedRead.failure != nil && failedReadJournal.isBlocked, "a verification failure after DELETE must retain the journal even when that read was never submitted")
+
+        let parent = orderedTask("parent", completed: true)
+        let child = orderedTask("child", parent: parent.id, completed: true)
+        var serialDeleted = Set<String>(), active = 0, peak = 0
+        let serialRunner = FakeProcessRunner { call in
+            let id = params(call)["task"] as! String
+            if call.operation == .taskDelete {
+                lock.lock(); active += 1; peak = max(peak, active); lock.unlock()
+                Thread.sleep(forTimeInterval: 0.01)
+                lock.lock(); serialDeleted.insert(id); active -= 1; lock.unlock()
+                return response(Data())
+            }
+            lock.lock(); let missing = serialDeleted.contains(id); lock.unlock()
+            if missing { return response(Data(), code: 404, stderr: "404 not found") }
+            return response(try JSONSerialization.data(withJSONObject: taskObject(id == parent.id ? parent : child)))
+        }
+        let serialJournal = MutationJournal()
+        let serial = RecoverableMutationService(runner: serialRunner, journal: serialJournal).performCompletedDeletes(try [parent, child].map { try factory.completedTaskDelete(task: $0, authorization: .confirmedDelete) }, reader: GWSReadClient(factory: factory, runner: serialRunner))
+        try check(serial.failure == nil && serial.verified.count == 2 && peak == 1 && !serialJournal.isBlocked, "confirmed parent/child deletions remain serial")
     }
 
     static func testDemoTaskOrdering() throws {

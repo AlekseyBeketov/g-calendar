@@ -308,6 +308,8 @@ struct InvariantTests {
         run("task-ordering-tree-preferences-and-cache-compatibility", testTaskOrdering)
         run("task-reorder-params-rest-full-readback-and-recovery", testTaskReorder)
         run("completed-task-delete-preflight-and-exact-verification", testCompletedTaskDelete)
+        run("completed-task-delete-bounded-parallelism", testParallelCompletedTaskDelete)
+        run("completed-task-delete-parallel-durable-recovery", testParallelCompletedDeleteRecovery)
         run("demo-task-order-and-completed-delete-isolated", testDemoTaskOrdering)
         run("exact-resource-get-and-mutation-read-back", testExactResourceReadAndMutationReadback)
         await runAsync("native-task-move-exact-verification-recovery-and-metadata", testTaskMoveVerificationAndRecovery)

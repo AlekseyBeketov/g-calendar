@@ -2,6 +2,19 @@ import Foundation
 
 // Only exact, verified Google results enter the local snapshot.
 enum WorkspaceSnapshotReducer {
+    static func applyingCompletedDeletes(_ verified: [ProcessInvocation], to snapshot: WorkspaceSnapshot) throws -> WorkspaceSnapshot {
+        var identities = Set<TaskSelectionIdentity>()
+        for invocation in verified {
+            let params = parameters(invocation)
+            guard invocation.operation == .taskDelete, let task = invocation.expectedTask,
+                  params["tasklist"] == task.taskListID, params["task"] == task.id else { throw GWSFailure.mutationNotVerified }
+            identities.insert(task.selectionIdentity)
+        }
+        var updated = snapshot
+        updated.tasks.removeAll { identities.contains($0.selectionIdentity) }
+        return updated
+    }
+
     static func applying(invocation: ProcessInvocation, result: GWSMutationResult, to snapshot: WorkspaceSnapshot) throws -> WorkspaceSnapshot {
         var updated = snapshot
         let params = parameters(invocation)

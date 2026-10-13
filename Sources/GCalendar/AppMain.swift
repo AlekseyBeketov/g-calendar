@@ -242,7 +242,52 @@ final class WorkspaceViewModel: ObservableObject {
     func deleteCompletedTasks(_ confirmedTasks: [GoogleTask]) {
         guard !mutationsBlocked, !confirmedTasks.isEmpty, confirmedTasks.allSatisfy({ $0.completed && !$0.deleted }) else { return }
         completedDeletionInProgress = true
+        if launchMode == .normal {
+            deleteCompletedInParallel(confirmedTasks)
+            return
+        }
         deleteNextCompleted(confirmedTasks, index: 0, deleted: 0, skipped: 0)
+    }
+
+    private func deleteCompletedInParallel(_ confirmed: [GoogleTask]) {
+        do {
+            guard let runner else { throw GWSFailure.forbiddenOperation }
+            let factory = try commandFactory()
+            var identities = Set<TaskSelectionIdentity>()
+            let current = confirmed.compactMap { task -> GoogleTask? in
+                guard identities.insert(task.selectionIdentity).inserted else { return nil }
+                return snapshot.tasks.first { $0.selectionIdentity == task.selectionIdentity && $0.completed && !$0.deleted }
+            }
+            let skipped = confirmed.count - current.count
+            let invocations = try current.map { try factory.completedTaskDelete(task: $0, authorization: .confirmedDelete) }
+            let journal = mutationJournal
+            mutationInFlight = true
+            statusMessage = "Удаляем выполненные задачи…"
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let outcome = RecoverableMutationService(runner: runner, journal: journal).performCompletedDeletes(invocations, reader: GWSReadClient(factory: factory, runner: runner))
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.mutationInFlight = false
+                    self.completedDeletionInProgress = false
+                    self.refreshMutationRecoveryState()
+                    do {
+                        try self.installVerifiedCompletedDeletes(outcome.verified)
+                        let reminderIDs = outcome.verified.compactMap { $0.expectedTask?.id }
+                        Task { for id in reminderIDs { try? await self.reminderCoordinator.delete(taskID: id) } }
+                        self.statusMessage = "Удалено выполненных задач: \(outcome.verified.count)."
+                        let totalSkipped = skipped + outcome.skipped
+                        if totalSkipped > 0 { self.statusMessage += " Пропущено: \(totalSkipped)." }
+                        if let error = outcome.failure {
+                            self.statusMessage += " Удаление остановлено: " + ((error as? LocalizedError)?.errorDescription ?? "Результат требует проверки.")
+                        }
+                    } catch { self.statusMessage = "Не удалось применить подтверждённые удаления. Выполните синхронизацию." }
+                    self.requestTargetedRefresh(taskListIDs: Set(confirmed.map(\.taskListID)))
+                }
+            }
+        } catch {
+            completedDeletionInProgress = false
+            statusMessage = (error as? LocalizedError)?.errorDescription ?? "Удаление остановлено."
+        }
     }
 
     private func deleteNextCompleted(_ confirmed: [GoogleTask], index: Int, deleted: Int, skipped: Int) {
@@ -502,6 +547,17 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
+    private func installVerifiedCompletedDeletes(_ invocations: [ProcessInvocation]) throws {
+        guard !invocations.isEmpty else { return }
+        let updated = try WorkspaceSnapshotReducer.applyingCompletedDeletes(invocations, to: snapshot)
+        snapshotAcceptance.verifiedMutation()
+        backgroundRefreshQueue.removeAll()
+        if refreshCoordinator.active?.key.purpose != .foreground { activeReadCancellation?.cancel() }
+        installRefreshedSnapshot(updated)
+        do { try snapshotStore.commit(updated) }
+        catch { statusMessage = "Удаление подтверждено; локальный кэш пока не сохранён." }
+    }
+
     private func installRefreshedSnapshot(_ refreshed: WorkspaceSnapshot) {
         let oldCalendarIDs = Set(snapshot.calendars.map(\.id))
         let refreshedCalendarIDs = Set(refreshed.calendars.map(\.id))
@@ -682,6 +738,7 @@ final class WorkspaceViewModel: ObservableObject {
         let context = transportContext
         let journal = mutationJournal
         let pendingInvocation = pendingMutation?.invocation(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
+        let relatedCompletedDeletes = pendingMutation?.relatedCompletedDeletes ?? []
         let pendingOperation = pendingMutation?.operation
         let pendingSourceTaskID = pendingMutation?.sourceTaskID
         let expectedPendingID = pendingMutation?.id
@@ -705,8 +762,10 @@ final class WorkspaceViewModel: ObservableObject {
                 case .success(let verified):
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
                     guard let pendingInvocation else { return }
-                    do { try self.installVerifiedMutation(pendingInvocation, result: verified) }
-                    catch { self.statusMessage = "Не удалось применить подтверждённое изменение."; return }
+                    do {
+                        if relatedCompletedDeletes.isEmpty { try self.installVerifiedMutation(pendingInvocation, result: verified) }
+                        else { try self.installVerifiedCompletedDeletes([pendingInvocation] + relatedCompletedDeletes.map { $0.invocation(executableURL: pendingInvocation.executableURL) }) }
+                    } catch { self.statusMessage = "Не удалось применить подтверждённое изменение."; return }
                     let mutationStillCurrent = self.snapshotAcceptance.currentGuard()
                     if onVerified == nil, case .taskVerified(let task) = verified {
                         if pendingOperation == .taskMove, let sourceID = pendingSourceTaskID {
@@ -721,7 +780,12 @@ final class WorkspaceViewModel: ObservableObject {
                     onVerified?(verified)
                     onSuccess?()
                     // A domain refresh reconciles deletion reminders using complete, confirmed data.
-                    if thenRefresh { self.refreshAfterMutation(pendingInvocation, result: verified) }
+                    if thenRefresh {
+                        if !relatedCompletedDeletes.isEmpty {
+                            let lists = Set(([pendingInvocation] + relatedCompletedDeletes.map { $0.invocation(executableURL: pendingInvocation.executableURL) }).compactMap { Self.argument("tasklist", in: $0) })
+                            self.requestTargetedRefresh(taskListIDs: lists)
+                        } else { self.refreshAfterMutation(pendingInvocation, result: verified) }
+                    }
                 case .failure(let error):
                     self.statusMessage = (error as? LocalizedError)?.errorDescription ?? "Проверка пока не завершена."
                 }
