@@ -40,6 +40,13 @@ extension InvariantTests {
         try check(restored.orderedBoards(current).map(\.id) == ["c", "a", "d"] && restored.sortMode(for: "a") == .date, "restart preserves ordering and board sorting together")
         try check(TaskWorkspacePreferences.load(from: defaults, key: "account-b").boardOrder.isEmpty, "board order stays isolated by workspace")
         let legacy = try JSONDecoder().decode(TaskWorkspacePreferences.self, from: Data("{\"sortModes\":{\"a\":\"date\"}}".utf8))
+        try check(legacy.unifiedSortMode == .date, "legacy unanimous sorting migrates to the unified list")
+        var mixed = TaskWorkspacePreferences(sortModes: ["a": .title, "b": .manual])
+        try check(mixed.unifiedSortMode == .date, "mixed board sorting defaults unified list to date")
+        mixed.allTasksSortMode = .title
+        mixed.setSortMode(.date, for: "a")
+        let restoredMixed = try JSONDecoder().decode(TaskWorkspacePreferences.self, from: JSONEncoder().encode(mixed))
+        try check(restoredMixed.unifiedSortMode == .title, "global sorting persists independently of individual boards")
         try check(legacy.boardOrder.isEmpty && legacy.sortMode(for: "a") == .date, "old sorting preferences migrate without losing selections")
     }
 
@@ -53,6 +60,13 @@ extension InvariantTests {
         try check(groups[0].isOverdue && groups[1].isToday && groups[1].title == "Сегодня" && groups[2].title == "Завтра", "date group semantics and relative labels")
         try check(groups[1].tasks.map(\.id) == ["today-a", "today-b"] && groups.last?.tasks.map(\.id) == ["done"], "same-date ties and completed isolation")
         try check(groups.flatMap(\.tasks).count == tasks.count && Set(groups.flatMap(\.tasks).map(\.id)).count == tasks.count, "date grouping retains each identity once")
+        let crossBoard = [orderedTask("same", due: "2026-10-12", board: "a"),
+                          orderedTask("same", due: "2026-10-12", board: "b"),
+                          orderedTask("earlier", due: "2026-10-11", board: "b")]
+        let combined = TaskOrdering.dateGroups(TaskOrdering.sorted(crossBoard, mode: .date), today: today)
+        try check(combined.map(\.id) == ["overdue", "date:2026-10-12"] && combined[1].tasks.map(\.taskListID) == ["a", "b"],
+                  "global date groups merge boards and preserve duplicate task IDs across lists")
+        try check(TaskOrdering.sorted(crossBoard, mode: .date).first?.id == "earlier", "global dates precede board order")
         let shifted = TaskOrdering.dateGroups(tasks, today: today.adding(days: 1)!)
         try check(shifted.first?.tasks.count == 3 && shifted.first(where: { $0.id == "date:2026-10-13" })?.isToday == true, "day rollover updates overdue scope and today without changing date identity")
         try check(TaskOrdering.dateGroups([], today: today).isEmpty, "empty scopes create no empty date headers")

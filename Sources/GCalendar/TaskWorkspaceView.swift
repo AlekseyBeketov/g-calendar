@@ -17,8 +17,12 @@ struct TaskWorkspaceView: View {
             TaskBoardGroup(board: $0.board, tasks: TaskOrdering.sorted($0.tasks, mode: model.taskSortMode(for: $0.id)))
         }
     }
+    private var unifiedTasks: [GoogleTask] {
+        TaskOrdering.sorted(boardGroups.flatMap(\.tasks), mode: model.allTasksSortMode)
+    }
     private var keyboardVisibleTasks: [GoogleTask] {
-        boardGroups.filter { local.taskColumnsVisible || !local.collapsedGroups.contains("board:" + $0.id) }.flatMap(\.tasks)
+        if model.selectedTaskListID == nil && !local.taskColumnsVisible { return unifiedTasks }
+        return boardGroups.filter { local.taskColumnsVisible || !local.collapsedGroups.contains("board:" + $0.id) }.flatMap(\.tasks)
     }
     private var visibleTaskIdentities: [TaskSelectionIdentity] { keyboardVisibleTasks.map(\.selectionIdentity) }
 
@@ -89,6 +93,12 @@ struct TaskWorkspaceView: View {
                                     .frame(width: width, height: max(120, geometry.size.height - 8)).id(group.id)
                             }
                         }.padding(.horizontal, 24).padding(.vertical, 4)
+                    } else if model.selectedTaskListID == nil {
+                        TaskBoardRows(boardID: nil, tasks: unifiedTasks, selectedIdentity: local.selectedTaskIdentity,
+                                      keyboardFocused: local.taskKeyboardFocused, draggedTask: $interaction.draggedTask,
+                                      onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 24).padding(.vertical, 8)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 16) {
                             ForEach(boardGroups) { group in
@@ -116,7 +126,7 @@ struct TaskWorkspaceView: View {
                                     }
                                 }.id(group.id)
                             }
-                        }.padding(.horizontal, 24).padding(.vertical, 8)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.vertical, 8)
                     }
                 }
                 .scrollIndicators(.visible)
@@ -213,8 +223,7 @@ private struct TaskBoardMenu: View {
     }
     private var chosenMode: TaskSortMode? {
         if let board { return model.taskSortMode(for: board.id) }
-        let modes = Set(model.snapshot.taskLists.map { model.taskSortMode(for: $0.id) })
-        return modes.count == 1 ? modes.first : nil
+        return model.allTasksSortMode
     }
     var body: some View {
         Menu {
@@ -355,7 +364,7 @@ private struct TaskBoardHeader: View {
 
 private struct TaskBoardRows: View {
     @EnvironmentObject private var model: WorkspaceViewModel
-    let boardID: String
+    let boardID: String?
     let tasks: [GoogleTask]
     let selectedIdentity: TaskSelectionIdentity?
     let keyboardFocused: Bool
@@ -371,7 +380,7 @@ private struct TaskBoardRows: View {
                     Button("Очистить поиск") { model.searchText = "" }.pointingHandCursor().buttonStyle(.link).padding(.horizontal, 8)
                 }
             }
-            if model.taskSortMode(for: boardID) == .date {
+            if sortMode == .date {
                 let groups = TaskOrdering.dateGroups(tasks, today: model.localToday)
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -392,14 +401,17 @@ private struct TaskBoardRows: View {
             }
         }
     }
+    private var sortMode: TaskSortMode {
+        boardID.map { model.taskSortMode(for: $0) } ?? model.allTasksSortMode
+    }
     private var emptyMessage: String {
         if !model.searchText.isEmpty { return "Ничего не найдено" }
-        return model.snapshot.tasks.contains(where: { $0.taskListID == boardID && !$0.deleted }) ? "Нет задач по этому фильтру" : "Пока пусто"
+        return model.snapshot.tasks.contains(where: { (boardID == nil || $0.taskListID == boardID) && !$0.deleted }) ? "Нет задач по этому фильтру" : "Пока пусто"
     }
     @ViewBuilder private func draggableRow(_ task: GoogleTask) -> some View {
         let row = TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
-                              onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: false).id(task.selectionIdentity)
-        if model.taskSortMode(for: task.taskListID) == .manual && !task.completed && !model.mutationsBlocked {
+                              onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: boardID == nil, allowsManualOrdering: sortMode == .manual).id(task.selectionIdentity)
+        if sortMode == .manual && model.taskSortMode(for: task.taskListID) == .manual && !task.completed && !model.mutationsBlocked {
             row.onDrag {
                 let session = TaskDragSession(task: task)
                 draggedTask = session
@@ -430,6 +442,7 @@ private struct TaskRowView: View {
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
     var showsListTag = true
+    var allowsManualOrdering = true
     @StateObject private var local = ViewLocalState()
 
     private var metadata: LocalTaskMetadata { model.metadataStore.metadata(for: task.id) }
@@ -482,7 +495,7 @@ private struct TaskRowView: View {
                     Button("Редактировать…", systemImage: "pencil") { onSelect(task); local.showEditor = true }
                     Button("Локальное напоминание…", systemImage: "bell") { local.showReminderEditor = true }
                     Button(metadata.favorite ? "Убрать из избранного" : "В избранное", systemImage: "star") { toggleFavorite() }
-                    if model.taskSortMode(for: task.taskListID) == .manual && !task.completed {
+                    if allowsManualOrdering && model.taskSortMode(for: task.taskListID) == .manual && !task.completed {
                         Divider()
                         Button("Переместить выше", systemImage: "arrow.up") { model.shiftTask(task, direction: -1) }
                             .disabled(!model.canShiftTask(task, direction: -1))

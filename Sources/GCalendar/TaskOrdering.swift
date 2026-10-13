@@ -91,16 +91,29 @@ enum TaskOrdering {
 struct TaskWorkspacePreferences: Codable, Equatable {
     var sortModes: [String: TaskSortMode] = [:]
     var boardOrder: [String] = []
+    var allTasksSortMode: TaskSortMode?
 
     init(sortModes: [String: TaskSortMode] = [:], boardOrder: [String] = []) {
         self.sortModes = sortModes
         self.boardOrder = boardOrder
+        self.allTasksSortMode = Self.legacyUnifiedSortMode(sortModes)
     }
-    private enum CodingKeys: String, CodingKey { case sortModes, boardOrder }
+    private enum CodingKeys: String, CodingKey { case sortModes, boardOrder, allTasksSortMode }
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sortModes = try container.decodeIfPresent([String: TaskSortMode].self, forKey: .sortModes) ?? [:]
         boardOrder = try container.decodeIfPresent([String].self, forKey: .boardOrder) ?? []
+        allTasksSortMode = try container.decodeIfPresent(TaskSortMode.self, forKey: .allTasksSortMode) ?? Self.legacyUnifiedSortMode(sortModes)
+    }
+
+    var unifiedSortMode: TaskSortMode {
+        allTasksSortMode ?? .date
+    }
+
+    private static func legacyUnifiedSortMode(_ sortModes: [String: TaskSortMode]) -> TaskSortMode {
+        let modes = Set(sortModes.values)
+        if modes.count == 1, let mode = modes.first { return mode }
+        return .date
     }
 
     func sortMode(for boardID: String) -> TaskSortMode { sortModes[boardID] ?? .manual }

@@ -10,7 +10,7 @@
 - Repository scope: `/Users/alexbeketov/g-calendar` only.
 - The owner requests a separate Git commit for each verified logical product change.
 - Stage explicit paths, review the staged diff, and commit only after relevant checks pass.
-- Do not push, publish, rewrite history, or include local caches, credentials, personal data, `.codegraph/`, `.hermes/`, `dist/`, or `.DS_Store`.
+- Push to remote `main` is allowed when requested by the user. Do not publish releases, rewrite history, or include local caches, credentials, personal data, `.codegraph/`, `.hermes/`, `dist/`, or `.DS_Store`.
 
 ## Key Conventions
 - Preserve native macOS/SwiftUI interaction and accessibility.
