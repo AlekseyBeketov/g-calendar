@@ -181,6 +181,7 @@ Each board SHALL expose Add Task above its rows in column and list presentation,
 #### Scenario: Cancel then create in another scope
 - **WHEN** a user cancels a board draft and uses global Create or another board's Add Task
 - **THEN** the new editor uses the new requested scope without retaining the old board identity
+
 ### Requirement: Horizontal board viewport stays inside the detail pane
 Column mode MUST place the horizontal scroll viewport inside the task detail pane, with horizontal margins outside the scroll document. The viewport MUST NOT extend beneath the sidebar or rely on a negative compensating sidebar inset. The complete first and last boards MUST remain reachable at the left and right limits after resizing and switching between list and columns.
 
@@ -192,3 +193,13 @@ Column mode MUST place the horizontal scroll viewport inside the task detail pan
 - **WHEN** the user changes window width or switches List to Columns
 - **THEN** the scroll viewport remains bounded by the visible detail pane and both outermost boards are reachable
 
+### Requirement: Task workspace actions use two clear rows
+The task workspace MUST show Create in the first action row, then a visible gear menu on the left and the Columns/List presentation selector on the right in the second row. The gear MUST preserve the existing sorting and completed-task deletion menu, accessible name and full pointing-hand hit region. Board and task menus MUST retain their ellipsis symbols. In single-board scope the existing absence of a global presentation selector MUST remain unchanged.
+
+#### Scenario: Switch task presentation from the header
+- **WHEN** a user views all task boards
+- **THEN** Create appears above task settings and the settings gear is immediately left of the presentation selector
+
+#### Scenario: Open an individual board
+- **WHEN** a user selects a specific board
+- **THEN** its workspace gear keeps scoped task settings while the board's own menu keeps its ellipsis

@@ -53,6 +53,27 @@ struct TaskWorkspaceNativeTests {
                 let views = descendants(host)
                 let viewport = views.first { $0.identifier?.rawValue == "probe-workspace-viewport" }!
                 let viewportFrame = viewport.convert(viewport.bounds, to: host)
+                let create = views.first { $0.identifier?.rawValue == "probe-create-control" }!
+                let settings = views.first { $0.identifier?.rawValue == "probe-settings-control" }!
+                let presentation = views.first { $0.identifier?.rawValue == "probe-presentation-control" }!
+                let createFrame = create.convert(create.bounds, to: host)
+                let settingsFrame = settings.convert(settings.bounds, to: host)
+                let presentationFrame = presentation.convert(presentation.bounds, to: host)
+                expect(host.isFlipped ? createFrame.maxY <= settingsFrame.minY : createFrame.minY >= settingsFrame.maxY,
+                       "Create occupies the first row above task settings")
+                expect(settingsFrame.maxX <= presentationFrame.minX && abs(settingsFrame.midY - presentationFrame.midY) < 1,
+                       "task gear appears left of presentation picker on the same second row")
+                expect(createFrame.minX >= viewportFrame.minX && presentationFrame.maxX <= viewportFrame.maxX,
+                       "task actions fit inside the detail pane")
+                if mode == .columns, width == 1900,
+                   let directory = ProcessInfo.processInfo.environment["G_CALENDAR_TASK_UI_EVIDENCE_DIR"] {
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("task-header.png")
+                    try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    let rect = NSRect(x: viewportFrame.minX, y: viewportFrame.minY, width: viewportFrame.width, height: 160)
+                    let bitmap = host.bitmapImageRepForCachingDisplay(in: rect)!
+                    host.cacheDisplay(in: rect, to: bitmap)
+                    try! bitmap.representation(using: .png, properties: [:])!.write(to: url)
+                }
                 let first = views.first { $0.identifier?.rawValue == "probe-board-0" }
                 let columns = TaskWorkspaceLayout.usesColumnBoard(presentation: mode, availableWidth: Double(viewportFrame.width))
                 expect((first != nil) == columns, "mode and width select the intended column/list presentation")
@@ -79,6 +100,13 @@ struct TaskWorkspaceNativeTests {
                 print("PASS task-columns width=\(Int(width)) viewport=\(frame) first=\(firstFrame)")
             }
         }
+        model.selectedTaskListID = "board-0"
+        settle(host)
+        let singleBoardViews = descendants(host)
+        expect(!singleBoardViews.contains { $0.identifier?.rawValue == "probe-presentation-control" },
+               "single-board scope preserves the existing absence of an all-board presentation selector")
+        expect(singleBoardViews.contains { $0.identifier?.rawValue == "probe-settings-control" },
+               "single-board scope retains its task gear menu")
         window.close()
         print("TASK_WORKSPACE_UI_ASSERTIONS=\(assertions)")
     }

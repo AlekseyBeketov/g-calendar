@@ -142,4 +142,4 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 17.1 Show calendar modes as Day / Week / Month.
 - [x] 17.2 Bound task-column scroll viewport inside the detail pane; regression test fails on the original source and passes 50 assertions after the fix, including first/last board reachability and width/presentation transitions.
-- [ ] 17.3 Two-row task actions: Create above, gear settings then presentation picker below.
+- [x] 17.3 Two-row task actions: Create above, gear settings then presentation picker below; native geometry checks and app build passed.

@@ -172,16 +172,27 @@ struct TaskWorkspaceView: View {
     }
 
     private var workspaceActions: some View {
-        HStack(spacing: 12) {
-            if model.selectedTaskListID == nil {
-                Picker("Представление задач", selection: $presentationRawValue) {
-                    ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue) }
-                }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 112)
-                .accessibilityIdentifier("task-presentation-picker")
-            }
-            TaskBoardMenu(board: model.selectedTaskList)
+        VStack(alignment: .trailing, spacing: 8) {
             Button { beginNewTask(on: model.selectedTaskListID) } label: { Label("Создать", systemImage: "plus") }
                 .pointingHandCursor().buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked).help("Создать задачу")
+                #if G_CALENDAR_TASK_LAYOUT_TEST
+                .background(TaskBoardFrameProbe(identifier: "create-control"))
+                #endif
+            HStack(spacing: 8) {
+                TaskBoardMenu(board: model.selectedTaskList, systemImage: "gearshape")
+                    #if G_CALENDAR_TASK_LAYOUT_TEST
+                    .background(TaskBoardFrameProbe(identifier: "settings-control"))
+                    #endif
+                if model.selectedTaskListID == nil {
+                    Picker("Представление задач", selection: $presentationRawValue) {
+                        ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue) }
+                    }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 132)
+                    .accessibilityIdentifier("task-presentation-picker")
+                    #if G_CALENDAR_TASK_LAYOUT_TEST
+                    .background(TaskBoardFrameProbe(identifier: "presentation-control"))
+                    #endif
+                }
+            }
         }
     }
 
@@ -225,6 +236,7 @@ private struct TaskBoardMenu: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     let board: TaskList?
     var allowsBoardReordering = false
+    var systemImage = "ellipsis"
     @StateObject private var interaction = TaskWorkspaceInteraction()
 
     private var completedTasks: [GoogleTask] {
@@ -254,8 +266,19 @@ private struct TaskBoardMenu: View {
                 interaction.confirmedTasks = completedTasks
                 interaction.showingDelete = true
             }.disabled(completedTasks.isEmpty || model.mutationsBlocked)
-        } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
+        } label: {
+            Image(systemName: systemImage)
+                .font(systemImage == "gearshape" ? .title3 : .body)
+                .imageScale(systemImage == "gearshape" ? .large : .medium)
+                .foregroundStyle(systemImage == "gearshape" ? AppTheme.textPrimary : AppTheme.accent)
+                .frame(width: 32, height: 32)
+                .background(systemImage == "gearshape" ? AppTheme.canvas : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+        }
         .pointingHandCursor().menuStyle(.borderlessButton).fixedSize()
+        .menuIndicator(systemImage == "gearshape" ? .hidden : .automatic)
+        .controlSize(systemImage == "gearshape" ? .large : .regular)
+        .tint(systemImage == "gearshape" ? AppTheme.textPrimary : AppTheme.accent)
         .accessibilityLabel("Настройки задач: \(board?.title ?? "Все доски")").help("Сортировка и выполненные задачи")
         .alert("Удалить выполненные задачи?", isPresented: $interaction.showingDelete) {
             Button("Отмена", role: .cancel) { interaction.confirmedTasks = [] }
