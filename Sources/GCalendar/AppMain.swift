@@ -177,6 +177,7 @@ final class WorkspaceViewModel: ObservableObject {
     var mutationsBlocked: Bool { mutationAccessBlocked || completedDeletionInProgress }
 
     func taskSortMode(for boardID: String) -> TaskSortMode { taskPreferences.sortMode(for: boardID) }
+    var allTasksSortMode: TaskSortMode { taskPreferences.unifiedSortMode }
     var orderedTaskLists: [TaskList] { taskPreferences.orderedBoards(snapshot.taskLists) }
 
     func moveTaskBoard(_ boardID: String, toward targetID: String) {
@@ -197,6 +198,7 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     func setTaskSortMode(_ mode: TaskSortMode, for boardID: String?) {
+        if boardID == nil { taskPreferences.allTasksSortMode = mode }
         let ids = boardID.map { [$0] } ?? snapshot.taskLists.map(\.id)
         for id in ids { taskPreferences.setSortMode(mode, for: id) }
         taskPreferences.save(to: defaults, key: "taskWorkspacePreferences." + (transportContext?.identity ?? "gws"))

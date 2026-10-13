@@ -126,3 +126,7 @@ Developer ID credentials, license/publication approval, real published installer
 - [ ] 14.2 Deferred: verify Google task-time transport, then implement automatic notifications.
 
 Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. No push.
+
+## 15. Unified task list (2026-10-13)
+
+- [x] 15.1 Unified all-board list with global date/title sorting, board tags, full-width leading layout and matching keyboard order; verify, build and push main as explicitly requested.
