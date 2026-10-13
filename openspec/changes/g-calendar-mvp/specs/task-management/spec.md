@@ -181,3 +181,14 @@ Each board SHALL expose Add Task above its rows in column and list presentation,
 #### Scenario: Cancel then create in another scope
 - **WHEN** a user cancels a board draft and uses global Create or another board's Add Task
 - **THEN** the new editor uses the new requested scope without retaining the old board identity
+### Requirement: Horizontal board viewport stays inside the detail pane
+Column mode MUST place the horizontal scroll viewport inside the task detail pane, with horizontal margins outside the scroll document. The viewport MUST NOT extend beneath the sidebar or rely on a negative compensating sidebar inset. The complete first and last boards MUST remain reachable at the left and right limits after resizing and switching between list and columns.
+
+#### Scenario: Return to the first board
+- **WHEN** a user scrolls to the left edge with the sidebar visible
+- **THEN** the complete first board is visible and its title and actions are reachable
+
+#### Scenario: Resize and switch presentation
+- **WHEN** the user changes window width or switches List to Columns
+- **THEN** the scroll viewport remains bounded by the visible detail pane and both outermost boards are reachable
+

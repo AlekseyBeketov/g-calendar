@@ -8,13 +8,13 @@
 
 - [x] 2026-10-13: дизайн задан сообщением пользователя; исходные правки сохранены в /private/tmp/g-calendar-task-layout/initial.patch.
 - [x] Порядок календаря: точечная Swift-проверка allCases дала PASS; отдельный коммит отправляется в main.
-- [ ] Воспроизвести недостижимую первую доску, исправить геометрию, проверить и отправить отдельный коммит.
+- [x] Тест исходной версии выявил выход viewport под sidebar (FAIL); перенос padding на viewport исправляет это. 50 native assertions и сборка прошли; отдельный коммит отправляется в main.
 - [ ] Перестроить шапку задач, проверить сборку и отправить отдельный коммит.
 - [ ] Обновить dist/g-calendar.app и локальные индексы; сохранить результаты.
 
 ## Surprises & Discoveries
 
-TaskWorkspaceView использует GeometryReader, горизонтальный ScrollView и HStack фиксированных колонок. Причина обрезания устанавливается синтетическим воспроизведением с измерением фактических AppKit-рамок. Исходные изменения пользователя в AppMain.swift и тестах не относятся к этой задаче и не коммитятся.
+При ширине окна 1900 pt панель задач имеет x=245 и width=1655, но исходный NSScrollView занимает x=0, width=1900 и компенсирует sidebar offset -245. После переноса padding наружу NSScrollView имеет x=269, width=1607 и обычную левую границу 0. Изолированная страница не выявляла проблему; тест должен включать настоящий RootView с NavigationSplitView. Изменения RootView не потребовались. Исходные изменения пользователя не коммитятся.
 
 ## Decision Log
 
@@ -30,11 +30,11 @@ Sources/GCalendar/CalendarPresentation.swift задаёт порядок allCase
 
 ## Plan of Work
 
-Сначала изменить порядок объявления CalendarPresentationMode, не меняя значение calendarMode по умолчанию. Для досок создать минимальное offscreen воспроизведение текущей иерархии с восемью широкими досками и измерить рамку первой доски и viewport. После подтверждения причины ограничить именно viewport размерами GeometryReader, сохраняя широкий прокручиваемый документ. Закрепить воспроизведение как регрессионную проверку производственного контейнера. В workspaceActions заменить HStack на VStack с Создать сверху и HStack меню/селектора снизу. Добавить параметр символа и индикатора меню TaskBoardMenu для верхнего меню; остальные вызовы сохраняют старые значения.
+Порядок CalendarPresentationMode изменён без смены значения по умолчанию. В taskBoards padding 24 перенесён с HStack документа на ScrollView только для колонок. Tests/TaskWorkspaceNativeTests.swift и scripts/test-task-workspace-ui.sh компилируют настоящие RootView и TaskWorkspaceView с синтетическими данными и test-only измерителями рамок. В workspaceActions заменить HStack на VStack с Создать сверху и HStack меню/селектора снизу. Добавить параметр символа и индикатора меню TaskBoardMenu для верхнего меню; остальные вызовы сохраняют старые значения.
 
 ## Concrete Steps
 
-Рабочая директория /Users/alexbeketov/g-calendar. Проверки: rtk proxy ./scripts/test.sh, rtk proxy ./scripts/test-native-ui.sh и rtk proxy ./scripts/build-app.sh. Перед каждым коммитом rtk git diff --check и просмотр rtk git diff --cached. Stage только явные пути текущей задачи, затем rtk git commit и rtk git push origin main. После исходных коммитов rtk proxy ./scripts/index-code.sh. Не включать исходные пользовательские правки, dist или индексы.
+Рабочая директория /Users/alexbeketov/g-calendar. Проверки: rtk proxy ./scripts/test.sh, rtk proxy ./scripts/test-task-workspace-ui.sh и rtk proxy ./scripts/build-app.sh. Перед каждым коммитом rtk git diff --check и просмотр rtk git diff --cached. Stage только явные пути текущей задачи, затем rtk git commit и rtk git push origin main. После исходных коммитов rtk proxy ./scripts/index-code.sh. Не включать исходные пользовательские правки, dist или индексы.
 
 ## Validation and Acceptance
 

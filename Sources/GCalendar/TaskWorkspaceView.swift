@@ -38,6 +38,9 @@ struct TaskWorkspaceView: View {
             }
             .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
         }
+        #if G_CALENDAR_TASK_LAYOUT_TEST
+        .background(TaskBoardFrameProbe(identifier: "workspace-viewport"))
+        #endif
         .background(TaskKeyboardFocusView(focusRequest: local.taskKeyboardFocusRequest, onFocusChange: taskKeyboardFocusChanged, onCommand: handleTaskKeyboardCommand))
         .sheet(isPresented: $local.showingNewTask, onDismiss: { local.newTaskBoardID = nil }) {
             TaskEditorView(task: nil, taskListID: local.newTaskBoardID).environmentObject(model)
@@ -91,8 +94,11 @@ struct TaskWorkspaceView: View {
                                               onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus,
                                               onAddTask: { beginNewTask(on: group.id) })
                                     .frame(width: width, height: max(120, geometry.size.height - 8)).id(group.id)
+                                    #if G_CALENDAR_TASK_LAYOUT_TEST
+                                    .background(TaskBoardFrameProbe(identifier: group.id))
+                                    #endif
                             }
-                        }.padding(.horizontal, 24).padding(.vertical, 4)
+                        }.padding(.vertical, 4)
                     } else if model.selectedTaskListID == nil {
                         TaskBoardRows(boardID: nil, tasks: unifiedTasks, selectedIdentity: local.selectedTaskIdentity,
                                       keyboardFocused: local.taskKeyboardFocused, draggedTask: $interaction.draggedTask,
@@ -130,6 +136,9 @@ struct TaskWorkspaceView: View {
                     }
                 }
                 .scrollIndicators(.visible)
+                // Keep the native scroll viewport inside the detail pane;
+                // padding the document lets macOS extend it under the sidebar.
+                .padding(.horizontal, columns ? 24 : 0)
                 .onChange(of: local.selectedTaskIdentity) { identity in
                     if let identity {
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {

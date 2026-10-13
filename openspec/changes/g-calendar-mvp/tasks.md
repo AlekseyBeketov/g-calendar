@@ -137,3 +137,9 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 16.2 Subtle timezone-aware today highlight in Day, Week and Month, including native-header invalidation at date rollover.
 - [x] 16.3 Add optional author support to docs/FUTURE.md.
 - [x] 16.4 Persist Monday/Sunday/system first-weekday preference; default to Monday in every timezone; apply to weekly/monthly ranges and prefetch. Synthetic persistence, DST and regional-setting checks passed.
+
+## 17. Calendar order and task layout (2026-10-13)
+
+- [x] 17.1 Show calendar modes as Day / Week / Month.
+- [x] 17.2 Bound task-column scroll viewport inside the detail pane; regression test fails on the original source and passes 50 assertions after the fix, including first/last board reachability and width/presentation transitions.
+- [ ] 17.3 Two-row task actions: Create above, gear settings then presentation picker below.
