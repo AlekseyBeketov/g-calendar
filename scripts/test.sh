@@ -20,6 +20,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/CalendarRangeCache.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
   "$ROOT/Sources/GCalendar/CalendarProjection.swift" \
+  "$ROOT/Sources/GCalendar/CalendarPresentation.swift" \
   "$ROOT/Sources/GCalendar/TaskKeyboardNavigation.swift" \
   "$ROOT/Sources/GCalendar/ShortcutSettings.swift" \
   "$ROOT/Sources/GCalendar/ThemePalette.swift" \
@@ -37,6 +38,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/SyntheticAcceptance.swift" \
   "$ROOT/Sources/GCalendar/LedgerAcceptance.swift" \
   "$ROOT/Tests/InvariantTests.swift" \
+  "$ROOT/Tests/CalendarPresentationTests.swift" \
   "$ROOT/Tests/GoogleRESTTests.swift" \
   "$ROOT/Tests/TaskOrderingTests.swift" \
   -o "$TEST_BINARY"

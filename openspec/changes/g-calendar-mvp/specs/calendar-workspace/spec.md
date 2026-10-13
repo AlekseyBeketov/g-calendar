@@ -149,3 +149,14 @@ Enabled actionable controls MUST show a pointing hand across the complete hit ar
 #### Scenario: Hover padding
 - **WHEN** The pointer enters clickable padding around a button
 - **THEN** The cursor becomes a pointing hand without changing hit testing
+
+### Requirement: Month overview keeps complete visible weeks
+The calendar MUST offer Day, Week and Month. Month MUST show seven columns and four to six complete weeks, including adjacent-month dates. The fetched range MUST cover every displayed date. Empty months MUST retain the grid; visibility, task-list and search filters MUST apply to every cell. Undated tasks MUST appear once outside the grid.
+
+#### Scenario: Open a busy month day
+- **WHEN** a day contains more entries than the compact cell permits
+- **THEN** the cell exposes an accessible “more” action that opens that date in Day mode, while individual events open the existing editor and task completion remains explicit
+
+#### Scenario: Navigate from January 31
+- **WHEN** the user moves forward in Month mode
+- **THEN** February is shown and the next navigation shows March without skipping a short month

@@ -32,7 +32,7 @@ struct CalendarWorkspaceView: View {
                 }.pointingHandCursor()
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: 150)
+                .frame(width: 225)
                 Button { local.showingEventEditor = true; local.selectedEvent = nil } label: { Label("Событие", systemImage: "plus") }.pointingHandCursor()
                     .disabled(model.selectedCalendar?.isWritable != true || model.mutationsBlocked)
                     .help(model.selectedCalendar?.isWritable == true ? "Создать событие" : "Выберите календарь с правом записи")
@@ -46,7 +46,7 @@ struct CalendarWorkspaceView: View {
                                         ? "Проверьте подключение и выполните синхронизацию."
                                         : "Синхронизация завершена. В подключённом аккаунте нет доступных календарей.",
                                     actionTitle: "Обновить") { model.refresh() }
-            } else if contentState != .hasContent {
+            } else if contentState != .hasContent && model.calendarMode != .month {
                 WorkspaceEmptyState(title: calendarEmptyStateTitle(contentState),
                                     symbol: "calendar.badge.clock",
                                     description: calendarEmptyStateDescription(contentState),
@@ -66,51 +66,65 @@ struct CalendarWorkspaceView: View {
                             .padding(.horizontal, 24)
                             .disabled(model.mutationsBlocked)
                     }
-                    GeometryReader { geometry in
-                        let availableWidth = Double(geometry.size.width - 48)
-                        let timeAxisWidth = CGFloat(CalendarGridLayout.timeAxisWidth)
-                        let columnWidth = CGFloat(CalendarGridLayout.columnWidth(
-                            isDayView: model.calendarMode == .day,
-                            availableWidth: availableWidth,
-                            visibleDayCount: visibleDays.count
-                        ))
-                        let headerHeight = CGFloat(CalendarGridLayout.headerHeight)
-                        let dateOnlyHeight = CGFloat(projection.sharedDateOnlyHeight)
-                        let axisDayMinutes = visibleDays.compactMap { CalendarTimeGridLayout.dayInterval(containing: $0, timeZone: model.selectedTimeZone)?.durationMinutes }.max() ?? 1_440
-                        let bottomPadding = CalendarTimedCardLayout.bottomPadding(minimumHeight: CalendarTimedCardTypography(sizeCategory: sizeCategory).policy.minimumHeight)
-                        let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute + bottomPadding)
-                        let documentWidth = CGFloat(visibleDays.count) * columnWidth + CGFloat(max(0, visibleDays.count - 1)) * 10
-                        let axisDay = visibleDays.first ?? model.currentRange().start
-                        let initialMinutes = CalendarTimeGridLayout.dayInterval(containing: axisDay, timeZone: model.selectedTimeZone)
-                            .flatMap { interval in CalendarTimeGridLayout.hourMarks(for: interval, timeZone: model.selectedTimeZone).first { $0.localHour == 8 }?.offsetMinutes } ?? 480
-                        CalendarNativeScrollableGrid(
-                            axis: AnyView(CalendarHourAxis(day: axisDay, timeZone: model.selectedTimeZone, height: axisContentHeight)
-                                .background(AppTheme.canvas)),
-                            headers: AnyView(VStack(spacing: 0) {
-                                HStack(alignment: .top, spacing: 10) {
-                                    ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight).dayHeader }
-                                }
-                                HStack(alignment: .top, spacing: 10) {
-                                    ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight).dateOnlyArea }
-                                }
-                                Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
-                            }),
-                            days: AnyView(HStack(alignment: .top, spacing: 10) {
-                                ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight) }
-                            }),
-                            axisWidth: timeAxisWidth,
-                            headerHeight: headerHeight + dateOnlyHeight + 1,
-                            documentWidth: documentWidth,
-                            documentHeight: axisContentHeight,
-                            initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute),
-                            contentToken: CalendarGridContentToken(days: projection.days, calendars: model.snapshot.calendars,
-                                                                  timeZoneID: model.selectedTimeZone.identifier,
-                                                                  modelIdentity: ObjectIdentifier(model), actionOwnerIdentity: ObjectIdentifier(local))
-                        )
-                        .padding(.horizontal, 24)
-                        .background(AppTheme.canvas)
+                    if model.calendarMode == .month {
+                        CalendarMonthView(projection: projection, activeDate: model.activeDate,
+                                          timeZone: model.selectedTimeZone, calendars: model.snapshot.calendars,
+                                          mutationsBlocked: model.mutationsBlocked,
+                                          onOpenDay: { day in
+                                              model.activeDate = day
+                                              model.calendarMode = .day
+                                              model.refreshCalendarRangeIfNeeded()
+                                          },
+                                          onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
+                                          onToggleTask: toggleTask)
+                            .padding(.horizontal, 24)
+                    } else {
+                        GeometryReader { geometry in
+                            let availableWidth = Double(geometry.size.width - 48)
+                            let timeAxisWidth = CGFloat(CalendarGridLayout.timeAxisWidth)
+                            let columnWidth = CGFloat(CalendarGridLayout.columnWidth(
+                                isDayView: model.calendarMode == .day,
+                                availableWidth: availableWidth,
+                                visibleDayCount: visibleDays.count
+                            ))
+                            let headerHeight = CGFloat(CalendarGridLayout.headerHeight)
+                            let dateOnlyHeight = CGFloat(projection.sharedDateOnlyHeight)
+                            let axisDayMinutes = visibleDays.compactMap { CalendarTimeGridLayout.dayInterval(containing: $0, timeZone: model.selectedTimeZone)?.durationMinutes }.max() ?? 1_440
+                            let bottomPadding = CalendarTimedCardLayout.bottomPadding(minimumHeight: CalendarTimedCardTypography(sizeCategory: sizeCategory).policy.minimumHeight)
+                            let axisContentHeight = CGFloat(axisDayMinutes * CalendarGridLayout.pointsPerMinute + bottomPadding)
+                            let documentWidth = CGFloat(visibleDays.count) * columnWidth + CGFloat(max(0, visibleDays.count - 1)) * 10
+                            let axisDay = visibleDays.first ?? model.currentRange().start
+                            let initialMinutes = CalendarTimeGridLayout.dayInterval(containing: axisDay, timeZone: model.selectedTimeZone)
+                                .flatMap { interval in CalendarTimeGridLayout.hourMarks(for: interval, timeZone: model.selectedTimeZone).first { $0.localHour == 8 }?.offsetMinutes } ?? 480
+                            CalendarNativeScrollableGrid(
+                                axis: AnyView(CalendarHourAxis(day: axisDay, timeZone: model.selectedTimeZone, height: axisContentHeight)
+                                    .background(AppTheme.canvas)),
+                                headers: AnyView(VStack(spacing: 0) {
+                                    HStack(alignment: .top, spacing: 10) {
+                                        ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight).dayHeader }
+                                    }
+                                    HStack(alignment: .top, spacing: 10) {
+                                        ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight).dateOnlyArea }
+                                    }
+                                    Rectangle().fill(AppTheme.outline.opacity(0.45)).frame(height: 1)
+                                }),
+                                days: AnyView(HStack(alignment: .top, spacing: 10) {
+                                    ForEach(projection.days) { content in dayColumn(content, width: columnWidth, dateOnlyHeight: dateOnlyHeight) }
+                                }),
+                                axisWidth: timeAxisWidth,
+                                headerHeight: headerHeight + dateOnlyHeight + 1,
+                                documentWidth: documentWidth,
+                                documentHeight: axisContentHeight,
+                                initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute),
+                                contentToken: CalendarGridContentToken(days: projection.days, calendars: model.snapshot.calendars,
+                                                                      timeZoneID: model.selectedTimeZone.identifier,
+                                                                      modelIdentity: ObjectIdentifier(model), actionOwnerIdentity: ObjectIdentifier(local))
+                            )
+                            .padding(.horizontal, 24)
+                            .background(AppTheme.canvas)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             Spacer(minLength: 0)
@@ -173,6 +187,7 @@ struct CalendarWorkspaceView: View {
     private var periodTitle: String {
         let range = model.currentRange()
         if model.calendarMode == .day { return formattedDate(range.start, template: "EEEE, d MMMM y") }
+        if model.calendarMode == .month { return formattedDate(model.activeDate, template: "LLLL y") }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = model.selectedTimeZone
         let end = calendar.date(byAdding: .day, value: -1, to: range.endExclusive) ?? range.endExclusive

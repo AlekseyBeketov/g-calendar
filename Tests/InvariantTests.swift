@@ -250,6 +250,7 @@ struct InvariantTests {
         if ProcessInfo.processInfo.environment["G_CALENDAR_TEST_LOOPBACK"] == "1" {
             await runAsync("google-oauth-native-loopback-local-fixture", testGoogleNativeLoopback)
         }
+        run("calendar-presentation-month-ranges-navigation-projection", testCalendarPresentation)
         run("calendar-writable-sort-and-default-selection", testCalendarNavigation)
         run("optional-event-summary", testOptionalEventSummary)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)

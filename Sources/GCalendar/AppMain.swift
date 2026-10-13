@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class WorkspaceViewModel: ObservableObject {
     enum Section: String, CaseIterable { case calendar = "Календарь", tasks = "Задачи" }
-    enum CalendarMode: String, CaseIterable { case week = "Неделя", day = "День" }
+    typealias CalendarMode = CalendarPresentationMode
     typealias TaskFilter = TaskWorkspaceFilter
     typealias SyncState = WorkspaceSyncState
     enum Appearance: String, CaseIterable, Identifiable { case system = "Система", light = "Светлая", dark = "Тёмная"; var id: String { rawValue } }
@@ -271,16 +271,9 @@ final class WorkspaceViewModel: ObservableObject {
     var selectedTaskList: TaskList? { snapshot.taskLists.first(where: { $0.id == selectedTaskListID }) }
     var calendarRangeIsCovered: Bool { snapshot.calendarCoverage?.covers(currentRange()) ?? false }
     var eventsInVisibleRange: [CalendarEvent] {
-        let range = currentRange()
-        let dates: [Date]
-        if calendarMode == .day { dates = [range.start] }
-        else {
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = selectedTimeZone
-            dates = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: range.start) }
-        }
-        return dates.flatMap(events(on:))
+        CalendarDatePolicy.days(in: currentRange()).flatMap(events(on:))
     }
+
     var cacheDateText: String? {
         guard snapshot.fetchedAt != .distantPast else { return nil }
         return snapshot.fetchedAt.formatted(date: .abbreviated, time: .shortened)
@@ -977,10 +970,7 @@ final class WorkspaceViewModel: ObservableObject {
 
     func moveDate(_ amount: Int) {
         DemoPerformanceProbe.shared.begin(.range)
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = selectedTimeZone
-        let component: Calendar.Component = calendarMode == .week ? .weekOfYear : .day
-        if let date = calendar.date(byAdding: component, value: amount, to: activeDate) {
+        if let date = CalendarDatePolicy.moving(activeDate, by: amount, mode: calendarMode, timeZone: selectedTimeZone) {
             activeDate = date
             refreshCalendarRangeIfNeeded()
         }
@@ -994,14 +984,7 @@ final class WorkspaceViewModel: ObservableObject {
     func goToToday() { updateLocalDate(); activeDate = Date(); refreshCalendarRangeIfNeeded() }
 
     func currentRange() -> DateRange {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2
-        calendar.timeZone = selectedTimeZone
-        let component: Calendar.Component = calendarMode == .week ? .weekOfYear : .day
-        let interval = calendar.dateInterval(of: component, for: activeDate)
-        let start = interval?.start ?? calendar.startOfDay(for: activeDate)
-        let end = interval?.end ?? calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
-        return (try? DateRange(start: start, endExclusive: end, timeZone: selectedTimeZone)) ?? (try! DateRange(start: start, endExclusive: end, timeZone: calendar.timeZone))
+        CalendarDatePolicy.range(containing: activeDate, mode: calendarMode, timeZone: selectedTimeZone)
     }
 
     var selectedTimeZone: TimeZone {

@@ -17,9 +17,7 @@ struct CalendarWorkspaceProjection: Equatable {
 
     init(range: DateRange, isDayView: Bool, events: [CalendarEvent], tasks: [GoogleTask],
          visibleCalendarIDs: Set<String>?, selectedTaskListID: String?, searchText: String) {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = range.timeZone
-        let dates = isDayView ? [range.start] : (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: range.start) }
+        let dates = isDayView ? [range.start] : CalendarDatePolicy.days(in: range)
         let dayValues = dates.map { DateOnly(date: $0, timeZone: range.timeZone) }
         let spans = events.compactMap { event -> (CalendarEvent, DateOnly, DateOnly)? in
             guard visibleCalendarIDs?.contains(event.calendarID) ?? true,
