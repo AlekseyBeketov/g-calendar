@@ -5,6 +5,7 @@ struct CalendarMonthView: View {
     let activeDate: Date
     let timeZone: TimeZone
     let calendars: [CalendarInfo]
+    let today: DateOnly
     let mutationsBlocked: Bool
     let onOpenDay: (Date) -> Void
     let onEdit: (CalendarEvent) -> Void
@@ -51,10 +52,12 @@ struct CalendarMonthView: View {
         let day = DateOnly(date: content.day, timeZone: timeZone)
         let active = DateOnly(date: activeDate, timeZone: timeZone)
         let inMonth = day.month == active.month && day.year == active.year
+        let isToday = day == today
         return VStack(alignment: .leading, spacing: 4) {
             Button { onOpenDay(content.day) } label: {
                 HStack {
-                    Text(formatted(content.day, template: "d")).font(.callout.weight(.medium))
+                    Text(formatted(content.day, template: "d")).font(.callout.weight(isToday ? .semibold : .medium))
+                        .foregroundStyle(isToday ? AppTheme.accent : (inMonth ? AppTheme.textPrimary : AppTheme.textSecondary))
                     Spacer(minLength: 0)
                     if !inMonth { Text(formatted(content.day, template: "MMM")).font(.caption2) }
                 }
@@ -64,7 +67,7 @@ struct CalendarMonthView: View {
                 .contentShape(Rectangle())
             }.pointingHandCursor()
             .buttonStyle(.plain)
-            .accessibilityLabel("Открыть день: \(formatted(content.day, template: "EEEE, d MMMM y"))")
+            .accessibilityLabel((isToday ? "Сегодня, " : "") + "Открыть день: \(formatted(content.day, template: "EEEE, d MMMM y"))")
             ForEach(visibleEvents, id: \.identity) { event in
                 eventButton(event)
             }
@@ -102,6 +105,8 @@ struct CalendarMonthView: View {
         .frame(maxWidth: .infinity)
         .frame(height: height, alignment: .topLeading)
         .background(inMonth ? AppTheme.surface : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).fill(AppTheme.accent.opacity(isToday ? 0.06 : 0))
+            .allowsHitTesting(false).accessibilityHidden(true))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(AppTheme.outline.opacity(0.3), lineWidth: 1)
             .allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)

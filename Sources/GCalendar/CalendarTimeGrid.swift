@@ -100,6 +100,7 @@ struct CalendarTimeGridDay: View {
     let timeZone: TimeZone
     let columnWidth: CGFloat
     var dateOnlyHeight: CGFloat = CGFloat(CalendarGridLayout.dateOnlyRegionHeight)
+    var today = DateOnly(date: Date())
     let onEdit: (CalendarEvent) -> Void
     let onToggleTask: (GoogleTask) -> Void
 
@@ -134,19 +135,24 @@ struct CalendarTimeGridDay: View {
         .accessibilityLabel(formattedDay(day, template: "EEEE, d MMMM y"))
     }
 
+    private var isToday: Bool { DateOnly(date: day, timeZone: timeZone) == today }
+
     var dayHeader: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(formattedDay(day, template: "EEE")).font(.caption.weight(.semibold)).textCase(.uppercase).foregroundStyle(AppTheme.textSecondary)
-            Text(formattedDay(day, template: "d")).font(.title3.weight(.medium)).foregroundStyle(AppTheme.textPrimary)
+            Text(formattedDay(day, template: "d")).font(.title3.weight(isToday ? .semibold : .medium))
+                .foregroundStyle(isToday ? AppTheme.accent : AppTheme.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .frame(width: columnWidth, height: CGFloat(CalendarGridLayout.headerHeight), alignment: .center)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).fill(AppTheme.accent.opacity(isToday ? 0.07 : 0))
+            .allowsHitTesting(false).accessibilityHidden(true))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1)
             .allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(formattedDay(day, template: "EEEE, d MMMM y"))
+        .accessibilityLabel((isToday ? "Сегодня, " : "") + formattedDay(day, template: "EEEE, d MMMM y"))
     }
 
     var dateOnlyArea: some View {

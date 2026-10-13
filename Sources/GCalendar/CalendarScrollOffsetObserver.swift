@@ -5,6 +5,7 @@ struct CalendarGridContentToken: Equatable {
     let days: [CalendarDayContent]
     let calendars: [CalendarInfo]
     let timeZoneID: String
+    var today: DateOnly? = nil
     // Changed callback owners rebuild roots even when synthetic values match.
     var modelIdentity: ObjectIdentifier? = nil
     var actionOwnerIdentity: ObjectIdentifier? = nil

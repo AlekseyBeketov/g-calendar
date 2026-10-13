@@ -160,3 +160,10 @@ The calendar MUST offer Day, Week and Month. Month MUST show seven columns and f
 #### Scenario: Navigate from January 31
 - **WHEN** the user moves forward in Month mode
 - **THEN** February is shown and the next navigation shows March without skipping a short month
+
+### Requirement: Today is subtly highlighted in every view
+Day, Week and Month MUST highlight today's date with a subtle accent tint and emphasized date number, and expose “Today” to accessibility. Today MUST use the selected calendar's timezone and update on activation, wake and the next periodic date check without restarting. Highlighting MUST NOT change hit testing or disable entries.
+
+#### Scenario: Cross midnight in another timezone
+- **WHEN** the selected calendar's local date changes while the application is open
+- **THEN** the highlight moves to that local date, including in native pinned headers

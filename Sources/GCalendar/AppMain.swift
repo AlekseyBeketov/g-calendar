@@ -20,6 +20,7 @@ final class WorkspaceViewModel: ObservableObject {
     @Published var selectedTaskListID: String? { willSet { if newValue != selectedTaskListID { DemoPerformanceProbe.shared.begin(.taskList) } } }
     @Published var activeDate = Date()
     @Published private(set) var localToday = DateOnly(date: Date())
+    @Published private(set) var calendarToday = DateOnly(date: Date())
     @Published var searchText = "" { willSet { if newValue != searchText { DemoPerformanceProbe.shared.begin(.search) } } }
     @Published var syncState: SyncState = .idle
     @Published var statusMessage = ""
@@ -981,6 +982,8 @@ final class WorkspaceViewModel: ObservableObject {
     func updateLocalDate(now: Date = Date()) {
         let today = DateOnly(date: now)
         if today != localToday { localToday = today }
+        let calendarDay = DateOnly(date: now, timeZone: selectedTimeZone)
+        if calendarDay != calendarToday { calendarToday = calendarDay }
     }
 
     func goToToday() { updateLocalDate(); activeDate = Date(); refreshCalendarRangeIfNeeded() }

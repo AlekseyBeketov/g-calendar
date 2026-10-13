@@ -148,6 +148,12 @@ struct NativeUIInvariantTests {
         changedEnvironment.actionOwnerIdentity = ObjectIdentifier(replacementOwner)
         configureTokenGrid(changedEnvironment)
         expect(grid.rootReplacementCount == beforeIdentical + 15, "replaced callback owner invalidates roots and captured actions")
+        changedEnvironment.today = DateOnly(rawValue: "2026-10-13")
+        configureTokenGrid(changedEnvironment)
+        expect(grid.rootReplacementCount == beforeIdentical + 18, "local date change invalidates pinned header roots")
+        configureTokenGrid(changedEnvironment)
+        expect(grid.rootReplacementCount == beforeIdentical + 18, "unchanged local date does not recreate native roots")
+
         grid.disconnect()
         grid.daysScroll.contentView.scroll(to: NSPoint(x: 300, y: 500))
         settle()

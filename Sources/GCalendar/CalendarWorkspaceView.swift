@@ -69,6 +69,7 @@ struct CalendarWorkspaceView: View {
                     if model.calendarMode == .month {
                         CalendarMonthView(projection: projection, activeDate: model.activeDate,
                                           timeZone: model.selectedTimeZone, calendars: model.snapshot.calendars,
+                                          today: model.calendarToday,
                                           mutationsBlocked: model.mutationsBlocked,
                                           onOpenDay: { day in
                                               model.activeDate = day
@@ -117,7 +118,7 @@ struct CalendarWorkspaceView: View {
                                 documentHeight: axisContentHeight,
                                 initialVerticalOffset: CGFloat(initialMinutes * CalendarGridLayout.pointsPerMinute),
                                 contentToken: CalendarGridContentToken(days: projection.days, calendars: model.snapshot.calendars,
-                                                                      timeZoneID: model.selectedTimeZone.identifier,
+                                                                      timeZoneID: model.selectedTimeZone.identifier, today: model.calendarToday,
                                                                       modelIdentity: ObjectIdentifier(model), actionOwnerIdentity: ObjectIdentifier(local))
                             )
                             .padding(.horizontal, 24)
@@ -136,7 +137,8 @@ struct CalendarWorkspaceView: View {
                 .environmentObject(model)
         }
         .onChange(of: model.calendarMode) { _ in model.refreshCalendarRangeIfNeeded() }
-        .onChange(of: model.selectedCalendarID) { _ in model.refreshCalendarRangeIfNeeded() }
+        .onAppear { model.updateLocalDate() }
+        .onChange(of: model.selectedCalendarID) { _ in model.updateLocalDate(); model.refreshCalendarRangeIfNeeded() }
         .onChange(of: model.newItemRequestID) { _ in
             guard model.section == .calendar, model.selectedCalendar?.isWritable == true else { return }
             local.selectedEvent = nil
@@ -148,7 +150,7 @@ struct CalendarWorkspaceView: View {
     private func dayColumn(_ content: CalendarDayContent, width: CGFloat, dateOnlyHeight: CGFloat) -> CalendarTimeGridDay {
         CalendarTimeGridDay(day: content.day, events: content.events, tasks: content.tasks,
                            calendars: model.snapshot.calendars, timeZone: model.selectedTimeZone,
-                           columnWidth: width, dateOnlyHeight: dateOnlyHeight,
+                           columnWidth: width, dateOnlyHeight: dateOnlyHeight, today: model.calendarToday,
                            onEdit: { event in local.selectedEvent = event; local.showingEventEditor = true },
                            onToggleTask: toggleTask)
     }
