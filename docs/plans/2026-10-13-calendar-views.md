@@ -1,0 +1,64 @@
+# Calendar Views Implementation Plan
+
+**Goal:** Добавить месяц, заметное сегодня, будущую поддержку автора и выбор начала недели.
+
+**Architecture:** Общая политика дат на Foundation определяет диапазоны и дни; SwiftUI показывает месячную сетку или существующую временную сетку. Настройки остаются локальными, Google читается существующим механизмом диапазонов.
+
+**Tech Stack:** Swift, Foundation, SwiftUI, AppKit, существующие shell-скрипты сборки и проверок.
+
+## Purpose / Big Picture
+
+Пользователь сможет обозреть месяц, открыть день с большим количеством записей, найти сегодня и выбрать первый день недели. Месяц остаётся видимым при отсутствии записей. Поддержка автора добавляется только как будущая задача.
+
+## Progress
+
+- [x] 2026-10-13: исследование и согласование дизайна; исходные изменения сохранены в /private/tmp/g-calendar-calendar-20261013.
+- [ ] Месячная сетка, диапазон, навигация и синтетические проверки; коммит и push.
+- [ ] Выделение сегодня с обновлением даты; коммит и push.
+- [ ] Поддержка автора в Future; коммит и push.
+- [ ] Сохранение начала недели, настройки и проверки; коммит и push.
+- [ ] Итоговая сборка и обновление индексов.
+
+## Surprises & Discoveries
+
+Существующая проекция CalendarWorkspaceProjection строит ровно семь дней, а пустой диапазон заменяет сетку заглушкой. WorkspaceViewModel.currentRange и предварительная загрузка явно используют firstWeekday = 2. AppMain.swift и InvariantTests.swift уже изменены владельцем; индексировать в Git следует только новые фрагменты относительно сохранённых исходных файлов.
+
+## Decision Log
+
+13 октября 2026: сохранить понедельник по умолчанию; системный вариант берёт региональное Calendar.current.firstWeekday, а не вычисляется по часовому поясу. Соседние дни месяца загружаются вместе с сеткой, чтобы их записи были достоверны. План выполняется последовательно в текущем чате по прямой инструкции пользователя.
+
+## Outcomes & Retrospective
+
+Работа начата; результаты проверок и завершение этапов будут записаны здесь.
+
+## Context and Orientation
+
+Sources/GCalendar/AppMain.swift содержит WorkspaceViewModel, состояние вида и методы currentRange/moveDate. CalendarWorkspaceView.swift выбирает представление и вызывает существующие редактор события и изменение статуса задачи. CalendarProjection.swift группирует записи по дням. CalendarTimeGrid.swift содержит заголовки недели/дня. SettingsAndForms.swift содержит SettingsView. scripts/test.sh компилирует Foundation-модели и Tests/InvariantTests.swift; scripts/build-app.sh компилирует все Swift-файлы и создаёт dist/g-calendar.app.
+
+## Plan of Work
+
+Создать CalendarPresentation.swift с CalendarPresentationMode и CalendarDatePolicy: расчёт диапазона, навигации и перечисления дней выполняется календарными операциями, без предположения о 86400 секундах в сутках. В CalendarProjection.swift перечислять дни до endExclusive. В AppMain.swift использовать общую политику и добавить выбор месяца; в CalendarWorkspaceView.swift создать отдельную ветку месячного вида. Новый CalendarMonthView.swift показывает семиколоночную сетку, краткие записи и кнопку перехода в день при переполнении. Добавить Tests/CalendarPresentationTests.swift и подключить к scripts/test.sh и входной точке проверок.
+
+После первого коммита добавить слабое выделение сегодня в CalendarTimeGrid.swift и CalendarMonthView.swift; обновлять текущий момент в модели через уже существующий минутный таймер. Затем дополнить docs/FUTURE.md. Последним этапом добавить CalendarWeekStart, сохранение в defaults модели и Picker в SettingsView; применять настройку к вычислению недели, месяца и предварительной загрузке. Обновить спецификацию openspec/changes/g-calendar-mvp/specs/calendar-workspace/spec.md, не затрагивая исходные изменения спецификации задач.
+
+## Concrete Steps
+
+Все команды выполнять в /Users/alexbeketov/g-calendar. Для проверки запускать rtk proxy ./scripts/test.sh и rtk proxy ./scripts/build-app.sh. После каждого продуктового этапа выполнить rtk git diff --check, включить явные пути в index, проверить rtk git diff --cached и выполнить rtk git commit с отдельным сообщением, затем rtk git push origin main. Для файлов с исходными изменениями применять в index только diff между сохранённой копией и текущим файлом; после коммита обновлять сохранённую копию для следующего этапа. После важных исходных коммитов запускать rtk proxy ./scripts/index-code.sh.
+
+## Validation and Acceptance
+
+Синтетические проверки покрывают високосный февраль, месяцы разной длины, границы года, дни перехода летнего времени, месячный переход 31 января → февраль и дни вне месяца. После четвёртого этапа проверить начало недели в Москве и американском часовом поясе для каждого варианта. Команда test.sh должна завершиться с exit 0; build-app.sh должна вывести APP_BUNDLE=/Users/alexbeketov/g-calendar/dist/g-calendar.app. Пользователь вручную выбирает Месяц, проверяет пустой месяц, фильтры, переход к дню, открытие события, выделение сегодня в светлой/тёмной теме и сохранение начала недели после перезапуска. Успешная сборка не считается UI-проверкой.
+
+## Idempotence and Recovery
+
+Исходные правки сохранены в /private/tmp/g-calendar-calendar-20261013/initial.patch и копиях файлов. Не выполнять reset, clean, force push или перезапись этих изменений. При конфликте удалённого main сначала проверить историю; не переписывать её. Сбой сборки не заменяет прежний bundle благодаря существующему скрипту. Повторный запуск проверок безопасен, реальные Google mutations для проверки не нужны.
+
+## Artifacts and Notes
+
+Подтверждённое исходное поведение: AppMain.swift устанавливает calendar.firstWeekday = 2. Дизайн находится в docs/plans/2026-10-13-calendar-views-design.md.
+
+## Interfaces and Dependencies
+
+CalendarPresentationMode предоставляет day, week, month и Calendar.Component для навигации. CalendarDatePolicy.range(containing:mode:timeZone:firstWeekday:) возвращает DateRange с exclusive end (первая дата за пределами диапазона); days(in:) возвращает локальные начала суток. CalendarMonthView принимает проекцию, activeDate, timeZone, calendars и callbacks для дня, события и задачи. Новые внешние зависимости не требуются.
+
+План создан 13 октября 2026 после согласования; он фиксирует последовательное выполнение и сохранность исходных правок.
