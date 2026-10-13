@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: The default task list has readable density and predictable date order
-The default list SHALL use readable title/date hierarchy and convenient independent completion/edit/menu targets without excessive card whitespace. Empty groups SHALL have a compact treatment while a wholly empty scope retains a clear empty state. Dated working views SHALL use ascending due date with a stable tie-breaker, without rewriting remote manual order; undated and completed tasks SHALL remain semantically separate.
+The default list SHALL use readable title/date hierarchy and convenient independent completion/edit/menu targets without excessive card whitespace. Empty groups SHALL have a compact treatment while a wholly empty scope retains a clear empty state. Date sorting SHALL use ascending due date with a stable tie-breaker, without rewriting remote manual order; explicit Manual and Title modes SHALL take precedence in filtered views. Undated and completed tasks SHALL remain semantically separate.
 
 #### Scenario: Show upcoming tasks in date order
-- **WHEN** upcoming tasks arrive in a nonchronological API order
+- **WHEN** upcoming tasks arrive in a nonchronological API order and Date sorting is selected
 - **THEN** their local presentation is ordered by ascending date with a stable tie-breaker and no remote reordering mutation occurs
 
 #### Scenario: Show a list with empty daily groups
@@ -169,3 +169,15 @@ Board columns SHALL support dragging a board header to another header and moving
 #### Scenario: Refresh changed boards
 - **WHEN** Google adds or removes a board after a local arrangement
 - **THEN** existing boards keep their saved relative order, removed boards vanish, and new boards append once
+
+
+### Requirement: Add directly to a board
+Each board SHALL expose Add Task above its rows in column and list presentation, including empty and filtered-out boards. The action SHALL open the existing task editor with that exact board selected while preserving the workspace scope, filter and presentation. No Google mutation SHALL occur until Save; cancelled drafts SHALL not create tasks. The global Create action and shortcut SHALL set their own current scope and SHALL not reuse a previous board draft context.
+
+#### Scenario: Add from an empty or filtered board
+- **WHEN** a user activates Add Task above a board with no visible rows
+- **THEN** the editor targets that board, its existing Save/read-back flow is used, and underlying scope and filter remain unchanged
+
+#### Scenario: Cancel then create in another scope
+- **WHEN** a user cancels a board draft and uses global Create or another board's Add Task
+- **THEN** the new editor uses the new requested scope without retaining the old board identity

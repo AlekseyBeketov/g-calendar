@@ -122,7 +122,7 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 14.5 Readable date groups in date sorting.
 - [x] 14.6 Thin sidebar separator.
 - [x] 14.7 Persistent board ordering in column presentation.
-- [ ] 14.8 Add task directly to a board from its header.
+- [x] 14.8 Add task directly to a board from its header.
 - [ ] 14.2 Deferred: verify Google task-time transport, then implement automatic notifications.
 
 Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. No push.

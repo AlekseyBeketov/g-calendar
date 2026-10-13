@@ -28,8 +28,6 @@ struct TaskWorkspaceView: View {
                 workspaceHeader
                 if model.snapshot.taskLists.isEmpty {
                     WorkspaceEmptyState(title: "Списков задач нет", symbol: "checklist", description: "Создайте список, чтобы добавлять задачи.", actionTitle: "Управлять списками") { local.showTaskLists = true }
-                } else if model.visibleTasks.isEmpty {
-                    WorkspaceEmptyState(title: model.searchText.isEmpty ? "Нет задач по выбранному фильтру" : "Ничего не найдено", symbol: "checkmark.circle", description: "Создайте задачу или измените фильтр.", actionTitle: model.searchText.isEmpty ? nil : "Очистить поиск") { model.searchText = "" }
                 } else {
                     taskBoards
                 }
@@ -37,7 +35,9 @@ struct TaskWorkspaceView: View {
             .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
         }
         .background(TaskKeyboardFocusView(focusRequest: local.taskKeyboardFocusRequest, onFocusChange: taskKeyboardFocusChanged, onCommand: handleTaskKeyboardCommand))
-        .sheet(isPresented: $local.showingNewTask) { TaskEditorView(task: nil, taskListID: model.selectedTaskListID).environmentObject(model) }
+        .sheet(isPresented: $local.showingNewTask, onDismiss: { local.newTaskBoardID = nil }) {
+            TaskEditorView(task: nil, taskListID: local.newTaskBoardID).environmentObject(model)
+        }
         .sheet(isPresented: $local.showTaskLists) { TaskListManagerView().environmentObject(model) }
         .sheet(item: $local.keyboardTaskEditor, onDismiss: restoreTaskKeyboardFocus) { task in
             TaskEditorView(task: task, taskListID: task.taskListID).environmentObject(model)
@@ -46,7 +46,7 @@ struct TaskWorkspaceView: View {
         .onChange(of: visibleTaskIdentities) { _ in reconcileTaskSelection() }
         .onChange(of: model.newItemRequestID) { _ in
             guard model.section == .tasks, !model.snapshot.taskLists.isEmpty else { return }
-            local.showingNewTask = true
+            beginNewTask(on: model.selectedTaskListID)
         }
         .accessibilityIdentifier("task-workspace")
     }
@@ -84,13 +84,14 @@ struct TaskWorkspaceView: View {
                             ForEach(boardGroups) { group in
                                 TaskBoardView(group: group, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
                                               draggedTask: $interaction.draggedTask, draggedBoard: $interaction.draggedBoard,
-                                              onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
+                                              onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus,
+                                              onAddTask: { beginNewTask(on: group.id) })
                                     .frame(width: width, height: max(120, geometry.size.height - 8)).id(group.id)
                             }
                         }.padding(.horizontal, 24).padding(.vertical, 4)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 16) {
-                            ForEach(boardGroups.filter { !$0.tasks.isEmpty }) { group in
+                            ForEach(boardGroups) { group in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 8) {
                                         Button {
@@ -108,8 +109,9 @@ struct TaskWorkspaceView: View {
                                         .accessibilityLabel("\(group.board.title), \(group.tasks.count), \(local.collapsedGroups.contains("board:" + group.id) ? "свёрнуто" : "развёрнуто")")
                                         TaskBoardMenu(board: group.board)
                                     }
+                                    TaskBoardAddButton(board: group.board) { beginNewTask(on: group.id) }
                                     if !local.collapsedGroups.contains("board:" + group.id) {
-                                        TaskBoardRows(tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
+                                        TaskBoardRows(boardID: group.id, tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
                                                       draggedTask: $interaction.draggedTask, onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
                                     }
                                 }.id(group.id)
@@ -159,12 +161,19 @@ struct TaskWorkspaceView: View {
                 .accessibilityIdentifier("task-presentation-picker")
             }
             TaskBoardMenu(board: model.selectedTaskList)
-            Button { DemoPerformanceProbe.shared.begin(.form); local.showingNewTask = true } label: { Label("Создать", systemImage: "plus") }
+            Button { beginNewTask(on: model.selectedTaskListID) } label: { Label("Создать", systemImage: "plus") }
                 .pointingHandCursor().buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked).help("Создать задачу")
         }
     }
 
     private func selectTask(_ task: GoogleTask) { DemoPerformanceProbe.shared.begin(.selection); local.selectedTaskIdentity = task.selectionIdentity }
+    private func beginNewTask(on boardID: String?) {
+        guard !model.mutationsBlocked, !model.snapshot.taskLists.isEmpty,
+              boardID == nil || model.snapshot.taskLists.contains(where: { $0.id == boardID }) else { return }
+        DemoPerformanceProbe.shared.begin(.form)
+        local.newTaskBoardID = boardID
+        local.showingNewTask = true
+    }
     private func reconcileTaskSelection() {
         let visible = visibleTaskIdentities
         local.selectedTaskIdentity = TaskKeyboardNavigation.reconciledSelection(local.selectedTaskIdentity, previous: local.previousVisibleTaskIdentities, visible: visible)
@@ -263,13 +272,15 @@ private struct TaskBoardView: View {
     @Binding var draggedBoard: TaskBoardDragSession?
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
+    let onAddTask: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             TaskBoardHeader(board: group.board, taskCount: group.tasks.count, draggedBoard: $draggedBoard)
+            TaskBoardAddButton(board: group.board, action: onAddTask)
             ScrollViewReader { proxy in
                 ScrollView {
-                    TaskBoardRows(tasks: group.tasks, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
+                    TaskBoardRows(boardID: group.id, tasks: group.tasks, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
                                   draggedTask: $draggedTask, onSelect: onSelect, onEditorDismiss: onEditorDismiss)
                 }.scrollIndicators(.visible)
                 .onChange(of: selectedIdentity) { identity in
@@ -282,6 +293,22 @@ private struct TaskBoardView: View {
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1).allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct TaskBoardAddButton: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
+    let board: TaskList
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Label("Добавить задачу", systemImage: "plus.circle")
+                .font(.callout.weight(.medium)).foregroundStyle(AppTheme.accent)
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .padding(.horizontal, 8).contentShape(Rectangle())
+        }.pointingHandCursor().buttonStyle(.plain).disabled(model.mutationsBlocked)
+        .accessibilityLabel("Добавить задачу в доску: \(board.title)")
+        .help("Создать задачу в доске «\(board.title)»")
     }
 }
 
@@ -328,6 +355,7 @@ private struct TaskBoardHeader: View {
 
 private struct TaskBoardRows: View {
     @EnvironmentObject private var model: WorkspaceViewModel
+    let boardID: String
     let tasks: [GoogleTask]
     let selectedIdentity: TaskSelectionIdentity?
     let keyboardFocused: Bool
@@ -337,11 +365,16 @@ private struct TaskBoardRows: View {
     var body: some View {
         let firstCompleted = tasks.first(where: { $0.completed })?.selectionIdentity
         LazyVStack(alignment: .leading, spacing: 0) {
-            if tasks.isEmpty { Text("Пока пусто").font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.vertical, 5) }
-            if let boardID = tasks.first?.taskListID, model.taskSortMode(for: boardID) == .date {
+            if tasks.isEmpty {
+                Text(emptyMessage).font(.caption).foregroundStyle(AppTheme.textSecondary).padding(.horizontal, 8).padding(.vertical, 8)
+                if !model.searchText.isEmpty {
+                    Button("Очистить поиск") { model.searchText = "" }.pointingHandCursor().buttonStyle(.link).padding(.horizontal, 8)
+                }
+            }
+            if model.taskSortMode(for: boardID) == .date {
                 let groups = TaskOrdering.dateGroups(tasks, today: model.localToday)
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         Text(group.title).font(.callout.weight(.semibold))
                             .foregroundStyle(group.isOverdue ? AppTheme.overdue : group.isToday ? AppTheme.accent : AppTheme.textSecondary)
                             .padding(.leading, 8).padding(.top, index == 0 ? 4 : 18).padding(.bottom, 6)
@@ -358,6 +391,10 @@ private struct TaskBoardRows: View {
                 }
             }
         }
+    }
+    private var emptyMessage: String {
+        if !model.searchText.isEmpty { return "Ничего не найдено" }
+        return model.snapshot.tasks.contains(where: { $0.taskListID == boardID && !$0.deleted }) ? "Нет задач по этому фильтру" : "Пока пусто"
     }
     @ViewBuilder private func draggableRow(_ task: GoogleTask) -> some View {
         let row = TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,

@@ -29,8 +29,8 @@
 - [x] (2026-10-12) Этап 5: единые date groups и отступы в списке/колонках, устойчивые date IDs. 821 assertions и оптимизированная сборка прошли.
 - [x] (2026-10-12) Этап 6: разделитель 1 pt native separatorColor, скрывается с sidebar, не перехватывает ввод. Оптимизированная сборка и diff check прошли.
 - [x] (2026-10-12) Этап 7: drag заголовков и левее/правее, persisted boardOrder, миграция старых prefs, reconcile новых/удалённых досок. 830 assertions и оптимизированная сборка прошли.
-- [ ] Этап 8: создание задачи в конкретной доске, проверки, сборка и коммит.
-- [ ] Итоговая проверка спецификаций, состояния Git и актуального app bundle.
+- [x] (2026-10-13) Этап 8: кнопка каждой доски и явный newTaskBoardID реализованы; пустые/filtered/collapsed доски доступны, контекст очищается при закрытии. Оптимизированная сборка и diff check прошли.
+- [x] (2026-10-13) Интерфейсный этап: спецификации прошли openspec validate --strict, последняя invariant suite — 830 assertions, dist/g-calendar.app пересобран. UI через computer-use не проверялся; уведомления и Google task-time остаются следующей фазой.
 
 ## Surprises & Discoveries
 
@@ -77,7 +77,7 @@ Calendar API предоставляет точное время событий �
 ## Outcomes & Retrospective
 
 
-Индексы созданы и проверены: Graphify 1643 nodes/5283 edges, 44 Swift-файла; tgrep 127 файлов. Поиск WorkspaceViewModel работает обоими инструментами. Добавлены smooth wheel и короткие selection scrollTo; чистые тесты времени, границ и смены направления прошли. Продуктовые этапы продолжаются без computer-use; визуальная проверка остаётся пользователю. Доступ к Google task time будет исследован после интерфейсных этапов.
+Этапы 1, 3–8 реализованы последовательно с отдельными коммитами. Индексы работают локально и обновляются после коммитов. Добавлены короткое сглаживание coarse wheel, сортировка и проверяемый Google manual reorder, меню удаления выполненных, отступы date groups, sidebar separator, persisted boardOrder и создание задач с конкретным board context. Последняя invariant suite — 830 assertions; strict OpenSpec validation и оптимизированная финальная сборка прошли. Bundle: /Users/alexbeketov/g-calendar/dist/g-calendar.app. UI и ощущение прокрутки через computer-use не проверялись; это ручная проверка владельца. Уведомления и собственный transport Google task time остаются незавершёнными, работа возвращается к проверке доступности Tasks Private API.
 
 ## Context and Orientation
 

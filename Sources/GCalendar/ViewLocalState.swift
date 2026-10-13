@@ -17,6 +17,7 @@ final class ViewLocalState: ObservableObject {
     @Published var showingEventEditor = false
     @Published var selectedEvent: CalendarEvent?
     @Published var showingNewTask = false
+    @Published var newTaskBoardID: String?
     @Published var showEditor = false
     @Published var showReminderEditor = false
     @Published var listForm: TaskListForm?
