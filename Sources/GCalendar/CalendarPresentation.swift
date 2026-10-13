@@ -1,7 +1,7 @@
 import Foundation
 
 enum CalendarPresentationMode: String, CaseIterable {
-    case week = "Неделя", day = "День", month = "Месяц"
+    case day = "День", week = "Неделя", month = "Месяц"
 
     var component: Calendar.Component {
         switch self {
