@@ -15,7 +15,7 @@
 - [x] (2026-10-13) Реализованы полные страницы, четыре workers, actor/coalescing/stale guard, diff pending, archive и безопасные cancel/shutdown.
 - [x] (2026-10-13) Подключены process-lifetime timer, startup/refresh/mutation/activation/wake/timezone, единая настройка; ручные формы и действия удалены.
 - [x] (2026-10-13) Synthetic suite 967 assertions, strict OpenSpec и оптимизированный bundle прошли. Визуальный banner не проверялся.
-- [ ] Review/stage собственных hunks, отдельный коммит и обновление локальных индексов.
+- [x] (2026-10-13) Собственные hunks отделены от сторонних UI изменений; коммит 45e1294. Graphify/tgrep обновлены: 2087 nodes, 6250 edges, 75 source files, 147 text files. Swift AST hints не заменяют успешную проверку компилятором.
 - [ ] Исследовать и доказать независимые read/write Google task time; при отказе сохранить требование незавершённым.
 
 ## Surprises & Discoveries
@@ -83,3 +83,5 @@ AutomaticNotificationRequest: Codable/Equatable со stable identifier, namespac
 Revision note (2026-10-13): прежняя зависимость всей системы от task-time исследования снята по новому указанию владельца.
 
 Revision note (2026-10-13): реализовано автоматическое event scheduling; ревью выявило и regression tests закрыли удаление во время add, shutdown/logout и очистку owned malformed payload при выключении. Проверены строгие scalar types reminders. Bundle собран, task-time read/write и видимый banner остаются неподтверждёнными.
+
+Revision note (2026-10-13): продуктовый коммит 45e1294 и индексы подтверждены; ожидается снятие сохранённого browser site block для следующего разрешённого synthetic эксперимента. Повторное разрешение пользователя на действия не требуется.
