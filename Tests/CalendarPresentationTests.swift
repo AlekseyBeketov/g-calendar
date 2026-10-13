@@ -1,6 +1,51 @@
 import Foundation
 
 extension InvariantTests {
+    static func testCalendarWeekStart() throws {
+        let suite = "gcalendar.calendar-week-start-test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try check(CalendarWeekStart.load(from: defaults) == .monday, "existing users retain Monday by default")
+        for preference in CalendarWeekStart.allCases {
+            preference.save(to: defaults)
+            try check(CalendarWeekStart.load(from: UserDefaults(suiteName: suite)!) == preference, "week start survives settings reload")
+        }
+        defaults.set("invalid", forKey: "calendarWeekStart")
+        try check(CalendarWeekStart.load(from: defaults) == .monday, "invalid setting safely falls back to Monday")
+        var system = Calendar(identifier: .gregorian)
+        system.locale = Locale(identifier: "en_US")
+        system.firstWeekday = 1
+        try check(CalendarWeekStart.system.firstWeekday(systemCalendar: system) == 1, "system preference follows regional Sunday")
+        try check(CalendarWeekStart.monday.firstWeekday(systemCalendar: system) == 2, "explicit Monday overrides regional Sunday")
+        system.locale = Locale(identifier: "ru_RU")
+        system.firstWeekday = 2
+        try check(CalendarWeekStart.system.firstWeekday(systemCalendar: system) == 2, "system preference follows regional Monday")
+        try check(CalendarWeekStart.sunday.firstWeekday(systemCalendar: system) == 1, "explicit Sunday overrides regional Monday")
+
+        for zoneID in ["Europe/Moscow", "America/Los_Angeles"] {
+            let zone = TimeZone(identifier: zoneID)!
+            let date = DateOnly(rawValue: "2026-03-11")!.startOfDay(in: zone)!
+            for (preference, first, monthFirst, monthEnd) in [
+                (CalendarWeekStart.monday, "2026-03-09", "2026-02-23", "2026-04-06"),
+                (CalendarWeekStart.sunday, "2026-03-08", "2026-03-01", "2026-04-05")
+            ] {
+                let weekday = preference.firstWeekday()
+                let week = CalendarDatePolicy.range(containing: date, mode: .week, timeZone: zone, firstWeekday: weekday)
+                let month = CalendarDatePolicy.range(containing: date, mode: .month, timeZone: zone, firstWeekday: weekday)
+                try check(DateOnly(date: week.start, timeZone: zone).description == first && CalendarDatePolicy.days(in: week).count == 7, "explicit week start independent of timezone and DST")
+                try check(DateOnly(date: month.start, timeZone: zone).description == monthFirst && DateOnly(date: month.endExclusive, timeZone: zone).description == monthEnd, "month padding follows chosen weekday")
+                let day = CalendarDatePolicy.range(containing: date, mode: .day, timeZone: zone, firstWeekday: weekday)
+                try check(day.start == date && CalendarDatePolicy.days(in: day).count == 1, "week-start choice never shifts day mode")
+                var prefetch = CalendarNeighbourPrefetch()
+                let next = prefetch.neighbours(after: week, calendars: [], snapshot: .empty, firstWeekday: weekday)
+                try check(next.count == 1 && next[0].start == week.endExclusive && CalendarDatePolicy.days(in: next[0]).count == 7, "prefetch follows displayed week's start across DST")
+                try check(prefetch.neighbours(after: month, calendars: [], snapshot: .empty, firstWeekday: weekday).isEmpty, "month does not speculate on already visible weeks")
+            }
+        }
+        let instant = ISO8601DateFormatter().date(from: "2026-10-12T22:30:00Z")!
+        try check(DateOnly(date: instant, timeZone: TimeZone(identifier: "Europe/Moscow")!).description == "2026-10-13" && DateOnly(date: instant, timeZone: TimeZone(identifier: "America/Los_Angeles")!).description == "2026-10-12", "today uses calendar's local date, independently of week-start choice")
+    }
+
     static func testCalendarPresentation() throws {
         for zoneID in ["Europe/Moscow", "America/Los_Angeles"] {
             let zone = TimeZone(identifier: zoneID)!

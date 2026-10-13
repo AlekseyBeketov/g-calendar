@@ -17,6 +17,7 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/CalendarRangeCache.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
   "$ROOT/Sources/GCalendar/CalendarProjection.swift" \
+  "$ROOT/Sources/GCalendar/CalendarPresentation.swift" \
   "$ROOT/Sources/GCalendar/TaskKeyboardNavigation.swift" \
   "$ROOT/Sources/GCalendar/ShortcutSettings.swift" \
   "$ROOT/Sources/GCalendar/ThemePalette.swift" \

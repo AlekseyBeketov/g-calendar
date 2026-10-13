@@ -12,6 +12,33 @@ enum CalendarPresentationMode: String, CaseIterable {
     }
 }
 
+enum CalendarWeekStart: String, CaseIterable, Identifiable {
+    case monday, sunday, system
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .monday: return "Понедельник"
+        case .sunday: return "Воскресенье"
+        case .system: return "По настройкам системы"
+        }
+    }
+
+    func firstWeekday(systemCalendar: Calendar = .autoupdatingCurrent) -> Int {
+        switch self {
+        case .monday: return 2
+        case .sunday: return 1
+        case .system: return systemCalendar.firstWeekday
+        }
+    }
+
+    static func load(from defaults: UserDefaults) -> Self {
+        defaults.string(forKey: "calendarWeekStart").flatMap(Self.init(rawValue:)) ?? .monday
+    }
+
+    func save(to defaults: UserDefaults) { defaults.set(rawValue, forKey: "calendarWeekStart") }
+}
+
 enum CalendarDatePolicy {
     static func range(containing date: Date, mode: CalendarPresentationMode, timeZone: TimeZone,
                       firstWeekday: Int = 2) -> DateRange {

@@ -167,3 +167,18 @@ Day, Week and Month MUST highlight today's date with a subtle accent tint and em
 #### Scenario: Cross midnight in another timezone
 - **WHEN** the selected calendar's local date changes while the application is open
 - **THEN** the highlight moves to that local date, including in native pinned headers
+
+### Requirement: First weekday is a persistent user preference
+The calendar MUST offer Monday, Sunday and system regional settings in Settings. Monday MUST remain the default for existing and new users regardless of timezone. The saved preference MUST apply to weekly ranges, month padding, weekday headers and weekly prefetch. System mode MUST use the macOS calendar's firstWeekday and react to regional-setting changes. Day mode and Google task due dates MUST remain unchanged. Month ranges MUST avoid redundant weekly prefetch within the visible month.
+
+#### Scenario: Choose Sunday while using a Moscow calendar
+- **WHEN** the user selects Sunday as the first weekday
+- **THEN** Week and Month start on Sunday immediately and preserve the selection after restarting
+
+#### Scenario: Use an American calendar with default settings
+- **WHEN** a user has not changed the first-weekday preference
+- **THEN** Week and Month start on Monday even if the calendar timezone or region commonly uses Sunday
+
+#### Scenario: Follow system regional settings
+- **WHEN** the user chooses system mode
+- **THEN** the first weekday follows macOS regional calendar settings independently of the selected calendar timezone

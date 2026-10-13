@@ -137,6 +137,9 @@ struct CalendarWorkspaceView: View {
                 .environmentObject(model)
         }
         .onChange(of: model.calendarMode) { _ in model.refreshCalendarRangeIfNeeded() }
+        .onReceive(NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)) { _ in
+            if model.calendarWeekStart == .system { model.objectWillChange.send(); model.refreshCalendarRangeIfNeeded() }
+        }
         .onAppear { model.updateLocalDate() }
         .onChange(of: model.selectedCalendarID) { _ in model.updateLocalDate(); model.refreshCalendarRangeIfNeeded() }
         .onChange(of: model.newItemRequestID) { _ in

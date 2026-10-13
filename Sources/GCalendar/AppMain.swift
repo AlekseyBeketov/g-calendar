@@ -26,6 +26,7 @@ final class WorkspaceViewModel: ObservableObject {
     @Published var statusMessage = ""
     @Published var gwsPath: String
     @Published var appearance: Appearance
+    @Published private(set) var calendarWeekStart: CalendarWeekStart
     @Published var mutationInFlight = false
     @Published private(set) var pendingMutation: PendingMutation?
     @Published private(set) var mutationRecoveryProblem: String?
@@ -76,6 +77,7 @@ final class WorkspaceViewModel: ObservableObject {
         mutationJournalBusy = journalState.failure == .journalBusy
         self.defaults = defaults
         shortcutSettings = WorkspaceShortcutSettings.load(from: defaults)
+        calendarWeekStart = CalendarWeekStart.load(from: defaults)
         gwsPath = mode == .normal ? (defaults.string(forKey: "gwsExecutablePath") ?? "") : ""
         appearance = mode == .normal ? (Appearance(rawValue: defaults.string(forKey: "appAppearance") ?? "Система") ?? .system) : .system
         taskPreferences = TaskWorkspacePreferences.load(from: defaults, key: "taskWorkspacePreferences." + (context?.identity ?? "gws"))
@@ -394,7 +396,7 @@ final class WorkspaceViewModel: ObservableObject {
     private func offerNeighbourPrefetch(runner: GWSProcessRunning) {
         let range = currentRange()
         guard snapshot.calendarCoverage?.covers(range) == true else { return }
-        for neighbour in neighbourPrefetch.neighbours(after: range, calendars: snapshot.calendars, snapshot: snapshot) {
+        for neighbour in neighbourPrefetch.neighbours(after: range, calendars: snapshot.calendars, snapshot: snapshot, firstWeekday: calendarWeekStart.firstWeekday()) {
             enqueueBackground(WorkspaceRefreshQuery(range: neighbour, scope: .calendarRange, purpose: .prefetch), runner: runner)
         }
     }
@@ -988,8 +990,17 @@ final class WorkspaceViewModel: ObservableObject {
 
     func goToToday() { updateLocalDate(); activeDate = Date(); refreshCalendarRangeIfNeeded() }
 
+    func setCalendarWeekStart(_ preference: CalendarWeekStart) {
+        guard preference != calendarWeekStart else { return }
+        calendarWeekStart = preference
+        preference.save(to: defaults)
+        neighbourPrefetch = CalendarNeighbourPrefetch()
+        refreshCalendarRangeIfNeeded()
+    }
+
     func currentRange() -> DateRange {
-        CalendarDatePolicy.range(containing: activeDate, mode: calendarMode, timeZone: selectedTimeZone)
+        CalendarDatePolicy.range(containing: activeDate, mode: calendarMode, timeZone: selectedTimeZone,
+                                 firstWeekday: calendarWeekStart.firstWeekday())
     }
 
     var selectedTimeZone: TimeZone {

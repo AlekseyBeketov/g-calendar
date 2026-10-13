@@ -561,6 +561,19 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    SettingsSection(title: "Календарь") {
+                        Picker("Первый день недели", selection: Binding(
+                            get: { model.calendarWeekStart },
+                            set: { model.setCalendarWeekStart($0) }
+                        )) {
+                            ForEach(CalendarWeekStart.allCases) { Text($0.title).tag($0) }
+                        }.pointingHandCursor()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Применяется к неделе и месяцу. Системный вариант использует региональные настройки macOS, а не часовой пояс календаря.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     SettingsSection(title: "Запуск приложения") {
                         Toggle("Запускать при входе в систему", isOn: Binding(
                             get: { loginItems.isRegistered },

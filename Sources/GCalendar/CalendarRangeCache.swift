@@ -123,10 +123,14 @@ enum CalendarRangeCache {
 struct CalendarNeighbourPrefetch {
     private var offeredAt: [String: Date] = [:]
 
-    mutating func neighbours(after range: DateRange, calendars: [CalendarInfo], snapshot: WorkspaceSnapshot, now: Date = Date()) -> [DateRange] {
+    mutating func neighbours(after range: DateRange, calendars: [CalendarInfo], snapshot: WorkspaceSnapshot,
+                            now: Date = Date(), firstWeekday: Int = 2) -> [DateRange] {
+        // A month is loaded as one complete range; weekly speculation would
+        // just fetch an already visible slice and consume an API request.
+        guard CalendarDatePolicy.days(in: range).count <= 7 else { return [] }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = range.timeZone
-        calendar.firstWeekday = 2
+        calendar.firstWeekday = firstWeekday
         guard let week = calendar.dateInterval(of: .weekOfYear, for: range.start),
               let start = calendar.date(byAdding: .day, value: 7, to: week.start),
               let end = calendar.date(byAdding: .day, value: 7, to: week.end),

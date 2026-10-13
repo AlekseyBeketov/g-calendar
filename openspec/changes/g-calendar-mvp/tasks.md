@@ -130,3 +130,10 @@ Implement without computer-use. Each feature receives a separate verified commit
 ## 15. Unified task list (2026-10-13)
 
 - [x] 15.1 Unified all-board list with global date/title sorting, board tags, full-width leading layout and matching keyboard order; verify, build and push main as explicitly requested.
+
+## 16. Calendar views (2026-10-13)
+
+- [x] 16.1 Month grid with complete visible weeks, compact events/tasks, overflow opening Day, month navigation and empty-month grid.
+- [x] 16.2 Subtle timezone-aware today highlight in Day, Week and Month, including native-header invalidation at date rollover.
+- [x] 16.3 Add optional author support to docs/FUTURE.md.
+- [x] 16.4 Persist Monday/Sunday/system first-weekday preference; default to Monday in every timezone; apply to weekly/monthly ranges and prefetch. Synthetic persistence, DST and regional-setting checks passed.
