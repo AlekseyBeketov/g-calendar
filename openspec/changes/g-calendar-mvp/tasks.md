@@ -124,7 +124,7 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 14.7 Persistent board ordering in column presentation.
 - [x] 14.8 Add task directly to a board from its header.
 - [x] 14.9 Bounded parallel completed-task deletion with durable group recovery and one local snapshot update (2026-10-13); synthetic concurrency/recovery tests, invariant suite and app build passed.
-- [ ] 14.2 Deferred: verify Google task-time transport, then implement automatic notifications.
+- [ ] 14.2 Finish verified Google task-time transport and precise task notifications; automatic event scheduling is implemented independently under section 19.
 
 Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. Push to main when explicitly requested by the owner.
 
@@ -144,3 +144,8 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 17.1 Show calendar modes as Day / Week / Month.
 - [x] 17.2 Bound task-column scroll viewport inside the detail pane; regression test fails on the original source and passes 50 assertions after the fix, including first/last board reachability and width/presentation transitions.
 - [x] 17.3 Two-row task actions: Create above, gear settings then presentation picker below; native geometry checks and app build passed.
+
+## 19. Automatic notifications (2026-10-13)
+
+- [x] 19.1 Decode Google reminders, independently read complete future events, reconcile pending requests with stable IDs, retire manual controls safely, retain process-lifetime refresh, preserve delivered history and serialize delete/shutdown races. 967 assertions, strict OpenSpec and optimized app build passed.
+- [ ] 19.2 Prove independent Google task scheduled-time read/write with exact identity/read-back; public due remains date-only and private OAuth access is unavailable to the checked project. Browser site permission still blocks the live web-session experiment.

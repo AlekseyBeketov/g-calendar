@@ -382,8 +382,10 @@ private final class ForegroundNotificationPresenter: NSObject, UNUserNotificatio
     }
 }
 
-final class UserNotificationScheduler: ReminderScheduling, NotificationStatusProviding {
-    private let center: UNUserNotificationCenter
+// The center supports concurrent API calls; these references are immutable.
+// Automatic schedule mutation itself is serialized by its coordinator actor.
+final class UserNotificationScheduler: ReminderScheduling, NotificationStatusProviding, @unchecked Sendable {
+    let center: UNUserNotificationCenter
     private let foregroundPresenter: ForegroundNotificationPresenter
 
     init(center: UNUserNotificationCenter = .current()) {
@@ -432,7 +434,6 @@ final class UserNotificationScheduler: ReminderScheduling, NotificationStatusPro
 
     func cancel(identifier: String) async {
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
-        center.removeDeliveredNotifications(withIdentifiers: [identifier])
     }
 
     func wasDelivered(identifier: String) async -> Bool {

@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 struct DateOnly: Codable, Hashable, Comparable, CustomStringConvertible {
     let year: Int
@@ -102,12 +103,47 @@ enum CalendarNavigation {
     }
 }
 
+struct GooglePopupReminder: Codable, Equatable {
+    let method: String
+    let minutes: Int
+
+    static func decodeList(_ value: Any?) throws -> [GooglePopupReminder]? {
+        guard let value else { return nil }
+        guard let entries = value as? [[String: Any]] else { throw GWSFailure.invalidResponse("reminders_shape") }
+        return try entries.map { entry in
+            guard let method = entry["method"] as? String,
+                  let number = entry["minutes"] as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  let minutes = entry["minutes"] as? Int,
+                  number.doubleValue == Double(minutes),
+                  (0...40320).contains(minutes) else { throw GWSFailure.invalidResponse("reminder_shape") }
+            return GooglePopupReminder(method: method, minutes: minutes)
+        }
+    }
+}
+
+struct GoogleEventReminders: Codable, Equatable {
+    let useDefault: Bool
+    let overrides: [GooglePopupReminder]
+
+    static func decode(_ value: Any?) throws -> GoogleEventReminders? {
+        guard let value else { return nil }
+        guard let object = value as? [String: Any],
+              let flag = object["useDefault"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID(),
+              let useDefault = object["useDefault"] as? Bool else {
+            throw GWSFailure.invalidResponse("event_reminders_shape")
+        }
+        return GoogleEventReminders(useDefault: useDefault, overrides: try GooglePopupReminder.decodeList(object["overrides"]) ?? [])
+    }
+}
+
 struct CalendarInfo: Codable, Equatable, Identifiable {
     let id: String
     var title: String
     var accessRole: String
     var timeZoneID: String?
     var colorHex: String?
+    var defaultReminders: [GooglePopupReminder]? = nil
 
     var isWritable: Bool { accessRole == "owner" || accessRole == "writer" }
 }
@@ -139,6 +175,8 @@ struct CalendarEvent: Codable, Equatable, Identifiable {
     var end: EventTime
     var recurring: Bool
     var status: String?
+    var reminders: GoogleEventReminders? = nil
+    var declinedByCurrentUser: Bool? = nil
 
     static func decode(_ dictionary: [String: Any], calendarID: String) throws -> CalendarEvent {
         guard let id = dictionary["id"] as? String,
@@ -158,7 +196,11 @@ struct CalendarEvent: Codable, Equatable, Identifiable {
                              start: try EventTime.decode(startObject),
                              end: try EventTime.decode(endObject),
                              recurring: recurring,
-                             status: dictionary["status"] as? String)
+                             status: dictionary["status"] as? String,
+                             reminders: try GoogleEventReminders.decode(dictionary["reminders"]),
+                             declinedByCurrentUser: (dictionary["attendees"] as? [[String: Any]])?.contains {
+                                 ($0["self"] as? Bool) == true && ($0["responseStatus"] as? String) == "declined"
+                             })
     }
 
     var isAllDay: Bool { start.isAllDay && end.isAllDay }

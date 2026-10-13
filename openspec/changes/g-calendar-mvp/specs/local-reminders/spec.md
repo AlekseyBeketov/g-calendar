@@ -1,76 +1,67 @@
 ## ADDED Requirements
 
-### Requirement: Local reminders are separate from Google task data
-The system MUST store local reminder time in app-local metadata, label it local-only, and never create a hidden Google Calendar event as a copy. Google Tasks due remains date-only.
+### Requirement: Automatic Google event notifications
+The app MUST derive timed-event notifications from the authenticated user's Google Calendar settings without per-event local reminder configuration. useDefault=true inherits CalendarList defaultReminders; useDefault=false uses only event overrides. Only popup offsets produce native notifications; an empty set MUST NOT create a fallback start notification. All-day, cancelled and self-declined events MUST NOT notify. Recurring instances MUST use distinct occurrence identities.
 
-#### Scenario: Persist local reminder extension
-- **WHEN** a user sets a reminder time for a Google task
-- **THEN** the time is stored in the app's local reminder store and excluded from the Google Tasks request body
+#### Scenario: Inherit Google reminders
+- **WHEN** a timed event uses defaults with popup offsets 10 and 0 minutes
+- **THEN** g-calendar schedules one notification at each instant without a local reminder action
 
-#### Scenario: Explain date-only due
-- **WHEN** a task is displayed or edited
-- **THEN** the app distinguishes the Google due date from an optional local reminder time
+#### Scenario: Individually disabled reminders
+- **WHEN** an event has useDefault=false with empty overrides
+- **THEN** no notification is scheduled even if its calendar has defaults
 
-### Requirement: Notification scheduling is permission-aware and deduplicated
-The system MUST use UserNotifications only after the user has explicitly enabled reminders and received the standard OS permission flow. Schedule, cancel, reschedule and dedup behavior MUST be testable behind an injected scheduler; task completion/deletion MUST cancel any associated local reminder.
+#### Scenario: Changed reminders without changed updated
+- **WHEN** calendar defaults or event reminder settings change
+- **THEN** the next notification read recalculates requests regardless of event.updated
 
-#### Scenario: Schedule after permission
-- **WHEN** notification authorization is granted and an enabled local reminder has a future time
-- **THEN** exactly one pending notification is scheduled for that reminder
+### Requirement: Independent complete notification coverage
+The service MUST read a complete calendar catalogue and all event pages independently of the visible workspace. Independent reads MUST be bounded to four. The upper read boundary MUST account for the maximum advance offset. Refresh MUST occur after startup, successful synchronization, verified mutation, activation, wake and timezone changes, and periodically while the process runs including with its window closed.
 
-#### Scenario: Denied permission
-- **WHEN** the user denies notification authorization
-- **THEN** the app reports that notifications are disabled and does not claim that a reminder is scheduled
+#### Scenario: Event outside the open week
+- **WHEN** the workspace displays a different week from an eligible future reminder
+- **THEN** that event is still included in the notification schedule
 
-#### Scenario: Reschedule or clear reminder
-- **WHEN** a local reminder time changes or is removed
-- **THEN** the previous pending request is replaced or cancelled without duplicates
+#### Scenario: Failure on a later page
+- **WHEN** any page of a calendar read fails
+- **THEN** that calendar does not acquire complete coverage and previous pending notifications are preserved
 
-#### Scenario: Complete or delete the task
-- **WHEN** the task associated with a local reminder becomes complete or is deleted
-- **THEN** its pending notification is cancelled
+### Requirement: Serialized permission-aware schedule reconciliation
+The service MUST serialize writes, coalesce refreshes, reject stale reads, use stable account/calendar/occurrence/offset identities, replace changed requests and leave unchanged requests untouched. Cancellation MUST affect pending requests only and preserve delivered history. A global setting controls automatic notifications. OS permission MUST be requested only through explicit global enable without repeated prompts after denial. Demo and tests MUST NOT request real authorization or schedule system notifications.
 
-#### Scenario: Reconcile on app activation
-- **WHEN** the app returns to the foreground
-- **THEN** it may reconcile app-local reminder definitions with pending requests without generating duplicates
+#### Scenario: Unchanged synchronization
+- **WHEN** the same schedule is reconciled twice
+- **THEN** no duplicate or unnecessary replacement is made
 
-#### Scenario: Reconcile after wake
-- **WHEN** macOS wakes or the app becomes active after sleep
-- **THEN** the app reconciles eligible future task reminders without scheduling duplicates and reports scheduling errors safely
+#### Scenario: Partial failure or unknown settings
+- **WHEN** settings are unknown or a calendar fails
+- **THEN** absent data does not cancel its last confirmed schedule
 
-### Requirement: Notification delivery limitations are explicit
-The system MUST explain that local notification display depends on macOS permission, Focus/notification settings and device lifecycle. It MUST NOT promise delivery while the Mac is asleep or after explicit application Quit where OS scheduling behavior is not verified.
+#### Scenario: Scheduler error
+- **WHEN** installing a changed notification fails
+- **THEN** destructive cleanup is deferred, status is shown and the next refresh may retry
 
-#### Scenario: Permission and OS settings block banner
-- **WHEN** the app has scheduled a local reminder but macOS notification settings prevent banner display
-- **THEN** the app does not describe the reminder as guaranteed delivered and provides a route to notification settings if available
+#### Scenario: Disable globally
+- **WHEN** the user disables automatic notifications
+- **THEN** active-account pending requests are cancelled without removing delivered history or another account's data
 
-### Requirement: Local reminders support one specific timed Calendar event
-The system MUST allow an explicit user action to attach a local-only notification time to a specific timed, non-recurring Calendar event. The exact local date/time is user-selected and stored in app-local metadata keyed by calendar identity and event/occurrence identity. This MUST NOT mirror, change, or claim parity with Google `event.reminders`; the UI MUST state that delivery is local to this Mac. All-day and recurring events remain unsupported until their trigger time/scope is explicitly implemented.
+### Requirement: Preserve legacy metadata without manual reminder management
+Legacy device-local task/event reminder definitions MUST be archived without deletion or automatic Google writes before retiring legacy pending requests. Editors and menus MUST NOT expose per-resource local reminder toggles or time pickers. Tasks due remains date-only; a local timestamp or hidden event MUST NOT substitute for true Google task-time synchronization.
 
-#### Scenario: Set a local reminder for a timed event
-- **WHEN** the user chooses an exact future local reminder time for a specific supported event
-- **THEN** the time is stored locally, one stable-identifier UserNotification request is scheduled when authorized, and no Google mutation is sent
+#### Scenario: Migrate a manual reminder
+- **WHEN** automatic scheduling replaces the legacy workflow successfully
+- **THEN** original metadata is preserved in an account-scoped archive and obsolete manual pending requests are retired
 
-#### Scenario: Reject all-day or recurring event reminder
-- **WHEN** an event is all-day or part of a recurrence whose occurrence scope is not supported
-- **THEN** the reminder action is disabled with an accessible explanation and no request is scheduled
+### Requirement: Honest task-time capability
+The app MUST distinguish Google scheduled datetime, date-only scheduled day and Google deadline. Precise task notifications MUST use confirmed synchronized Google task time. Public due MUST NOT be treated as a timestamp. Unavailable task-time access MUST be visible and MUST NOT be described as implemented synchronization. Tasks without confirmed time MUST NOT receive invented 09:00 notifications.
 
-#### Scenario: Preserve an event reminder outside the current sync range
-- **WHEN** a refresh does not include an event because its range/page is different
-- **THEN** absence from that partial date range alone does not remove its local metadata or pending request
+#### Scenario: Date-only Tasks API
+- **WHEN** the transport returns only public due
+- **THEN** the task date remains usable, no exact time is invented, and settings explain unavailable capability
 
-#### Scenario: Cancel after exact remote removal is confirmed
-- **WHEN** an exact event GET confirms that the event has been deleted
-- **THEN** its local event reminder is cancelled and metadata is reconciled; a missing list result outside its date range is insufficient evidence
+### Requirement: Native branded notification delivery
+Automatic notifications MUST use g-calendar title/icon, resource title and non-repeating exact-time trigger. Delivery depends on macOS permission, Focus and device lifecycle. A build MUST NOT count as banner verification or promise detection of remote changes while explicitly quit.
 
-#### Scenario: Retain second-level trigger precision
-- **WHEN** an authorized reminder is scheduled for a future instant that is not minute-aligned
-- **THEN** the calendar trigger retains seconds and its next trigger date does not move earlier or to the next minute
-
-### Requirement: Inline local reminder time and native alerts
-The task editor MUST allow selecting local reminder date/time separately from Google due date. The app MUST request alert presentation preference and use the current app icon; it MUST explain the user-controlled macOS style.
-
-#### Scenario: Save reminder with task
-- **WHEN** A task save is read-back verified
-- **THEN** The reminder is saved for that verified task ID locally; a local failure never repeats the Google mutation
+#### Scenario: System settings prevent a banner
+- **WHEN** a scheduled request is suppressed by Focus or macOS settings
+- **THEN** scheduler/system status and a route to notification settings are shown without guaranteed delivery claims

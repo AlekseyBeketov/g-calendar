@@ -497,9 +497,6 @@ private struct TaskRowView: View {
         var descriptions: [String] = []
         if task.notes?.isEmpty == false { descriptions.append("Есть заметки") }
         if metadata.favorite { descriptions.append("Локальное избранное") }
-        if let reminder = metadata.reminderAt {
-            descriptions.append("Локальное напоминание: \(reminder.formatted(date: .abbreviated, time: .shortened))")
-        }
         return descriptions.joined(separator: "; ")
     }
 
@@ -525,7 +522,6 @@ private struct TaskRowView: View {
                 .accessibilityValue(metadataAccessibilityValue)
                 Menu {
                     Button("Редактировать…", systemImage: "pencil") { onSelect(task); local.showEditor = true }
-                    Button("Локальное напоминание…", systemImage: "bell") { local.showReminderEditor = true }
                     Button(metadata.favorite ? "Убрать из избранного" : "В избранное", systemImage: "star") { toggleFavorite() }
                     if allowsManualOrdering && model.taskSortMode(for: task.taskListID) == .manual && !task.completed {
                         Divider()
@@ -568,7 +564,6 @@ private struct TaskRowView: View {
         .onHover { local.isHovered = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .sheet(isPresented: $local.showEditor, onDismiss: onEditorDismiss) { TaskEditorView(task: task, taskListID: task.taskListID).environmentObject(model) }
-        .sheet(isPresented: $local.showReminderEditor) { ReminderEditorView(task: task).environmentObject(model) }
         .confirmationDialog("Удалить задачу?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить задачу", role: .destructive) { delete() }
             Button("Отмена", role: .cancel) { }
@@ -580,10 +575,6 @@ private struct TaskRowView: View {
             Text(task.title).font(.body).foregroundStyle(AppTheme.textPrimary).strikethrough(task.completed).lineLimit(2)
             if task.notes?.isEmpty == false { Image(systemName: "text.alignleft").font(.caption2).foregroundStyle(AppTheme.textSecondary).help("Есть заметки") }
             if metadata.favorite { Image(systemName: "star.fill").font(.caption2).foregroundStyle(AppTheme.warning).accessibilityLabel("Локальное избранное") }
-            if let reminder = metadata.reminderAt {
-                Image(systemName: "bell").font(.caption2).foregroundStyle(AppTheme.textSecondary)
-                    .help("Локальное напоминание: \(reminder.formatted(date: .abbreviated, time: .shortened))")
-            }
         }
     }
 

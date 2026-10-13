@@ -163,6 +163,16 @@ Read-back содержал due, etag, id, kind, links, notes, position, selfLink
 
 ## Как это повлияет на g-calendar
 
+### Повторная проверка публичных возможностей — 13 октября 2026
+
+После нового запроса владельца повторно проверены Context7, текущая Discovery-схема и первичные исходники gws. Tasks revision `20261011` содержит 17 публичных полей, без scheduled datetime, end/duration и deadline. Документация due прямо различает scheduled day и deadline и исключает чтение/запись времени. gws строит команды из Discovery, поэтому другая CLI-команда не расширяет этот контракт. Источники: [Tasks resource](https://developers.google.com/workspace/tasks/reference/rest/v1/tasks), [gws commands source](https://github.com/googleworkspace/cli/blob/main/crates/google-workspace-cli/src/commands.rs), [gws Tasks skill](https://github.com/googleworkspace/cli/blob/main/skills/gws-tasks/SKILL.md).
+
+Google Help различает scheduled start/duration и отдельный date-only deadline; для deadline Google описывает напоминание в 09:00. Это не timestamp в публичном due. В g-calendar по явному решению владельца задачи без точного времени и all-day события не уведомляются, автоматическое 09:00 не добавляется. Источник: [Create and manage tasks in Calendar](https://support.google.com/calendar/answer/9901136?hl=en).
+
+Calendar public Event даёт start/end обычного события, но документированная модель типов не включает task и не предоставляет штатный способ изменить время той же Google Tasks identity. Apps Script использует публичную Tasks-модель; CalDAV не поддерживает VTODO. Takeout не подтверждён как канал двусторонней записи. Открытый TaskMenu также работает с date-only due через REST. Ни один из этих вариантов не доказывает полноценную синхронизацию времени задач. Внутренние RPC содержат нужное время; доказаны наблюдение чтения и запись Google UI, но независимый клиент не проверен. Отсутствие private API в конкретном OAuth-проекте нельзя расширять до утверждения, что Google никогда не предоставляет доступ сторонним проектам.
+
+Новое указание пользователя: реализацию автоматических уведомлений событий больше не задерживать из-за task-time исследования. Эти направления выполняются независимо; завершение событийных уведомлений не считается выполнением Google task-time read/write. Новый план: docs/plans/2026-10-13-automatic-notifications.md.
+
 ### Локальная проверка сохранённого запроса записи — 13 октября 2026
 
 Без новых запросов Google проверены ранее сохранённые HAR. `tasks-sync-after-time.har` содержит один успешный POST Sync без synthetic identity в request body. `tasks-sync-with-deadline.har` содержит два успешных POST Sync; один request body содержит четыре operation records той же synthetic задачи по путям `[0,1,2,0,0,0...3]`. В них присутствуют отдельные структуры deadline date `2026-10-15`, scheduled day `2026-10-14`, scheduled datetime `18:17 Europe/Moscow` и связанного time block. Назначение всех полей и числовых масок ещё не установлено; это наблюдение запроса Google UI, а не готовая схема собственного клиента. Изменение только start minute и сохранение остальных полей требуют отдельной проверки.

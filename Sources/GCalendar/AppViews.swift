@@ -67,11 +67,13 @@ struct RootView: View {
             model.updateLocalDate()
             model.reconcileLocalReminders(trigger: .appActivation)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
             model.updateLocalDate()
             model.reconcileLocalReminders(trigger: .systemWake)
         }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in model.updateLocalDate(now: now) }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in
+            model.updateLocalDate(now: now)
+        }
     }
 }
 

@@ -254,6 +254,8 @@ struct InvariantTests {
         run("calendar-presentation-month-ranges-navigation-projection", testCalendarPresentation)
         run("calendar-writable-sort-and-default-selection", testCalendarNavigation)
         run("optional-event-summary", testOptionalEventSummary)
+        run("automatic-google-reminder-planner", testAutomaticNotificationPlanner)
+        await runAsync("automatic-notification-reconcile-errors-and-isolation", testAutomaticNotificationReconciliation)
         run("malformed-event-still-rejected", testMalformedEventStillRejected)
         run("file-metadata-date-round-trip", testFileMetadataRoundTrip)
         run("completion-patch-only-status", testCompletionPatchOnlyStatus)

@@ -33,6 +33,8 @@ final class WorkspaceViewModel: ObservableObject {
     @Published private(set) var mutationJournalBusy = false
     @Published var notificationPermission: ReminderPermission = .notDetermined
     @Published var notificationRuntimeStatus: NotificationRuntimeStatus?
+    @Published private(set) var automaticNotificationStatus = AutomaticNotificationStatus()
+    @Published private(set) var automaticNotificationsEnabled = true
     @Published var searchFocusRequestID = 0
     @Published var newItemRequestID = 0
     @Published var sidebarToggleRequestID = 0
@@ -54,6 +56,16 @@ final class WorkspaceViewModel: ObservableObject {
     private let demoAdapter: DemoWorkspaceAdapter?
     private var ledgerAcceptanceSession: SyntheticLedgerAcceptanceSession? = nil
     private let notificationStatusProvider: NotificationStatusProviding?
+    private var automaticNotificationCoordinator: AutomaticNotificationCoordinator?
+    private var automaticRefreshRunning = false
+    private var automaticRefreshQueued = false
+    private var automaticLastAttempt: Date?
+    private var automaticLifecycleObservers = Set<AnyCancellable>()
+    private var automaticNamespace: String {
+        guard transportContext?.kind == .rest else { return "gws" }
+        return transportContext?.identity ?? "rest-unconfigured"
+    }
+    private var automaticSettingsKey: String { "automaticNotificationsEnabled." + automaticNamespace }
     private var refreshCoordinator = WorkspaceRefreshCoordinator()
     private var refreshRequestSequence = 0
     private var snapshotAcceptance = WorkspaceSnapshotAcceptance()
@@ -96,6 +108,11 @@ final class WorkspaceViewModel: ObservableObject {
             reminderCoordinator = ReminderCoordinator(store: metadata, scheduler: scheduler, defaults: defaults, enabledKey: context!.reminderEnabledKey)
             eventReminderCoordinator = EventReminderCoordinator(store: eventMetadata, scheduler: scheduler)
             notificationStatusProvider = baseScheduler as? NotificationStatusProviding
+            if let automaticScheduler = baseScheduler as? AutomaticNotificationScheduling,
+               context?.kind == .gws || context?.identity != nil {
+                automaticNotificationCoordinator = AutomaticNotificationCoordinator(namespace: context?.identity ?? "gws", scheduler: automaticScheduler,
+                    legacyArchive: { try AutomaticReminderMigration.archive(directory: appDirectory) })
+            }
             runner = context?.runner
             demoAdapter = nil
             syncState = loaded.fetchedAt == .distantPast ? .idle : .stale
@@ -146,6 +163,21 @@ final class WorkspaceViewModel: ObservableObject {
         selectedCalendarID = CalendarNavigation.selectedID(selectedCalendarID, calendars: snapshot.calendars)
         transportSettingsObserver = googleTransportSettings.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         googleTransportSettings.applyChanges = { [weak self] in self?.applyGoogleTransportChanges() }
+        automaticNotificationsEnabled = defaults.object(forKey: automaticSettingsKey) as? Bool ?? true
+        if mode == .normal {
+            Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+                .sink { [weak self] now in self?.refreshAutomaticNotifications(now: now) }
+                .store(in: &automaticLifecycleObservers)
+            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+                .merge(with: NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification),
+                       NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange))
+                .sink { [weak self] notification in
+                    Task { @MainActor in
+                        self?.refreshAutomaticNotifications(force: notification.name != NSApplication.didBecomeActiveNotification)
+                    }
+                }.store(in: &automaticLifecycleObservers)
+            Task { [weak self] in self?.refreshAutomaticNotifications(force: true) }
+        }
     }
 
     private var transportRestartInFlight = false
@@ -154,6 +186,14 @@ final class WorkspaceViewModel: ObservableObject {
               !transportRestartInFlight, googleTransportSettings.requiresRestart else { return }
         transportRestartInFlight = true
         activeReadCancellation?.cancel()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.automaticNotificationCoordinator?.shutdown()
+            self.restartForGoogleTransportChange()
+        }
+    }
+
+    private func restartForGoogleTransportChange() {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { [weak self] application, error in
@@ -488,15 +528,7 @@ final class WorkspaceViewModel: ObservableObject {
                         if read.completeTasks { self.requiredVerifiedTaskListIDs.removeAll() }
                         else { self.requiredVerifiedTaskListIDs.subtract(read.taskListIDs) }
                         self.installRefreshedSnapshot(refreshed)
-                        let stillCurrent = self.snapshotAcceptance.currentGuard()
-                        if let proof = read.fullProof(accepted: refreshed) {
-                            Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulFullSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
-                        } else if let proof = read.tasksProof(accepted: refreshed) {
-                            Task { try? await self.reminderCoordinator.reconcile(afterSuccessfulTasksSync: proof, preservingTaskIDs: self.pendingMoveMetadataProtection, stillCurrent: stillCurrent) }
-                        } else if !read.taskListIDs.isEmpty {
-                            Task { await self.reminderCoordinator.reconcile(tasks: read.tasks, stillCurrent: stillCurrent) }
-                        }
-                        if foreground && (read.completeCalendar || !read.calendarIDs.isEmpty) { self.reconcileEventReminders() }
+                        self.refreshAutomaticNotifications(force: true)
                     } else { stale = true }
                 } catch {
                     cancelled = (error as? GWSFailure) == .readCancelled
@@ -691,7 +723,6 @@ final class WorkspaceViewModel: ObservableObject {
                     self.statusMessage = "Изменение подтверждено точным чтением Google."
                     do { try self.installVerifiedMutation(invocation, result: result) }
                     catch { onFailure?("Не удалось применить подтверждённое изменение."); return }
-                    let mutationStillCurrent = self.snapshotAcceptance.currentGuard()
                     if onVerified == nil, case .taskVerified(let task) = result {
                         if invocation.operation == .taskMove, let sourceID = Self.argument("task", in: invocation) {
                             do { try await self.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: task.id) }
@@ -701,7 +732,6 @@ final class WorkspaceViewModel: ObservableObject {
                                 return
                             }
                         }
-                        await self.reminderCoordinator.reconcile(tasks: [task], stillCurrent: mutationStillCurrent)
                     }
                     if case .resourceDeleted = result {
                         if invocation.operation == .taskDelete, let taskID = Self.argument("task", in: invocation) {
@@ -710,11 +740,12 @@ final class WorkspaceViewModel: ObservableObject {
                                   let calendarID = Self.argument("calendarId", in: invocation),
                                   let eventID = Self.argument("eventId", in: invocation) {
                             let identity = CalendarEventIdentity(calendarID: calendarID, eventID: eventID)
-                            Task { try? await self.eventReminderCoordinator.remove(identity: identity) }
+                            Task { await self.automaticNotificationCoordinator?.cancelConfirmedEvent(identity: identity) }
                         }
                     }
                     onVerified?(result)
                     onSuccess?()
+                    self.refreshAutomaticNotifications(force: true)
                     if thenRefresh { self.refreshAfterMutation(invocation, result: result) }
                 case .success:
                     let message = "Запрос принят, но точное чтение не подтвердило результат. Форма оставлена открытой."
@@ -766,7 +797,6 @@ final class WorkspaceViewModel: ObservableObject {
                         if relatedCompletedDeletes.isEmpty { try self.installVerifiedMutation(pendingInvocation, result: verified) }
                         else { try self.installVerifiedCompletedDeletes([pendingInvocation] + relatedCompletedDeletes.map { $0.invocation(executableURL: pendingInvocation.executableURL) }) }
                     } catch { self.statusMessage = "Не удалось применить подтверждённое изменение."; return }
-                    let mutationStillCurrent = self.snapshotAcceptance.currentGuard()
                     if onVerified == nil, case .taskVerified(let task) = verified {
                         if pendingOperation == .taskMove, let sourceID = pendingSourceTaskID {
                             do { try await self.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: task.id) }
@@ -775,9 +805,9 @@ final class WorkspaceViewModel: ObservableObject {
                                 return
                             }
                         }
-                        await self.reminderCoordinator.reconcile(tasks: [task], stillCurrent: mutationStillCurrent)
                     }
                     onVerified?(verified)
+                    self.refreshAutomaticNotifications(force: true)
                     onSuccess?()
                     // A domain refresh reconciles deletion reminders using complete, confirmed data.
                     if thenRefresh {
@@ -958,20 +988,7 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     func reconcileLocalReminders(trigger: ReminderLifecycleTrigger) {
-        guard launchMode == .normal, let runner else { return }
-        let path = gwsPath
-        let context = transportContext
-        let tasks = snapshot.tasks
-        let taskCoordinator = reminderCoordinator
-        let eventCoordinator = eventReminderCoordinator
-        Task {
-            await ReminderLifecycleReconciliation.perform(for: trigger) {
-                await taskCoordinator.reconcile(tasks: tasks)
-                guard let factory = try? context?.factory(configuredGWSPath: path) else { return }
-                let reader = GWSReadClient(factory: factory, runner: runner)
-                await eventCoordinator.reconcile(using: reader)
-            }
-        }
+        refreshAutomaticNotifications(force: trigger == .systemWake)
     }
 
     private static func argument(_ name: String, in invocation: ProcessInvocation) -> String? {
@@ -981,20 +998,53 @@ final class WorkspaceViewModel: ObservableObject {
         return values[name]
     }
 
-    private func reconcileEventReminders() {
-        guard let runner else { return }
-        let path = gwsPath
-        let context = transportContext
-        Task {
-            guard let factory = try? context?.factory(configuredGWSPath: path) else { return }
-            let reader = GWSReadClient(factory: factory, runner: runner)
-            await eventReminderCoordinator.reconcile(using: reader)
+    func setAutomaticNotificationsEnabled(_ enabled: Bool) async {
+        guard launchMode == .normal else { return }
+        automaticNotificationsEnabled = enabled
+        defaults.set(enabled, forKey: automaticSettingsKey)
+        if enabled {
+            let authorization = await NotificationAuthorization.requestAfterExplicitUserAction(using: reminderCoordinator.scheduler)
+            notificationPermission = authorization.status
+        }
+        refreshAutomaticNotifications(force: true)
+        await refreshNotificationStatus()
+    }
+
+    func refreshAutomaticNotifications(force: Bool = false, now: Date = Date()) {
+        guard launchMode == .normal, !transportRestartInFlight, let coordinator = automaticNotificationCoordinator else { return }
+        if !force, let last = automaticLastAttempt, now.timeIntervalSince(last) < 300 { return }
+        if automaticRefreshRunning {
+            automaticRefreshQueued = true
+            Task { await coordinator.invalidateRead() }
+            return
+        }
+        automaticLastAttempt = now
+        let reader: AutomaticNotificationReading
+        if !automaticNotificationsEnabled { reader = EmptyAutomaticNotificationReader() }
+        else {
+            guard let runner, let context = transportContext else { return }
+            do { reader = GoogleAutomaticNotificationReader(reader: GWSReadClient(factory: try context.factory(configuredGWSPath: gwsPath), runner: runner)) }
+            catch { automaticNotificationStatus.problem = "Подключите Google, чтобы включить автоматическое расписание."; return }
+        }
+        automaticRefreshRunning = true
+        let enabled = automaticNotificationsEnabled
+        Task { @MainActor [weak self] in
+            let status = await coordinator.refresh(reader: reader, enabled: enabled, now: now)
+            guard let self else { return }
+            self.automaticNotificationStatus = status
+            self.automaticRefreshRunning = false
+            if self.automaticRefreshQueued {
+                self.automaticRefreshQueued = false
+                self.refreshAutomaticNotifications(force: true)
+            }
+            await self.refreshNotificationStatus()
         }
     }
 
     func updatePath(_ value: String) {
         gwsPath = value
         saveSettings()
+        refreshAutomaticNotifications(force: true)
     }
 
     func setAppearance(_ value: Appearance) {

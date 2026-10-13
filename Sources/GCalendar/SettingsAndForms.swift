@@ -133,14 +133,8 @@ struct TaskEditorView: View {
                 }
                 }
                 .disabled(!reminder.saveState.needsGoogleSave)
-                Text("Google Tasks API сохраняет срок только как дату. Время ниже относится к локальному напоминанию на этом Mac.")
+                Text("Дата планирования синхронизируется с Google. Доступ к точному времени Google Tasks пока не подключён; задачи без подтверждённого времени не вызывают уведомлений.")
                     .font(.caption).foregroundStyle(AppTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                Toggle("Локальное напоминание", isOn: $reminder.enabled).pointingHandCursor()
-                    .disabled(task?.completed == true)
-                if reminder.enabled {
-                    DatePicker("Напомнить", selection: $reminder.fireDate, displayedComponents: [.date, .hourAndMinute])
-                        .disabled(task?.completed == true)
-                }
                 if task?.completed == true {
                     Text("Для выполненной задачи уведомление не планируется.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -165,7 +159,7 @@ struct TaskEditorView: View {
                                         disabled: reminder.isSaving || local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || local.contextID.isEmpty,
                                         save: save, verified: {}, verifiedResult: taskVerified)
                 } else {
-                    Button(reminder.isSaving ? "Сохраняем напоминание…" : "Сохранить напоминание", action: saveLocalReminder).pointingHandCursor()
+                    Button("Готово", action: finishVerifiedSave).pointingHandCursor()
                         .keyboardShortcut(.defaultAction).disabled(reminder.isSaving)
                 }
             }
@@ -197,12 +191,6 @@ struct TaskEditorView: View {
                         }
                     }
                 }
-                if let metadataTaskID = reminder.saveState.verifiedTask?.id ?? task?.id,
-                   let date = model.metadataStore.metadata(for: metadataTaskID).reminderAt {
-                    reminder.enabled = true
-                    reminder.fireDate = date
-                    reminder.originalFireDate = date
-                }
                 reminder.initialized = true
             }
         }
@@ -216,12 +204,7 @@ struct TaskEditorView: View {
         guard !reminder.isSaving else { return }
         if !reminder.saveState.needsGoogleSave {
             if reminder.saveState.needsMove(to: local.contextID) { moveVerifiedTask() }
-            else { saveLocalReminder() }
-            return
-        }
-        if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
-                                                                     unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
-            local.errorMessage = problem
+            else { finishVerifiedSave() }
             return
         }
         local.errorMessage = nil
@@ -259,7 +242,7 @@ struct TaskEditorView: View {
         local.pendingMutationID = nil
         local.errorMessage = nil
         if reminder.saveState.needsMove(to: local.contextID) { moveVerifiedTask() }
-        else { saveLocalReminder() }
+        else { finishVerifiedSave() }
     }
 
     private func moveVerifiedTask() {
@@ -281,45 +264,22 @@ struct TaskEditorView: View {
         }
     }
 
-    private func saveLocalReminder() {
-        guard !reminder.isSaving, !reminder.saveState.needsMove(to: local.contextID), !model.mutationsBlocked,
+    private func finishVerifiedSave() {
+        guard !reminder.isSaving, !reminder.saveState.needsMove(to: local.contextID),
               let verifiedTask = reminder.saveState.verifiedTask else { return }
-        if let problem = TaskReminderSaveState.validationMessage(enabled: reminder.enabled, fireDate: reminder.fireDate,
-                                                                     unchangedDate: reminder.originalFireDate, completed: task?.completed == true) {
-            local.errorMessage = "Задача сохранена. " + problem
-            if reminder.metadataSourceID == nil { model.refreshTasksAfterSave(task: reminder.saveState.verifiedTask ?? task, taskListID: local.contextID, sourceTaskListID: task?.taskListID) }
-            return
-        }
         reminder.isSaving = true
-        reminder.message = nil
-        local.errorMessage = nil
-        let date = reminder.enabled ? reminder.fireDate : nil
         Task { @MainActor in
-            defer {
-                reminder.isSaving = false
-                if reminder.metadataSourceID == nil { model.refreshTasksAfterSave(task: reminder.saveState.verifiedTask ?? task, taskListID: local.contextID, sourceTaskListID: task?.taskListID) }
-            }
+            defer { reminder.isSaving = false }
             do {
                 if let sourceID = reminder.metadataSourceID {
                     try await model.reminderCoordinator.migrateTaskMetadata(from: sourceID, to: verifiedTask.id)
                     reminder.metadataSourceID = nil
                 }
-                let authorization = try await model.reminderCoordinator.saveReminder(task: verifiedTask, title: verifiedTask.title,
-                                                                                     at: date, explicitEnableAction: reminder.enabled)
-                if date == nil {
-                    dismiss()
-                } else if verifiedTask.completed || (date == reminder.originalFireDate && reminder.fireDate <= Date()) {
-                    // Keep a pre-existing expired reminder without blocking ordinary task edits.
-                    dismiss()
-                } else if authorization.status == .authorized && reminder.fireDate > Date() && !verifiedTask.deleted {
-                    dismiss()
-                } else {
-                    let delivery = verifiedTask.completed ? "Для выполненной задачи уведомление не планируется." : authorization.userMessage
-                    reminder.message = "Задача сохранена. Время локального напоминания сохранено. " + delivery
-                }
-                await model.refreshNotificationStatus()
+                model.refreshTasksAfterSave(task: verifiedTask, taskListID: local.contextID, sourceTaskListID: task?.taskListID)
+                model.refreshAutomaticNotifications(force: true)
+                dismiss()
             } catch {
-                local.errorMessage = "Задача сохранена. Не удалось сохранить или запланировать локальное напоминание. Можно повторить только сохранение напоминания или закрыть форму."
+                local.errorMessage = (error as? LocalizedError)?.errorDescription
             }
         }
     }
@@ -446,77 +406,6 @@ private struct TaskListEditorView: View {
     }
 }
 
-struct ReminderEditorView: View {
-    @EnvironmentObject private var model: WorkspaceViewModel
-    @Environment(\.dismiss) private var dismiss
-    let task: GoogleTask
-    @StateObject private var local: ViewLocalState
-
-    init(task: GoogleTask) {
-        self.task = task
-        _local = StateObject(wrappedValue: ViewLocalState(enabled: false, fireDate: Date().addingTimeInterval(3600)))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
-            Text("Локальное напоминание").font(.title2.weight(.semibold))
-            EditorBody {
-                VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
-            Text("Для «\(task.title)». Время хранится только на этом устройстве и не отправляется в Google Tasks.")
-                .font(.callout).foregroundStyle(.secondary)
-            Toggle("Напомнить в выбранное время", isOn: $local.enabled).pointingHandCursor()
-            if local.enabled { DatePicker("Время", selection: $local.fireDate, displayedComponents: [.date, .hourAndMinute]) }
-            Text("Показ зависит от разрешения macOS, Focus и настроек уведомлений. Спящий Mac может показать уведомление позже; после явного завершения приложения доставка не гарантируется.")
-                .font(.caption).foregroundStyle(.secondary)
-            if let message = local.reminderStatus { Text(message).font(.callout).foregroundStyle(.secondary) }
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Отмена") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction)
-                Button(local.isSaving ? "Сохраняется…" : (local.enabled ? "Включить и сохранить" : "Удалить напоминание")) { save() }.pointingHandCursor()
-                    .keyboardShortcut(.defaultAction).disabled(local.isSaving)
-            }
-        }
-        .padding(AppTheme.editorInset)
-        .frame(width: 500)
-        .fixedSize(horizontal: false, vertical: true)
-        .onAppear {
-            let metadata = model.metadataStore.metadata(for: task.id)
-            local.enabled = metadata.reminderAt != nil
-            local.fireDate = metadata.reminderAt ?? Date().addingTimeInterval(3600)
-        }
-    }
-
-    private func save() {
-        guard model.launchMode == .normal else {
-            local.reminderStatus = "В тестовом режиме системные уведомления отключены. Напоминание не отправлено в macOS."
-            return
-        }
-        local.isSaving = true
-        Task {
-            do {
-                let authorization = try await model.reminderCoordinator.saveReminder(task: task, title: task.title,
-                                                                                     at: local.enabled ? local.fireDate : nil,
-                                                                                     explicitEnableAction: local.enabled)
-                await model.refreshNotificationStatus()
-                await MainActor.run {
-                    model.notificationPermission = authorization.status
-                    local.isSaving = false
-                    if local.enabled && authorization.status != .authorized {
-                        local.reminderStatus = authorization.userMessage
-                    } else {
-                        model.statusMessage = local.enabled ? "Локальное напоминание сохранено." : "Локальное напоминание удалено."
-                        dismiss()
-                    }
-                }
-            } catch {
-                await MainActor.run { local.isSaving = false; local.reminderStatus = "Не удалось сохранить локальное напоминание." }
-            }
-        }
-    }
-}
-
 struct SettingsView: View {
     @StateObject private var loginItems = LoginItemSettings()
     @EnvironmentObject private var model: WorkspaceViewModel
@@ -594,11 +483,24 @@ struct SettingsView: View {
                         WorkspaceShortcutSettingsView()
                     }
 
-                    SettingsSection(title: "Локальные уведомления") {
+                    SettingsSection(title: "Автоматические уведомления") {
                         VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Уведомления от g-calendar", isOn: Binding(
+                                get: { model.automaticNotificationsEnabled },
+                                set: { enabled in Task { await model.setAutomaticNotificationsEnabled(enabled) } }
+                            )).pointingHandCursor().disabled(model.launchMode != .normal)
                             Button(notificationActionTitle, action: inspectOrRequestNotificationAccess).pointingHandCursor()
-                                .disabled(model.launchMode != .normal || model.notificationRuntimeStatus == nil ||
-                                          model.notificationRuntimeStatus?.authorization == "authorized")
+                                .disabled(model.launchMode != .normal || model.notificationRuntimeStatus == nil)
+                            Text("События: напоминания Google Calendar планируются автоматически, независимо от открытой недели. Задачи без времени и события на весь день не уведомляются.")
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text("Точное время задач Google пока недоступно через подключённый API. Локальное время не подменяет синхронизацию с Google.")
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text("В расписании: \(model.automaticNotificationStatus.scheduledCount)")
+                                .font(.caption)
+                            if let problem = model.automaticNotificationStatus.problem {
+                                Text(problem).font(.caption).foregroundStyle(AppTheme.warning)
+                                    .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.updatesFrequently)
+                            }
                             if model.launchMode == .demo || model.launchMode == .ledgerAcceptance {
                                 Text("UserNotifications отключены в изолированном тестовом режиме.")
                                     .font(.caption).foregroundStyle(.secondary)
@@ -654,19 +556,15 @@ struct SettingsView: View {
 
     private var notificationActionTitle: String {
         if model.launchMode != .normal { return "Уведомления отключены в тестовом режиме" }
-        return model.notificationRuntimeStatus?.authorization == "not_determined" ? "Запросить разрешение…" : "Обновить статус"
+        return model.notificationRuntimeStatus?.authorization == "not_determined" ? "Включить уведомления…" : "Обновить расписание"
     }
 
     private func inspectOrRequestNotificationAccess() {
         Task {
             if model.notificationRuntimeStatus?.authorization == "not_determined" {
-                let result = await model.reminderCoordinator.enableAfterExplicitUserAction()
-                model.notificationPermission = result.status
-                local.reminderStatus = result.userMessage
-                if result.status == .authorized {
-                    await model.reminderCoordinator.reconcile(tasks: model.snapshot.tasks)
-                }
+                await model.setAutomaticNotificationsEnabled(true)
             }
+            model.refreshAutomaticNotifications(force: true)
             await model.refreshNotificationStatus()
             if model.notificationRuntimeStatus?.authorization == "denied" {
                 local.reminderStatus = "Уведомления отключены. Разрешите их для g-calendar в системных настройках macOS → Уведомления."
@@ -763,9 +661,6 @@ private final class WorkspaceShortcutEditorState: ObservableObject {
 @MainActor
 private final class TaskEditorReminderState: ObservableObject {
     @Published var initialized = false
-    @Published var enabled = false
-    @Published var fireDate = Date().addingTimeInterval(3600)
-    var originalFireDate: Date?
     var metadataSourceID: String?
     @Published var isSaving = false
     @Published var message: String?

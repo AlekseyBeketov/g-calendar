@@ -83,10 +83,10 @@ The system MUST support System, Light and Dark appearance and expose primary cal
 - **THEN** each item has a visible/announced focus state, meaningful accessible label and keyboard-reachable action
 
 ### Requirement: Notification permission is explicit
-The system MUST request UserNotifications authorization only after a deliberate user action that enables a local reminder. Automated tests MUST inject a fake notification scheduler.
+The system MUST request UserNotifications authorization only after a deliberate user action that enables automatic notifications globally. Scheduling individual resources MUST NOT require manual reminder actions. Automated tests MUST inject a fake notification scheduler.
 
 #### Scenario: Enable reminder with no prior permission request
-- **WHEN** the user explicitly enables a reminder
+- **WHEN** the user explicitly enables automatic notifications
 - **THEN** the app requests the relevant macOS permission and reports the resulting authorization state
 
 #### Scenario: App launch without reminder action

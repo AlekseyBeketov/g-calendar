@@ -428,7 +428,8 @@ struct GWSReadClient: ExactCalendarEventReading {
                 guard let id = item["id"] as? String,
                       let title = (item["summaryOverride"] as? String) ?? (item["summary"] as? String),
                       let role = item["accessRole"] as? String else { throw GWSFailure.invalidResponse("calendar_shape") }
-                return CalendarInfo(id: id, title: title, accessRole: role, timeZoneID: item["timeZone"] as? String, colorHex: item["backgroundColor"] as? String)
+                return CalendarInfo(id: id, title: title, accessRole: role, timeZoneID: item["timeZone"] as? String, colorHex: item["backgroundColor"] as? String,
+                                    defaultReminders: try GooglePopupReminder.decodeList(item["defaultReminders"]) ?? [])
             }
         }
     }
@@ -442,7 +443,8 @@ struct GWSReadClient: ExactCalendarEventReading {
                             title: title,
                             accessRole: role,
                             timeZoneID: object["timeZone"] as? String,
-                            colorHex: object["backgroundColor"] as? String)
+                            colorHex: object["backgroundColor"] as? String,
+                            defaultReminders: try GooglePopupReminder.decodeList(object["defaultReminders"]) ?? [])
     }
 
     func events(calendarID: String, range: DateRange) throws -> [CalendarEvent] {

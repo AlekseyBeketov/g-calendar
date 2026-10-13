@@ -269,33 +269,7 @@ struct EventEditorView: View {
                         ForEach(model.sortedCalendars.filter(\.isWritable)) { Text($0.title).tag($0.id) }
                     }.pointingHandCursor()
                 } else if let calendar { LabeledContent("Календарь", value: calendar.title) }
-                if let event {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Локальное напоминание на этом Mac").font(.callout.weight(.medium))
-                        if event.isAllDay || event.recurring {
-                            Toggle("Напомнить локально", isOn: $local.enabled).pointingHandCursor().disabled(true)
-                            Text(event.isAllDay ? "Для событий на весь день локальное напоминание недоступно." : "Для повторяющихся событий выбор серии не поддерживается.")
-                                .font(.callout).foregroundStyle(AppTheme.textSecondary)
-                        } else {
-                            Toggle("Напомнить локально", isOn: $local.enabled).pointingHandCursor()
-                            if local.enabled {
-                                DatePicker("Точное время", selection: $local.fireDate, displayedComponents: [.date, .hourAndMinute])
-                            }
-                            Button(local.enabled ? "Сохранить локальное напоминание" : "Удалить локальное напоминание") {
-                                saveEventReminder()
-                            }.pointingHandCursor()
-                            Text("Хранится только на этом Mac и не меняет Google event.reminders.")
-                                .font(.caption).foregroundStyle(AppTheme.textSecondary)
-                        }
-                        if let message = local.localMessage { Text(message).font(.callout).foregroundStyle(AppTheme.textSecondary) }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Локальное напоминание на этом Mac").font(.callout.weight(.medium))
-                        Text("Сначала сохраните событие; затем можно добавить напоминание для конкретного события.")
-                            .font(.callout).foregroundStyle(AppTheme.textSecondary)
-                    }
-                }
+                AutomaticEventReminderSummary(event: event, calendar: activeCalendar)
                 if !canEdit { Text(event?.recurring == true ? "Повторяющиеся события доступны только для просмотра." : "Выбранный календарь доступен только для просмотра.").foregroundStyle(AppTheme.warning) }
                 if let message = local.errorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
@@ -319,10 +293,6 @@ struct EventEditorView: View {
         .defaultFocus($titleFocused, true)
         .onAppear {
             if event == nil && local.contextID.isEmpty { local.contextID = model.sortedCalendars.first(where: \.isWritable)?.id ?? "" }
-            if let event, let record = model.eventReminderCoordinator.store.record(for: event.identity) {
-                local.enabled = true
-                local.fireDate = record.fireDate
-            }
         }
         .confirmationDialog("Удалить событие?", isPresented: $local.showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Удалить событие", role: .destructive) { delete() }
@@ -372,32 +342,6 @@ struct EventEditorView: View {
             let invocation = try model.commandFactory().eventDelete(event: event, calendar: calendar, authorization: .confirmedDelete)
             model.performMutation(invocation, onSuccess: { dismiss() }, onFailure: { local.errorMessage = $0; local.pendingMutationID = model.pendingMutation?.id })
         } catch { local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Удаление не выполнено." }
-    }
-
-    private func saveEventReminder() {
-        guard model.launchMode == .normal else {
-            local.localMessage = "В тестовом режиме системные уведомления отключены. Напоминание не отправлено в macOS."
-            return
-        }
-        guard let event, !event.isAllDay, !event.recurring else {
-            local.errorMessage = "Локальное напоминание доступно для события со временем без повторения."
-            return
-        }
-        let date = local.enabled ? local.fireDate : nil
-        Task {
-            do {
-                let authorization = try await model.eventReminderCoordinator.save(event: event, at: date,
-                                                                                    explicitEnableAction: local.enabled)
-                await model.refreshNotificationStatus()
-                model.notificationPermission = authorization.status
-                local.errorMessage = nil
-                if date == nil { local.localMessage = "Локальное напоминание удалено." }
-                else if authorization.status == .authorized { local.localMessage = "Локальное напоминание сохранено на этом Mac." }
-                else { local.localMessage = authorization.userMessage }
-            } catch {
-                local.errorMessage = (error as? LocalizedError)?.errorDescription ?? "Локальное напоминание не сохранено."
-            }
-        }
     }
 
     private var zone: TimeZone { TimeZone(identifier: local.timeZoneID) ?? .current }
