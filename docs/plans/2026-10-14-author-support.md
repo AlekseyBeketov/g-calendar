@@ -17,7 +17,7 @@
 - [x] (2026-10-14) Создан custom skill, обновлены реестр и спецификация Dev Kit; валидатор и 43 tests прошли.
 - [x] (2026-10-14) Выполнены точные dry-run/apply; девять полных пакетов и Cursor main rule прочитаны обратно, Pi parser загрузил shared пакет; документационный fixture прошёл.
 - [x] (2026-10-14) Dev Kit commit `4945279` опубликован в удалённом main из isolated worktree.
-- [ ] Опубликовать g-calendar в main и обновить его локальные индексы.
+- [x] (2026-10-14) Product commit `05d4d85` опубликован в main g-calendar; Graphify/tgrep обновлены и verified.
 
 ## Surprises & Discoveries
 
@@ -35,7 +35,9 @@ Pi 1.2.0 проверен по установленному package-manager.js: 
 
 ## Outcomes & Retrospective
 
-Реализация и проверки завершены: app support 35 assertions на source и повторно на final bundle, основной suite 975, strict OpenSpec valid=true, optimized build и codesign verification успешны. Dev Kit проверен валидатором, 43 tests и fixture без кода; shared пакет и все объявленные endpoints совпадают с каноническим по содержимому. Dev Kit опубликован коммитом `4945279`. Остаются публикация g-calendar и индексы.
+Реализация, проверки и публикация завершены: app support 35 assertions на source и повторно на final bundle, основной suite 975, strict OpenSpec valid=true, optimized build и codesign verification успешны. Product commit g-calendar `05d4d85` опубликован в main. Dev Kit проверен валидатором, 43 tests и fixture без кода; shared пакет и все объявленные endpoints совпадают с каноническим по содержимому. Dev Kit опубликован коммитом `4945279` из isolated worktree, чужие изменения сохранены. Итоговый bundle `/Users/alexbeketov/g-calendar/dist/g-calendar.app` готов для ручной проверки без заявления real UI/payment acceptance.
+
+Graphify/tgrep verified: 2128 nodes, 6287 edges, 155 text files, 79 source files. Graphify предупредил о частичном AST parse существующего Tests/AutomaticNotificationTests.swift; Swift compiler и invariant suite прошли, индекс остаётся навигационной подсказкой, не доказательством семантики Swift.
 
 ## Context and Orientation
 
@@ -76,3 +78,5 @@ Milestone 3 в isolated Dev Kit worktree создаёт `skills/custom/author-su
 2026-10-14: начальная версия отражает утверждённый дизайн и отдельную публикацию Dev Kit для защиты параллельной работы.
 
 2026-10-14: обновлены результаты focused/invariant/package checks, подтверждены shared discovery Pi и read-back всех skills endpoints; publication остаётся отдельным финальным шагом.
+
+2026-10-14: оба product commits опубликованы, индексы обновлены; план закрыт по фактическим результатам. Computer use и реальные оплаты не выполнялись.

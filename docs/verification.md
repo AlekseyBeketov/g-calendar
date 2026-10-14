@@ -14,6 +14,10 @@
 
 Computer use не применялся. Offscreen проверка не подтверждает реальный ручной UI, spoken VoiceOver или банковскую оплату. Утверждённый дизайн — [author-support-design](plans/2026-10-14-author-support-design.md), план и результаты — [author-support](plans/2026-10-14-author-support.md).
 
+Product commit `05d4d85` отправлен в origin/main; согласованный дизайн сохранён коммитом `f041b18`. Переносимый custom skill опубликован в main Dev Kit (`4945279`) и read-back проверен в `.agents`, всех объявленных Hermes endpoints и Cursor rule. Его создание не меняло чужую параллельную рабочую копию Dev Kit.
+
+### Историческая приёмка — 2026-10-07/08
+
 Все команды выполнялись в `/Users/alexbeketov/g-calendar` через `rtk proxy`.
 
 | Команда | Результат |
