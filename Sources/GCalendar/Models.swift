@@ -177,6 +177,7 @@ struct CalendarEvent: Codable, Equatable, Identifiable {
     var status: String?
     var reminders: GoogleEventReminders? = nil
     var declinedByCurrentUser: Bool? = nil
+    var location: String? = nil
 
     static func decode(_ dictionary: [String: Any], calendarID: String) throws -> CalendarEvent {
         guard let id = dictionary["id"] as? String,
@@ -190,6 +191,7 @@ struct CalendarEvent: Codable, Equatable, Identifiable {
         else { title = "Без названия" }
         let recurrence = dictionary["recurrence"] as? [String]
         let recurring = dictionary["recurringEventId"] != nil || !(recurrence?.isEmpty ?? true)
+        let location = (dictionary["location"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return CalendarEvent(id: id,
                              calendarID: calendarID,
                              title: title,
@@ -200,7 +202,8 @@ struct CalendarEvent: Codable, Equatable, Identifiable {
                              reminders: try GoogleEventReminders.decode(dictionary["reminders"]),
                              declinedByCurrentUser: (dictionary["attendees"] as? [[String: Any]])?.contains {
                                  ($0["self"] as? Bool) == true && ($0["responseStatus"] as? String) == "declined"
-                             })
+                             },
+                             location: location?.isEmpty == false ? location : nil)
     }
 
     var isAllDay: Bool { start.isAllDay && end.isAllDay }

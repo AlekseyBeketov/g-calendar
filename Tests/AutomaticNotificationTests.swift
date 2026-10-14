@@ -81,9 +81,17 @@ extension InvariantTests {
         let now = ISO8601.parse("2026-10-13T10:00:00Z")!
         var calendar = CalendarInfo(id: "calendar", title: "Calendar", accessRole: "owner", defaultReminders: [GooglePopupReminder(method: "popup", minutes: 10)])
         var event = notificationEvent(now: now)
-        func plan(_ event: CalendarEvent) -> AutomaticNotificationPlan {
-            AutomaticNotificationPlanner.plan(calendar: calendar, events: [event], namespace: "account-a", now: now)
+        event.location = "Переговорная"
+        func plan(_ event: CalendarEvent, locale: Locale = .current) -> AutomaticNotificationPlan {
+            AutomaticNotificationPlanner.plan(calendar: calendar, events: [event], namespace: "account-a", now: now, locale: locale)
         }
+        let displayRequest = plan(event, locale: Locale(identifier: "en_US_POSIX")).requests.first!
+        try check(displayRequest.title == event.title, "event title is the notification title")
+        try check(displayRequest.body == "Переговорная", "notification body contains the event location")
+        try check(displayRequest.subtitle?.contains("Oct") == true && displayRequest.subtitle?.contains("2026") == true
+                  && displayRequest.subtitle?.contains("2:00") == true && displayRequest.subtitle?.contains("3:00") == true
+                  && displayRequest.subtitle?.contains("11:00") == false,
+                  "notification date and both times use the event timezone")
         try check(plan(event).requests.first?.fireDate == now.addingTimeInterval(3600), "zero offset fires at exact start")
         event.reminders = GoogleEventReminders(useDefault: true, overrides: [])
         try check(plan(event).requests.first?.fireDate == now.addingTimeInterval(3000), "calendar defaults inherited")
@@ -127,10 +135,18 @@ extension InvariantTests {
         try check(plan(event).requests.isEmpty, "cancelled never notified")
         event.status = "confirmed"; event.declinedByCurrentUser = true
         try check(plan(event).requests.isEmpty, "declined never notified")
+        let locatedEvent = try CalendarEvent.decode(["id": "located", "summary": "Meeting", "location": "  Conference room  ",
+            "start": ["dateTime": "2026-10-13T11:00:00+03:00", "timeZone": "Europe/Moscow"],
+            "end": ["dateTime": "2026-10-13T11:30:00+03:00", "timeZone": "Europe/Moscow"]], calendarID: "calendar")
+        try check(locatedEvent.location == "Conference room", "Google event location is decoded and trimmed")
         var oldJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(notificationEvent(now: now))) as! [String: Any]
-        oldJSON.removeValue(forKey: "reminders"); oldJSON.removeValue(forKey: "declinedByCurrentUser")
+        oldJSON.removeValue(forKey: "reminders"); oldJSON.removeValue(forKey: "declinedByCurrentUser"); oldJSON.removeValue(forKey: "location")
         let old = try JSONDecoder().decode(CalendarEvent.self, from: JSONSerialization.data(withJSONObject: oldJSON))
-        try check(old.reminders == nil, "old cache remains readable with unknown reminders")
+        try check(old.reminders == nil && old.location == nil, "old event cache remains readable without new optional fields")
+        var oldRequestJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(displayRequest)) as! [String: Any]
+        oldRequestJSON.removeValue(forKey: "subtitle")
+        let oldRequest = try JSONDecoder().decode(AutomaticNotificationRequest.self, from: JSONSerialization.data(withJSONObject: oldRequestJSON))
+        try check(oldRequest.subtitle == nil, "previously scheduled notification payload remains readable without subtitle")
         let invalid: [String: Any] = ["useDefault": false, "overrides": [["method": "popup", "minutes": -1]]]
         do { _ = try GoogleEventReminders.decode(invalid); throw TestFailure(description: "malformed reminders accepted") }
         catch GWSFailure.invalidResponse { assertions += 1 }
@@ -153,12 +169,27 @@ extension InvariantTests {
     static func testAutomaticNotificationReconciliation() async throws {
         let now = ISO8601.parse("2026-10-13T10:00:00Z")!
         let calendar = CalendarInfo(id: "calendar", title: "Calendar", accessRole: "owner")
-        let event = notificationEvent(now: now)
+        var event = notificationEvent(now: now)
+        event.location = "Meeting room"
         let good = FixtureAutomaticReader(value: AutomaticNotificationRead(calendars: [calendar], events: ["calendar": [event]], failedCalendarIDs: []))
         let scheduler = FakeAutomaticScheduler()
         let coordinator = AutomaticNotificationCoordinator(namespace: "account", scheduler: scheduler)
         let initial = await coordinator.refresh(reader: good, enabled: true, now: now)
         try check(initial.scheduledCount == 1 && initial.problem == nil, "automatic reconcile schedules without manual metadata")
+        var legacyRequestJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            AutomaticNotificationPlanner.plan(calendar: calendar, events: [event], namespace: "account", now: now).requests.first!)) as! [String: Any]
+        legacyRequestJSON["title"] = "g-calendar"
+        legacyRequestJSON["body"] = event.title
+        legacyRequestJSON.removeValue(forKey: "subtitle")
+        let legacyRequest = try JSONDecoder().decode(AutomaticNotificationRequest.self, from: JSONSerialization.data(withJSONObject: legacyRequestJSON))
+        let legacyScheduler = FakeAutomaticScheduler()
+        await legacyScheduler.seed([legacyRequest])
+        let legacyCoordinator = AutomaticNotificationCoordinator(namespace: "account", scheduler: legacyScheduler)
+        _ = await legacyCoordinator.refresh(reader: good, enabled: true, now: now)
+        let migrated = await legacyScheduler.automaticPending().first
+        try check(migrated?.identifier == legacyRequest.identifier && migrated?.title == event.title
+                  && migrated?.subtitle != nil && migrated?.body == "Meeting room",
+                  "old pending notification is replaced with event details under the same stable identifier")
         _ = await coordinator.refresh(reader: good, enabled: true, now: now)
         let counters = await scheduler.counters()
         try check(counters.0 == 1 && counters.1 == 0, "unchanged refresh does not rewrite or cancel")
@@ -181,7 +212,9 @@ extension InvariantTests {
         try check(await scheduler.automaticPending().count == 1, "unknown reminders preserve pending")
         var edited = event; edited.title = "New title"
         _ = await coordinator.refresh(reader: FixtureAutomaticReader(value: AutomaticNotificationRead(calendars: [calendar], events: ["calendar": [edited]], failedCalendarIDs: [])), enabled: true, now: now)
-        try check(await scheduler.automaticPending().first?.body == "New title", "title replacement uses same stable ID")
+        let editedRequest = await scheduler.automaticPending().first
+        try check(editedRequest?.title == "New title" && editedRequest?.body == "Meeting room",
+                  "title replacement uses same stable ID and preserves location")
         let other = AutomaticNotificationPlanner.plan(calendar: calendar, events: [event], namespace: "other", now: now).requests
         await scheduler.seed(other)
         await scheduler.setFailAdd(true)
@@ -259,7 +292,7 @@ extension InvariantTests {
         _ = await oldRefresh.value
         let pending = await scheduler.automaticPending()
         let counters = await scheduler.counters()
-        try check(pending.count == 1 && pending.first?.body == latest.title, "queued refresh supersedes suspended stale Google read")
+        try check(pending.count == 1 && pending.first?.title == latest.title, "queued refresh supersedes suspended stale Google read")
         try check(counters.0 == 1 && counters.1 == 0, "superseded read never installs stale request")
 
         let suspended = SuspendedAutomaticReader(value: AutomaticNotificationRead(calendars: [calendar], events: ["calendar": [event]], failedCalendarIDs: []))

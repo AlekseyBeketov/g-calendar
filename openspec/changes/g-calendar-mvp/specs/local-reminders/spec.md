@@ -60,7 +60,11 @@ The app MUST distinguish Google scheduled datetime, date-only scheduled day and 
 - **THEN** the task date remains usable, no exact time is invented, and settings explain unavailable capability
 
 ### Requirement: Native branded notification delivery
-Automatic notifications MUST use g-calendar title/icon, resource title and non-repeating exact-time trigger. Delivery depends on macOS permission, Focus and device lifecycle. A build MUST NOT count as banner verification or promise detection of remote changes while explicitly quit.
+Automatic notifications MUST use the installed app bundle's «Календарь» display name and icon, event title, localized event date and start/end time in the event or calendar timezone, optional location as body, and a non-repeating exact-time trigger. Delivery depends on macOS permission, Focus and device lifecycle. A build MUST NOT count as banner verification or promise detection of remote changes while explicitly quit.
+
+#### Scenario: Show event details
+- **WHEN** a timed event with a summary and location has an eligible notification
+- **THEN** the banner shows the app identity and icon, event summary as its title, date and start/end time below it, and the location when present
 
 #### Scenario: System settings prevent a banner
 - **WHEN** a scheduled request is suppressed by Focus or macOS settings

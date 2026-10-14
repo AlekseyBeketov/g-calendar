@@ -8,6 +8,7 @@ struct AutomaticNotificationRequest: Codable, Equatable, Sendable {
     let calendarID: String
     let resourceID: String
     let title: String
+    let subtitle: String?
     let body: String
     let fireDate: Date
 }
@@ -22,7 +23,8 @@ enum AutomaticNotificationPlanner {
     static let maximumOffset: TimeInterval = 40320 * 60
     static let prefix = "g-calendar.automatic."
 
-    static func plan(calendar: CalendarInfo, events: [CalendarEvent], namespace: String, now: Date) -> AutomaticNotificationPlan {
+    static func plan(calendar: CalendarInfo, events: [CalendarEvent], namespace: String, now: Date,
+                     locale: Locale = .current) -> AutomaticNotificationPlan {
         var result = AutomaticNotificationPlan()
         let horizonEnd = now.addingTimeInterval(horizon)
         for event in events where event.calendarID == calendar.id {
@@ -40,12 +42,32 @@ enum AutomaticNotificationPlanner {
                 guard fireDate > now, fireDate <= horizonEnd else { continue }
                 let key = namespace + "\u{0}" + identity.stableKey + "\u{0}" + String(offset)
                 let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+                let location = event.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let body = location.flatMap { $0.isEmpty ? nil : $0 } ?? ""
                 result.requests.append(AutomaticNotificationRequest(identifier: prefix + digest, namespace: namespace,
-                    calendarID: event.calendarID, resourceID: event.id, title: "g-calendar",
-                    body: event.title, fireDate: fireDate))
+                    calendarID: event.calendarID, resourceID: event.id, title: event.title,
+                    subtitle: subtitle(for: event, calendar: calendar, locale: locale), body: body, fireDate: fireDate))
             }
         }
         return result
+    }
+
+    static func subtitle(for event: CalendarEvent, calendar: CalendarInfo, locale: Locale = .current) -> String? {
+        guard let start = event.start.instant, let end = event.end.instant else { return nil }
+        let timeZone = event.start.timeZoneID.flatMap(TimeZone.init(identifier:))
+            ?? calendar.timeZoneID.flatMap(TimeZone.init(identifier:))
+            ?? .current
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = locale
+        dateFormatter.timeZone = timeZone
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = locale
+        timeFormatter.timeZone = timeZone
+        timeFormatter.dateStyle = .none
+        timeFormatter.timeStyle = .short
+        return "\(dateFormatter.string(from: start)), \(timeFormatter.string(from: start))–\(timeFormatter.string(from: end))"
     }
 }
 
@@ -300,7 +322,7 @@ extension UserNotificationScheduler: AutomaticNotificationScheduling {
 
     func addAutomatic(_ request: AutomaticNotificationRequest) async throws {
         let content = UNMutableNotificationContent()
-        content.title = request.title; content.body = request.body; content.sound = .default
+        content.title = request.title; content.subtitle = request.subtitle ?? ""; content.body = request.body; content.sound = .default
         content.userInfo = ["automaticRequest": try JSONEncoder().encode(request), "workspaceContext": request.namespace]
         let trigger = UNCalendarNotificationTrigger(dateMatching: ReminderTriggerFactory.dateComponents(for: request.fireDate), repeats: false)
         try await center.add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: trigger))
