@@ -109,6 +109,14 @@ The task workspace MUST default to all boards, preserve that scope during refres
 - **WHEN** All boards is selected and the user chooses columns
 - **THEN** Each board gets a readable column with its own tasks; selecting one board shows a list
 
+#### Scenario: Keep due dates aligned in the all-board list
+- **WHEN** the user views tasks from boards with different title lengths in the all-board list
+- **THEN** each board tag appears beside its task title and due dates remain in the same trailing position across rows
+
+#### Scenario: Configure the task presentation
+- **WHEN** all boards are selected in the task workspace
+- **THEN** Create remains on the first header row, the presentation selector appears before the Settings action on the second row, and all three header labels use the same icon-to-text spacing
+
 ### Requirement: Native verified cross-board move
 Editing a task MUST allow selecting a destination board. Moves MUST use tasks.move destinationTasklist and confirm destination membership and source absence using exact reads; uncertain results MUST remain recoverable without repeated writes.
 

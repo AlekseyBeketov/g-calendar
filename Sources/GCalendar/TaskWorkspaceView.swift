@@ -173,25 +173,31 @@ struct TaskWorkspaceView: View {
 
     private var workspaceActions: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            Button { beginNewTask(on: model.selectedTaskListID) } label: { Label("Создать", systemImage: "plus") }
+            Button { beginNewTask(on: model.selectedTaskListID) } label: {
+                Label("Создать", systemImage: "plus").labelStyle(TaskWorkspaceHeaderLabelStyle())
+            }
                 .pointingHandCursor().buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked).help("Создать задачу")
                 #if G_CALENDAR_TASK_LAYOUT_TEST
                 .background(TaskBoardFrameProbe(identifier: "create-control"))
                 #endif
             HStack(spacing: 8) {
-                TaskBoardMenu(board: model.selectedTaskList, systemImage: "gearshape")
-                    #if G_CALENDAR_TASK_LAYOUT_TEST
-                    .background(TaskBoardFrameProbe(identifier: "settings-control"))
-                    #endif
                 if model.selectedTaskListID == nil {
                     Picker("Представление задач", selection: $presentationRawValue) {
-                        ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in Label(mode.rawValue, systemImage: mode.symbol).tag(mode.rawValue) }
+                        ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
+                            Label(mode.rawValue, systemImage: mode.symbol)
+                                .labelStyle(TaskWorkspaceHeaderLabelStyle())
+                                .tag(mode.rawValue)
+                        }
                     }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 132)
                     .accessibilityIdentifier("task-presentation-picker")
                     #if G_CALENDAR_TASK_LAYOUT_TEST
                     .background(TaskBoardFrameProbe(identifier: "presentation-control"))
                     #endif
                 }
+                TaskBoardMenu(board: model.selectedTaskList, systemImage: "gearshape", title: "Настроить")
+                    #if G_CALENDAR_TASK_LAYOUT_TEST
+                    .background(TaskBoardFrameProbe(identifier: "settings-control"))
+                    #endif
             }
         }
     }
@@ -232,11 +238,21 @@ struct TaskWorkspaceView: View {
     }
 }
 
+private struct TaskWorkspaceHeaderLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon
+            configuration.title
+        }
+    }
+}
+
 private struct TaskBoardMenu: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     let board: TaskList?
     var allowsBoardReordering = false
     var systemImage = "ellipsis"
+    var title: String?
     @StateObject private var interaction = TaskWorkspaceInteraction()
 
     private var completedTasks: [GoogleTask] {
@@ -267,19 +283,26 @@ private struct TaskBoardMenu: View {
                 interaction.showingDelete = true
             }.disabled(completedTasks.isEmpty || model.mutationsBlocked)
         } label: {
-            Image(systemName: systemImage)
-                .font(systemImage == "gearshape" ? .title3 : .body)
-                .imageScale(systemImage == "gearshape" ? .large : .medium)
-                .foregroundStyle(systemImage == "gearshape" ? AppTheme.textPrimary : AppTheme.accent)
-                .frame(width: 32, height: 32)
-                .background(systemImage == "gearshape" ? AppTheme.canvas : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(Rectangle())
+            Group {
+                if let title {
+                    Label(title, systemImage: systemImage)
+                        .labelStyle(TaskWorkspaceHeaderLabelStyle())
+                        .font(.callout.weight(.medium))
+                } else {
+                    Image(systemName: systemImage).font(systemImage == "gearshape" ? .title3 : .body)
+                }
+            }
+            .imageScale(systemImage == "gearshape" ? .large : .medium)
+            .foregroundStyle(systemImage == "gearshape" ? AppTheme.textPrimary : AppTheme.accent)
+            .frame(minWidth: 32, minHeight: 32)
+            .background(systemImage == "gearshape" ? AppTheme.canvas : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
         }
         .pointingHandCursor().menuStyle(.borderlessButton).fixedSize()
         .menuIndicator(systemImage == "gearshape" ? .hidden : .automatic)
         .controlSize(systemImage == "gearshape" ? .large : .regular)
         .tint(systemImage == "gearshape" ? AppTheme.textPrimary : AppTheme.accent)
-        .accessibilityLabel("Настройки задач: \(board?.title ?? "Все доски")").help("Сортировка и выполненные задачи")
+        .accessibilityLabel("Настроить задачи: \(board?.title ?? "Все доски")").help("Сортировка и выполненные задачи")
         .alert("Удалить выполненные задачи?", isPresented: $interaction.showingDelete) {
             Button("Отмена", role: .cancel) { interaction.confirmedTasks = [] }
             Button("Удалить", role: .destructive) { model.deleteCompletedTasks(interaction.confirmedTasks); interaction.confirmedTasks = [] }
@@ -512,8 +535,15 @@ private struct TaskRowView: View {
                 .accessibilityLabel(task.completed ? "Снять отметку выполнения: \(task.title)" : "Завершить задачу: \(task.title)")
                 Button { onSelect(task); local.showEditor = true } label: {
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 16) { taskTitle.frame(minWidth: 160, maxWidth: .infinity, alignment: .leading); taskMetadata }
-                        VStack(alignment: .leading, spacing: 6) { taskTitle; taskMetadata }
+                        HStack(spacing: 16) {
+                            taskTitleAndBoardTag
+                            Spacer(minLength: 0)
+                            taskDue
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            taskTitleAndBoardTag
+                            taskDue
+                        }
                             .padding(.vertical, 6)
                     }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     .contentShape(.interaction, Rectangle())
@@ -578,23 +608,31 @@ private struct TaskRowView: View {
         }
     }
 
-    private var taskMetadata: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 5) {
-                if isOverdue {
-                    Image(systemName: "exclamationmark.circle.fill").font(.caption2).foregroundStyle(dueColor)
-                        .accessibilityLabel("Просрочено")
-                } else if task.due != nil { Circle().fill(dueColor).frame(width: 5, height: 5) }
-                Text(dueText).font(.callout).foregroundStyle(dueColor)
-            }.frame(width: 82, alignment: .leading)
-            .help(isOverdue ? "Просрочено" : "Срок задачи — дата без времени")
+    private var taskTitleAndBoardTag: some View {
+        HStack(spacing: 8) {
+            taskTitle
             if showsListTag {
-                Text(listTitle).font(.callout).foregroundStyle(AppTheme.accent).lineLimit(1)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .frame(maxWidth: 150, alignment: .leading)
-                    .background(AppTheme.selection.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                ZStack(alignment: .leading) {
+                    Text(listTitle).font(.callout).foregroundStyle(AppTheme.accent).lineLimit(1)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(AppTheme.selection.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                }
+                // Reserve the same tag width for every board so its title cannot move the due field.
+                .frame(width: 150, alignment: .leading)
             }
-        }.fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var taskDue: some View {
+        HStack(spacing: 5) {
+            if isOverdue {
+                Image(systemName: "exclamationmark.circle.fill").font(.caption2).foregroundStyle(dueColor)
+                    .accessibilityLabel("Просрочено")
+            } else if task.due != nil { Circle().fill(dueColor).frame(width: 5, height: 5) }
+            Text(dueText).font(.callout).foregroundStyle(dueColor)
+        }
+        .frame(width: 82, alignment: .leading)
+        .help(isOverdue ? "Просрочено" : "Срок задачи — дата без времени")
     }
 
     private func toggleCompletion() {

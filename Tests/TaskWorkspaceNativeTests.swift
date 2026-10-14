@@ -61,8 +61,8 @@ struct TaskWorkspaceNativeTests {
                 let presentationFrame = presentation.convert(presentation.bounds, to: host)
                 expect(host.isFlipped ? createFrame.maxY <= settingsFrame.minY : createFrame.minY >= settingsFrame.maxY,
                        "Create occupies the first row above task settings")
-                expect(settingsFrame.maxX <= presentationFrame.minX && abs(settingsFrame.midY - presentationFrame.midY) < 1,
-                       "task gear appears left of presentation picker on the same second row")
+                expect(presentationFrame.maxX <= settingsFrame.minX && abs(settingsFrame.midY - presentationFrame.midY) < 1,
+                       "presentation picker appears left of task settings on the same second row")
                 expect(createFrame.minX >= viewportFrame.minX && presentationFrame.maxX <= viewportFrame.maxX,
                        "task actions fit inside the detail pane")
                 if mode == .columns, width == 1900,

@@ -145,6 +145,10 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 17.2 Bound task-column scroll viewport inside the detail pane; regression test fails on the original source and passes 50 assertions after the fix, including first/last board reachability and width/presentation transitions.
 - [x] 17.3 Two-row task actions: Create above, gear settings then presentation picker below; native geometry checks and app build passed.
 
+## 18. Task row metadata and header actions (2026-10-13)
+
+- [x] 18.1 Place board tags beside task titles while keeping due dates in a stable trailing position; put the labeled Settings action after the presentation selector; standardize icon-to-text spacing in task header actions; record a future app-wide spacing audit and rebuild the app. Strict OpenSpec validation passed and the current app bundle was rebuilt.
+
 ## 19. Automatic notifications (2026-10-13)
 
 - [x] 19.1 Decode Google reminders, independently read complete future events, reconcile pending requests with stable IDs, retire manual controls safely, retain process-lifetime refresh, preserve delivered history and serialize delete/shutdown races. 967 assertions, strict OpenSpec and optimized app build passed.
