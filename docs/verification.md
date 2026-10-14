@@ -4,6 +4,16 @@
 
 ## Сборка и автоматические проверки
 
+### Поддержка автора — 2026-10-14
+
+Реализованы постоянная кнопка в footer настроек и отдельное окно поддержки: CloudTips по умолчанию, Boosty вторым, реальные QR/марки, открытие и копирование ссылки. Подписей о регистрации нет.
+
+`scripts/test-author-support.sh` прошёл 35 assertions: точные URL и отдельные QR payload (Boosty сохраняет `?qr=true` из исходника), выбор провайдера, success/failure браузера и clipboard через подставные handlers, ресурсный fallback и декодирование offscreen render в Light/Dark. Повтор того же теста на PNG из окончательного bundle также прошёл 35 assertions. Изолированный Vision/CoreVideo тест потребовал разрешённого системного доступа вне sandbox; использовано CPU-only распознавание. Браузер, буфер обмена пользователя и платёж не использовались этими tests.
+
+Основной invariant suite прошёл 975 assertions. Strict OpenSpec: `valid=true`, `issues=[]`. `git diff --check` и shell syntax check успешны. Итоговый optimized bundle — `/Users/alexbeketov/g-calendar/dist/g-calendar.app`, arm64/macOS 13+, локальная ad-hoc подпись проверена `codesign --verify --strict`. Ресурсы AuthorSupport включены до подписи bundle.
+
+Computer use не применялся. Offscreen проверка не подтверждает реальный ручной UI, spoken VoiceOver или банковскую оплату. Утверждённый дизайн — [author-support-design](plans/2026-10-14-author-support-design.md), план и результаты — [author-support](plans/2026-10-14-author-support.md).
+
 Все команды выполнялись в `/Users/alexbeketov/g-calendar` через `rtk proxy`.
 
 | Команда | Результат |

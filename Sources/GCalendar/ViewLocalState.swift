@@ -4,6 +4,7 @@ import SwiftUI
 
 @MainActor
 final class ViewLocalState: ObservableObject {
+    @Published var showAuthorSupport = false
     enum TaskListForm: Identifiable {
         case create
         case edit(TaskList)

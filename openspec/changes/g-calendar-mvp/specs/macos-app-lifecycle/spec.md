@@ -1,5 +1,24 @@
 ## ADDED Requirements
 
+### Requirement: Voluntary author support from settings
+The settings footer SHALL expose a persistent author-support action beside Done. It SHALL open a separate native sheet with CloudTips as the initial left segment and Boosty as the right segment. Each provider SHALL have its own QR, identifying logo, browser action and copy-link action. The exact destinations SHALL be https://pay.cloudtips.ru/p/bf792932 and https://boosty.to/gcalendar/donate respectively. QR images SHALL retain black-on-white contrast and their quiet margins in Light and Dark. The sheet SHALL NOT display registration claims, automatically open external destinations, mutate Google data or restrict application features.
+
+The original owner-supplied Boosty QR SHALL retain its exact payload https://boosty.to/gcalendar/donate?qr=true. This explicit QR attribution marker SHALL NOT change the canonical browser/copy URL or allow arbitrary query substitutions in QR validation.
+
+#### Scenario: Choose and use a provider
+- **WHEN** the user opens support from settings
+- **THEN** CloudTips is selected, and its QR and actions target the CloudTips donation URL
+- **WHEN** the user selects Boosty
+- **THEN** QR, branding, browser and clipboard actions all change to the Boosty donation URL
+- **AND** the user can close the sheet with Escape without closing settings
+
+#### Scenario: Recover from an unavailable external action or asset
+- **WHEN** browser opening or clipboard writing fails
+- **THEN** the sheet remains open with an understandable message and alternate actions available
+- **WHEN** a QR resource is unavailable
+- **THEN** the browser and copy-link actions remain available
+
+
 ### Requirement: Responsive smooth scrolling
 The application SHALL smooth coarse mouse-wheel steps over a short bounded interval in scrollable task, calendar, sidebar and form surfaces. Precise trackpad input and native momentum SHALL keep native behavior. New direct input SHALL cancel an outstanding interpolation without jumping to its target; exhausted inner scroll regions SHALL permit their scrollable parent to receive input. Reduce Motion SHALL disable added interpolation and selection animations.
 

@@ -12,14 +12,22 @@
 
 - [x] (2026-10-14) Согласованы расположение, макет и удаление подписи «Без регистрации».
 - [x] (2026-10-14) Проверены настройки, сборка и схема Dev Kit; создан отдельный worktree Dev Kit от origin/main.
-- [ ] Подготовить проверенные QR и официальные марки, реализовать окно и постоянную кнопку.
-- [ ] Проверить ресурсы, действия, Light/Dark, OpenSpec и пересобрать приложение; отправить изменения g-calendar в main.
-- [ ] Создать custom skill, обновить реестр и спецификацию Dev Kit, проверить полный пакет.
-- [ ] Выполнить точный dry-run и установку skill в разрешённые endpoints; отправить отдельный коммит Dev Kit в main.
+- [x] (2026-10-14) Подготовлены подлинные QR и официальные марки, реализованы окно и постоянная кнопка.
+- [x] (2026-10-14) Проверены ресурсы и действия, Light/Dark, OpenSpec; выполнена окончательная сборка и проверка ресурсов внутри bundle.
+- [x] (2026-10-14) Создан custom skill, обновлены реестр и спецификация Dev Kit; валидатор и 43 tests прошли.
+- [x] (2026-10-14) Выполнены точные dry-run/apply; девять полных пакетов и Cursor main rule прочитаны обратно, Pi parser загрузил shared пакет; документационный fixture прошёл.
+- [x] (2026-10-14) Dev Kit commit `4945279` опубликован в удалённом main из isolated worktree.
+- [ ] Опубликовать g-calendar в main и обновить его локальные индексы.
 
 ## Surprises & Discoveries
 
 Настройки — sheet с прокручиваемым содержимым и постоянным footer. Сборка копирует только AppIcon и Info.plist; новые PNG нужно явно упаковать в `Contents/Resources/AuthorSupport`. В Dev Kit есть незакоммиченные изменения и локальный коммит другой работы; isolated worktree `/private/tmp/dev-kit-support-author-20261014` создан от удалённого main, чтобы не включать их в публикацию.
+
+При первом focused compile воспроизведено отсутствие SwiftUIMacros.StateMacro в установленном CLT SDK. Это известное ограничение из плана 2026-10-12; выбран существующий StateObject/ObservableObject подход, без изменения toolchain. Новое локальное состояние настроек добавлено в ViewLocalState.
+
+Vision/CoreVideo не работают в текущем sandbox: ANE model load и CVPixelBuffer errors. Focused test успешно выполнен с разрешённым системным доступом и CPU-only распознаванием, без computer use. Оригинальный Boosty QR содержит `?qr=true`; это точный payload файла владельца, а browser/clipboard используют canonical адрес без query. После двух неудачных сравнений изучены официальные материалы Boosty через TinyFish (FAQ de1e6f32-3a80-4824-95bd-a264ff1b00aa), которые не описывают query marker; основание для его значения — фактическое декодирование подлинного QR. Рассмотрены регенерация QR, замена canonical URL на query-вариант, общее удаление query при проверке и отдельный точный qrURL. Выбран отдельный qrURL, чтобы сохранить исходник и не принимать произвольные расхождения.
+
+Pi 1.2.0 проверен по установленному package-manager.js: строки 2058–2064 подключают user skills из `~/.agents/skills`. Дополнительная копия в Pi или изменение его настроек не нужны.
 
 ## Decision Log
 
@@ -27,7 +35,7 @@
 
 ## Outcomes & Retrospective
 
-Реализация и проверки ещё не завершены.
+Реализация и проверки завершены: app support 35 assertions на source и повторно на final bundle, основной suite 975, strict OpenSpec valid=true, optimized build и codesign verification успешны. Dev Kit проверен валидатором, 43 tests и fixture без кода; shared пакет и все объявленные endpoints совпадают с каноническим по содержимому. Dev Kit опубликован коммитом `4945279`. Остаются публикация g-calendar и индексы.
 
 ## Context and Orientation
 
@@ -66,3 +74,5 @@ Milestone 3 в isolated Dev Kit worktree создаёт `skills/custom/author-su
 Используются SwiftUI, AppKit и Vision в focused tests, без внешних runtime зависимостей. `AuthorSupportProvider` содержит cloudTips и boosty, title, URL и resource names. `AuthorSupportActions` принимает closures открытия URL и записи clipboard; production использует NSWorkspace и NSPasteboard, тесты — изолированные подставные функции. Новый view загружает local assets из Bundle и не читает никакие пользовательские Google данные. Skill — обычный Markdown с PNG и public URL; его instructions не зависят от модели или конкретного приложения агента.
 
 2026-10-14: начальная версия отражает утверждённый дизайн и отдельную публикацию Dev Kit для защиты параллельной работы.
+
+2026-10-14: обновлены результаты focused/invariant/package checks, подтверждены shared discovery Pi и read-back всех skills endpoints; publication остаётся отдельным финальным шагом.

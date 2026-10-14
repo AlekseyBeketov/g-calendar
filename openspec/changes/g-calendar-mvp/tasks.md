@@ -158,3 +158,8 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 20.1 Recheck the visible calendar range periodically while the app runs and on activation, respecting the existing five-minute cache TTL and refresh coalescing; invariant coverage added in commit `b4d5924`.
 - [x] 20.2 Brand notifications with the app display name «Календарь» and show event title, localized date/time and optional location; preserve old notification payload decoding and stable request identity. Commits `eb8d3a1` and `8531a9f`; the relevant Calendar and reminder specs were updated with the implementation.
+
+## 21. Voluntary author support (2026-10-14)
+
+- [x] 21.1 Add persistent settings-footer action and approved native support sheet with CloudTips first, Boosty second, QR and branding; omit registration copy.
+- [x] 21.2 Verify exact QR payloads and selected-provider actions, render Light/Dark offscreen without computer use, rebuild for authorized main publication. Focused source/bundle checks passed 35 assertions, invariant suite 975, strict OpenSpec valid=true.

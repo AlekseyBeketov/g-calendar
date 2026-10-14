@@ -540,10 +540,17 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            HStack { Spacer(); Button("Готово") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction) }
+            HStack {
+                Button { local.showAuthorSupport = true } label: {
+                    Label("Поддержать автора", systemImage: "heart")
+                }.pointingHandCursor()
+                Spacer()
+                Button("Готово") { dismiss() }.pointingHandCursor().keyboardShortcut(.cancelAction)
+            }
         }
         .padding(AppTheme.editorInset)
         .frame(minWidth: 400, idealWidth: 500, minHeight: 430)
+        .sheet(isPresented: $local.showAuthorSupport) { AuthorSupportView() }
         .task {
             loginItems.refresh(isNormalMode: model.launchMode == .normal)
             await model.refreshNotificationStatus()
