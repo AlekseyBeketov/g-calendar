@@ -26,6 +26,10 @@ enum CalendarRangeCache {
         return now >= fetched && now.timeIntervalSince(fetched) < metadataTTL
     }
 
+    static func needsRevalidation(fetchedAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(fetchedAt) >= rangeTTL
+    }
+
     static func activate(range: DateRange, in snapshot: WorkspaceSnapshot, now: Date = Date()) -> WorkspaceSnapshot? {
         var entries = entries(in: snapshot)
         let ids = snapshot.calendars.map(\.id).sorted()

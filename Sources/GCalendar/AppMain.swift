@@ -166,13 +166,17 @@ final class WorkspaceViewModel: ObservableObject {
         automaticNotificationsEnabled = defaults.object(forKey: automaticSettingsKey) as? Bool ?? true
         if mode == .normal {
             Timer.publish(every: 60, on: .main, in: .common).autoconnect()
-                .sink { [weak self] now in self?.refreshAutomaticNotifications(now: now) }
+                .sink { [weak self] now in
+                    self?.refreshCalendarRangeIfNeeded()
+                    self?.refreshAutomaticNotifications(now: now)
+                }
                 .store(in: &automaticLifecycleObservers)
             NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
                 .merge(with: NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification),
                        NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange))
                 .sink { [weak self] notification in
                     Task { @MainActor in
+                        self?.refreshCalendarRangeIfNeeded()
                         self?.refreshAutomaticNotifications(force: notification.name != NSApplication.didBecomeActiveNotification)
                     }
                 }.store(in: &automaticLifecycleObservers)
@@ -428,7 +432,7 @@ final class WorkspaceViewModel: ObservableObject {
         let range = currentRange()
         if !force, let activated = CalendarRangeCache.activate(range: range, in: snapshot) {
             installRefreshedSnapshot(activated)
-            if let fetched = activated.calendarFetchedAt, Date().timeIntervalSince(fetched) >= CalendarRangeCache.rangeTTL {
+            if let fetched = activated.calendarFetchedAt, CalendarRangeCache.needsRevalidation(fetchedAt: fetched, now: Date()) {
                 let coveredRange = activated.calendarCoverage?.dateRange ?? range
                 enqueueBackground(WorkspaceRefreshQuery(range: coveredRange, scope: .calendarRange, purpose: .revalidation), runner: runner)
             }
@@ -472,7 +476,7 @@ final class WorkspaceViewModel: ObservableObject {
             let cached = CalendarRangeCache.activate(range: query.range, in: snapshot)
             if query.purpose == .prefetch, cached != nil { continue }
             if query.purpose == .revalidation, let fetched = cached?.calendarFetchedAt,
-               Date().timeIntervalSince(fetched) < CalendarRangeCache.rangeTTL { continue }
+               !CalendarRangeCache.needsRevalidation(fetchedAt: fetched, now: Date()) { continue }
             requestRefresh(query, runner: runner)
             return
         }

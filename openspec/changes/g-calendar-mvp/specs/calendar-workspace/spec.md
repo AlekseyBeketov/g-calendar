@@ -182,3 +182,15 @@ The calendar MUST offer Monday, Sunday and system regional settings in Settings.
 #### Scenario: Follow system regional settings
 - **WHEN** the user chooses system mode
 - **THEN** the first weekday follows macOS regional calendar settings independently of the selected calendar timezone
+
+
+### Requirement: Revalidate the visible calendar range
+While the application process is running, the currently visible calendar range MUST be checked at least every five minutes. The app MUST reuse its cached events while revalidation runs, avoid another Google read before the range TTL expires, and check a stale visible range when the app becomes active or wakes from sleep.
+
+#### Scenario: See an event added in Google Calendar
+- **WHEN** an event is added or changed in Google Calendar while g-calendar remains open
+- **THEN** the visible range is revalidated and the change appears within five minutes without manual refresh
+
+#### Scenario: Return from sleep with stale calendar data
+- **WHEN** the app becomes active or wakes and the visible range is at least five minutes old
+- **THEN** it retains cached events while starting one background revalidation

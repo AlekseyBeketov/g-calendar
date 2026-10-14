@@ -2475,6 +2475,10 @@ struct InvariantTests {
         let event = try CalendarEvent.decode(["id": "a", "summary": "A", "start": ["date": "2026-10-06"], "end": ["date": "2026-10-07"]], calendarID: "c")
         let task = try GoogleTask.decode(["id": "task", "title": "Verified task"], taskListID: "l")
         let now = Date(timeIntervalSince1970: 1_800_000_000)
+        try check(!CalendarRangeCache.needsRevalidation(fetchedAt: now.addingTimeInterval(-299), now: now),
+                  "calendar range remains fresh before the five-minute ttl")
+        try check(CalendarRangeCache.needsRevalidation(fetchedAt: now.addingTimeInterval(-300), now: now),
+                  "calendar range revalidates at the five-minute ttl")
         var legacy = WorkspaceSnapshot.empty
         legacy.calendars = [CalendarInfo(id: "c", title: "C", accessRole: "owner", timeZoneID: "UTC", colorHex: nil)]
         legacy.events = [event]
