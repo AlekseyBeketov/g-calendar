@@ -13,9 +13,9 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>g-calendar</string>
+    <string>Календарь</string>
     <key>CFBundleDisplayName</key>
-    <string>g-calendar</string>
+    <string>Календарь</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
