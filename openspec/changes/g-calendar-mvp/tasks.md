@@ -117,6 +117,7 @@ Developer ID credentials, license/publication approval, real published installer
 ## 14. Workspace improvements (2026-10-12)
 
 - [x] 14.1 Local Graphify/tgrep indexes, ignored caches and repeatable refresh instructions.
+- [x] 14.2 Consolidate duplicate Google task-time tracking under the canonical open acceptance in section 19.2; implementation remains unfinished.
 - [x] 14.3 Responsive smooth scrolling with native precise input and Reduce Motion.
 - [x] 14.4 Task sorting, manual ordering and board menus with verified completed-task deletion.
 - [x] 14.5 Readable date groups in date sorting.
@@ -124,7 +125,6 @@ Developer ID credentials, license/publication approval, real published installer
 - [x] 14.7 Persistent board ordering in column presentation.
 - [x] 14.8 Add task directly to a board from its header.
 - [x] 14.9 Bounded parallel completed-task deletion with durable group recovery and one local snapshot update (2026-10-13); synthetic concurrency/recovery tests, invariant suite and app build passed.
-- [ ] 14.2 Finish verified Google task-time transport and precise task notifications; automatic event scheduling is implemented independently under section 19.
 
 Implement without computer-use. Each feature receives a separate verified commit; rebuild dist/g-calendar.app before handoff. Push to main when explicitly requested by the owner.
 
@@ -153,3 +153,8 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 19.1 Decode Google reminders, independently read complete future events, reconcile pending requests with stable IDs, retire manual controls safely, retain process-lifetime refresh, preserve delivered history and serialize delete/shutdown races. 967 assertions, strict OpenSpec and optimized app build passed.
 - [ ] 19.2 Prove independent Google task scheduled-time read/write with exact identity/read-back; public due remains date-only and private OAuth access is unavailable to the checked project. Browser site permission still blocks the live web-session experiment.
+
+## 20. Calendar freshness and notification details (2026-10-14)
+
+- [x] 20.1 Recheck the visible calendar range periodically while the app runs and on activation, respecting the existing five-minute cache TTL and refresh coalescing; invariant coverage added in commit `b4d5924`.
+- [x] 20.2 Brand notifications with the app display name «Календарь» and show event title, localized date/time and optional location; preserve old notification payload decoding and stable request identity. Commits `eb8d3a1` and `8531a9f`; the relevant Calendar and reminder specs were updated with the implementation.
