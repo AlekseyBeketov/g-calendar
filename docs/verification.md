@@ -1,6 +1,6 @@
 # Проверки g-calendar
 
-Обновлено: **2026-10-14**. Подробные suite-таблицы и Computer Use матрица ниже описывают датированную локальную приёмку 2026-10-07/08, а не новый полный прогон текущего `main`. Проверки более поздних функций записаны рядом с изменениями в [OpenSpec tasks](../openspec/changes/g-calendar-mvp/tasks.md) и [планах](plans/). Старые числа assertions не следует трактовать как результат тестирования всего текущего исходника. Этот документ также не подтверждает подписанный релиз, полный VoiceOver-проход или видимый notification banner.
+Обновлено: **2026-10-14**. Подробные suite-таблицы и Computer Use матрица ниже описывают датированную локальную приёмку 2026-10-07/08, а не новый полный прогон текущего `main`. Проверки более поздних функций записаны рядом с изменениями в [OpenSpec tasks](../openspec/changes/g-calendar-mvp/tasks.md) и [согласованных дизайнах](plans/). Старые числа assertions не следует трактовать как результат тестирования всего текущего исходника. Этот документ также не подтверждает подписанный релиз, полный VoiceOver-проход или видимый notification banner.
 
 ## Сборка и автоматические проверки
 
@@ -12,7 +12,7 @@
 
 Основной invariant suite прошёл 975 assertions. Strict OpenSpec: `valid=true`, `issues=[]`. `git diff --check` и shell syntax check успешны. Итоговый optimized bundle — `/Users/alexbeketov/g-calendar/dist/g-calendar.app`, arm64/macOS 13+, локальная ad-hoc подпись проверена `codesign --verify --strict`. Ресурсы AuthorSupport включены до подписи bundle.
 
-Computer use не применялся. Offscreen проверка не подтверждает реальный ручной UI, spoken VoiceOver или банковскую оплату. Утверждённый дизайн — [author-support-design](plans/2026-10-14-author-support-design.md), план и результаты — [author-support](plans/2026-10-14-author-support.md).
+Computer use не применялся. Offscreen проверка не подтверждает реальный ручной UI, spoken VoiceOver или банковскую оплату. Утверждённый дизайн — [author-support-design](plans/2026-10-14-author-support-design.md); результаты проверки записаны в этом разделе. Рабочий план реализации хранится локально.
 
 Product commit `05d4d85` отправлен в origin/main; согласованный дизайн сохранён коммитом `f041b18`. Переносимый custom skill опубликован в main Dev Kit (`4945279`) и read-back проверен в `.agents`, всех объявленных Hermes endpoints и Cursor rule. Его создание не меняло чужую параллельную рабочую копию Dev Kit.
 
@@ -133,7 +133,7 @@ Full build, invariant/native UI/installer suites, GUI, live Google и notificati
 
 ## Scope и сохранность данных
 
-[OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) фиксирует завершённую локальную реализацию/приёмку; [исторический ExecPlan](plans/2026-10-05-final-product-completion.md) сохраняет итог и причины решений. Внешние release/VoiceOver/banner условия сохранены в [PENDING_DECISIONS](PENDING_DECISIONS.md). Checkpoint 62f153f — исторический; его Git-записи не являются текущей проверкой remote или публикации. Source commit/push требует явного owner approval и сам по себе не означает выпуск приложения.
+[OpenSpec](../openspec/changes/g-calendar-mvp/tasks.md) фиксирует завершённую локальную реализацию/приёмку; этот журнал и [утверждённый дизайн](../design/DESIGN.md) сохраняют результаты и продуктовые решения. Рабочие ExecPlan хранятся локально по [правилам планов](plans/README.md). Внешние release/VoiceOver/banner условия сохранены в [PENDING_DECISIONS](PENDING_DECISIONS.md). Checkpoint 62f153f — исторический; его Git-записи не являются текущей проверкой remote или публикации. Source commit/push требует явного owner approval и сам по себе не означает выпуск приложения.
 
 Design содержит два утверждённых PNG и DESIGN/README. Личный пустой download.html не изменён. Private ledgers/profile/raw captures остаются вне repo; baseline содержит только разрешённые синтетические агрегаты. `.hermes`, `.codegraph`, dist, credentials и `.DS_Store` не добавляются в Git. Regex privacy scan и diff check выполняются отдельно; scan не гарантирует отсутствие любого возможного секрета.
 

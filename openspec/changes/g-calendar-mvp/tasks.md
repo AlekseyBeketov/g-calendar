@@ -60,7 +60,7 @@
 
 ## 7. Screenshot Audit and Interaction Reliability — 2026-10-05
 
-Scope and acceptance: `docs/plans/2026-10-05-final-product-completion.md`. Implementation resumed by the owner on 2026-10-05; checkboxes require current evidence.
+Scope: the requirements below and `design/DESIGN.md`; acceptance: `docs/verification.md`. Implementation resumed by the owner on 2026-10-05; checkboxes require current evidence.
 
 - [x] 7.1 Reproduce task-save read-back rejection with synthetic fixtures, including empty/omitted notes, due normalization, genuine field/identity mismatch, read failure and missing create-response ID; establish the cause before changing verification semantics.
 - [x] 7.2 Model unresolved writes separately from pre-write rejection, retain known exact identity and draft across reopen/relaunch, provide read-only recheck, and prevent repeated INSERT for the same unresolved attempt across tasks/events/task lists; never accept an unverified write as success. Interprocess lease, exact attempt ownership, atomic UI review and stale-instance/separate-process regression fixtures now pass; current-bundle draft/recovery/busy UI acceptance passed on 2026-10-07.

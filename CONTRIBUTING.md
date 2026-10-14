@@ -40,4 +40,6 @@ Model/native UI tests используют synthetic fixtures. Installer suite �
 
 Перед коммитом выбирайте явные paths, просматривайте staged diff и выполняйте релевантные проверки. Следуйте [AGENTS.md](AGENTS.md) для правил коммита и push; никогда не переписывайте историю и не включайте unrelated work. Push исходников не является выпуском приложения.
 
+Рабочие планы реализации и ExecPlan (например, `docs/plans/2026-10-14-author-support.md`) храните локально в `docs/plans/`: они исключены из Git. Не добавляйте их через `git add -f`. Согласованные продуктовые дизайны `*-design.md` остаются в репозитории; полезные результаты переносите в OpenSpec, пользовательскую документацию и [журнал проверок](docs/verification.md). Подробнее — [правила планов](docs/plans/README.md).
+
 Local ad-hoc bundle не является публичным подписанным релизом. Developer ID credentials, notarization, clean-Mac acceptance, лицензия и публикация — отдельные gates в [RELEASING](docs/RELEASING.md) и [PENDING_DECISIONS](docs/PENDING_DECISIONS.md).

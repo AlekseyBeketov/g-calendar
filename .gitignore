@@ -25,6 +25,13 @@ xcuserdata/
 /.local-indexes/
 /graphify-out/
 
+# Local execution plans; approved product designs stay versioned
+/plans/
+/.codex/plans/
+/docs/plans/*.md
+!/docs/plans/*-design.md
+!/docs/plans/README.md
+
 # macOS Finder and AppleDouble metadata
 .DS_Store
 ._*

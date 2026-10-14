@@ -33,4 +33,4 @@ None.
 
 ## Follow-up scope: 2026-10-10
 
-Add configurable workspace shortcuts, inline local reminder time, persistent notification preference/current icon, login-at-system-start option, writable-first calendar ordering/default, intuitive disclosure, pointer hit regions, all-board task scope and board columns, and verified native task moves. See docs/plans/2026-10-10-workspace-improvements.md.
+Add configurable workspace shortcuts, inline local reminder time, persistent notification preference/current icon, login-at-system-start option, writable-first calendar ordering/default, intuitive disclosure, pointer hit regions, all-board task scope and board columns, and verified native task moves. Requirements and completion evidence are recorded in the capability specs and tasks.md; execution plans are local artifacts.

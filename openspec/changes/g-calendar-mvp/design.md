@@ -16,7 +16,7 @@
 
 ## Decisions
 
-Current owner decision 2026-10-05: Pixel Paper is the approved visual foundation; only the Color Atlas compact task-list metadata layout is adopted. See `design/DESIGN.md` and the unified `docs/plans/2026-10-05-final-product-completion.md`. Rejected variants were removed. Implementation and fixture/computer-use testing have resumed, including final code plus visual spacing acceptance for modal and primary surfaces. Historical environment notes below are checkpoints, not current build/test verdicts.
+Current owner decision 2026-10-05: Pixel Paper is the approved visual foundation; only the Color Atlas compact task-list metadata layout is adopted. See `design/DESIGN.md` and the acceptance record in `docs/verification.md`. Rejected variants were removed. Implementation and fixture/computer-use testing have resumed, including final code plus visual spacing acceptance for modal and primary surfaces. Historical environment notes below are checkpoints, not current build/test verdicts.
 
 1. **Native UI: SwiftUI first, small AppKit bridges.** This is a single-platform macOS product. Use `NavigationSplitView`, native toolbar/list/search and semantic/system appearance. AppKit is limited to gaps such as NSApplication activation or window behavior; no embedded browser. Tauri is deferred: Cargo/Rust is absent, and its WebView/JS-to-Rust stack adds no MVP benefit. Keep `docs/ui.md` as a visual contract, not an instruction to build a web app.
 
