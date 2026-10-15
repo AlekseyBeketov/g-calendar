@@ -179,7 +179,7 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 23.1 Add a SemVer/build-number helper and document the release-time invocation without creating tags or publishing assets.
 - [x] 23.2 Integrate Sparkle 2.10.0 for ad-hoc builds without Library Validation; authenticate the feed and archives using EdDSA. Framework loading, real archive signatures and tamper rejection pass; first-open Gatekeeper acceptance remains external.
 - [x] 23.3 Require the icon named by `CFBundleIconFile` to be present in app bundles during release verification; rebuild and verify the packaged icon against the approved source. Remove only the 71 stale registered build backups, register the current bundle and confirm delivery of a synthetic notification; visual banner acceptance remains manual.
-- [ ] 23.4 Owner manually relaunches the rebuilt app and confirms a future notification banner displays the approved icon.
+- [x] 23.4 Relaunch the rebuilt app and obtain owner confirmation that a fresh notification displays the approved icon. Build 4 was opened at the owner's request; the owner confirmed the new icon on 2026-10-15 after the user icon-cache refresh.
 
 ## 24. GitHub updates and final onboarding preferences (2026-10-15)
 
@@ -199,9 +199,9 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 26.1 Record owner confirmation of Google login, both onboarding steps and calendar access.
 - [x] 26.2 Embed the approved Retina blue-wave background and arrow; create Finder aliases on the actual image and verify native resolution again after compression/remount.
-- [x] 26.3 Complete final build/package verification and push the DMG artwork change to main. Actual readonly-mount alias resolution and background metadata checks pass; app rebuilt. Notification icon remains a separate open task.
-- [ ] 26.4 Resolve the still-old visible notification icon and obtain fresh human confirmation; system workspace/canonical/running-app icon checks show the new resource.
+- [x] 26.3 Complete final build/package verification and push the DMG artwork change to main. Actual readonly-mount alias resolution and background metadata checks pass; app rebuilt. Notification icon acceptance is tracked separately in 26.4.
+- [x] 26.4 Resolve the still-old visible notification icon and obtain fresh human confirmation. After a reversible current-user IconServices cache reset and service/UI restart, the owner confirmed the new icon on the latest build-4 test (2026-10-15).
 
-- [x] 26.5 Builds 3/4: give icon artwork its own resource filename, renew only the current app registration, verify positive/negative bundle fixtures and request acceptance using a visibly build-labeled test banner. Visible icon acceptance remains 26.4.
+- [x] 26.5 Builds 3/4: give icon artwork its own resource filename, renew only the current app registration, verify positive/negative bundle fixtures and request acceptance using a visibly build-labeled test banner. Visible icon acceptance is tracked in 26.4.
 
 - [x] 26.6 Reproduce corrupt legacy ICNS sizes, rebuild them with the native encoder and guard all ten representations against the approved raster master.
