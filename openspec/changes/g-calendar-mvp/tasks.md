@@ -188,4 +188,4 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 24.3 Add a second onboarding step after Google sign-in with automatic-update and launch-at-login choices, preserving explicit user preferences.
 - [x] 24.4 Provide version/change-history and release preparation commands that produce signed update assets without publishing a release implicitly.
 - [x] 24.5 Make README English by default with a prominent Russian-instructions link and an equivalent Russian README.
-- [ ] 24.6 Verify implementation, rebuild, commit each logical task and push to remote main as explicitly requested on 2026-10-15.
+- [x] 24.6 Verify implementation, rebuild and push each logical task to remote main: updater/setup `4d58c77`, bilingual instructions `6413412`. Invariants 989, task layout 106, installers 26; real signed update/archive and isolated updater startup checks pass. Built app and final local preview are ready; no GitHub Release/tag published.
