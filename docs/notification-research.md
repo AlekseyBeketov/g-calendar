@@ -78,4 +78,10 @@ Recurring event задаёт правило повторения, а его occu
 [21] https://developer.apple.com/documentation/bundleresources/information-property-list/lsminimumsystemversion — LSMinimumSystemVersion | Apple Developer Documentation
 [22] https://support.apple.com/guide/mac-help/mchl613dc43f/mac — Set up a Focus on Mac | Apple Support
 [23] https://support.apple.com/guide/mac-help/notifications-settings-mh40583/mac — Notifications settings on Mac | Apple Support
+
+## Иконка и старые регистрации сборок — 2026-10-15
+
+В актуальном bundle `CFBundleIconFile=WorkspaceIcon`, а `WorkspaceIcon.icns` совпадает с утверждённым `resources/AppIcon.icns`. На приложенном владельцем баннере был прежний значок с зелёными точками. В Launch Services обнаружена 71 запись `previous-g-calendar.app` из `.build/g-calendar/run-*`, многие со старым `AppIcon`; такие копии могут мешать выбору текущей иконки.
+
+`scripts/refresh-app-registration.sh` снимает только регистрации маркированных резервных сборок этого проекта и регистрирует актуальный `dist/g-calendar.app`; файлы backup не удаляются и общая база macOS не сбрасывается. Новые build backups имеют суффикс `.build-backup` вместо `.app`. Запускать helper из обычной пользовательской сессии macOS, если старый значок повторится. В этом проходе helper снял 71 регистрацию и зарегистрировал текущий bundle. Синтетическое уведомление из актуального bundle доставлено (`own_notification_delivered=true`); видимая иконка остаётся ручной приёмкой, ранее доставленные баннеры могут сохранить кэш.
 [24] https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac — Open a Mac app from an unknown developer | Apple Support

@@ -49,7 +49,8 @@ fi
 /usr/bin/codesign --verify --strict "$STAGE"
 
 if [[ -e "$APP" ]]; then
-  BACKUP="$BUILD_DIR/previous-g-calendar.app"
+  # Keep rollback data without advertising another application to Launch Services.
+  BACKUP="$BUILD_DIR/previous-g-calendar.build-backup"
   mv "$APP" "$BACKUP"
 fi
 mv "$STAGE" "$APP"
