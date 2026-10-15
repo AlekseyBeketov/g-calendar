@@ -23,6 +23,7 @@ if [[ -z "$BUILD" ]]; then
   BUILD="$((10#$CURRENT_BUILD + 1))"
 fi
 [[ "$BUILD" =~ ^(0|[1-9][0-9]{0,8})$ ]] || fail 'Build must be an integer from 0 to 999999999'
+[[ "$CURRENT_BUILD" =~ ^[0-9]{1,9}$ && "$BUILD" -gt "$CURRENT_BUILD" ]] || fail 'Build number must increase for every distributed update'
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$PLIST"

@@ -9,20 +9,23 @@ while [[ $# -gt 0 ]]; do
     --app) APP="${2:?Missing app}"; shift 2 ;;
     --output) OUTPUT="${2:?Missing output directory}"; shift 2 ;;
     --mode) MODE="${2:?Missing mode}"; shift 2 ;;
-    --help) printf '%s\n' 'Usage: package-dmg.sh [--app PATH] [--output DIR] [--mode local|release]'; exit 0 ;;
+    --help) printf '%s\n' 'Usage: package-dmg.sh [--app PATH] [--output DIR] [--mode local|preview|release]'; exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
-[[ "$MODE" == local || "$MODE" == release ]] || fail 'Mode must be local or release'
-[[ "$MODE" == local ]] && VERIFY_MODE=local || VERIFY_MODE=signed
+[[ "$MODE" == local || "$MODE" == preview || "$MODE" == release ]] || fail 'Mode must be local, preview or release'
+VERIFY_MODE="$MODE"
+[[ "$MODE" != release ]] || VERIFY_MODE=signed
 "$ROOT/scripts/verify-release.sh" --app "$APP" --mode "$VERIFY_MODE"
-[[ -z "$(/usr/bin/find "$APP" ! -type f ! -type d -print -quit)" ]] || fail 'This minimal app archive must not contain symlinks or special files'
+source "$ROOT/scripts/install-common.sh"
+gc_verify_bundle_tree "$APP"
 PLIST="$APP/Contents/Info.plist"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD" =~ ^[0-9]+$ ]] || fail 'Unsafe version or build'
 PREFIX="g-calendar-$VERSION-arm64"
 if [[ "$MODE" == local ]]; then PREFIX="$PREFIX-local"; fi
+if [[ "$MODE" == preview ]]; then PREFIX="$PREFIX-preview"; fi
 OUTPUT="${OUTPUT:-$ROOT/dist/packages/$VERSION-arm64-$MODE}"
 mkdir -p "$OUTPUT"
 OUTPUT="$(cd "$OUTPUT" && pwd)"
@@ -70,17 +73,19 @@ if [[ "$MODE" == release ]]; then
   : "${G_CALENDAR_SIGN_IDENTITY:?Set explicit Developer ID identity}"
   /usr/bin/codesign --force --sign "$G_CALENDAR_SIGN_IDENTITY" --timestamp "$STAGE/$PREFIX.dmg"
 fi
-if [[ "$MODE" == local ]]; then
+if [[ "$MODE" != release ]]; then
   SIGNING=ad-hoc; NOTARIZED=false; TEAM_JSON=null
 else
   SIGNING=developer-id; NOTARIZED=false; TEAM_JSON="\"$G_CALENDAR_TEAM_ID\""
 fi
+DISTRIBUTION="$MODE"
+if [[ "$MODE" == preview ]]; then DISTRIBUTION=unsigned-preview; fi
 cat > "$STAGE/release-manifest.json" <<EOF
 {
   "version": "$VERSION", "build": "$BUILD", "architecture": "arm64",
   "minimumMacOS": "13.0", "bundleIdentifier": "com.alexbeketov.gcalendar",
   "signing": "$SIGNING", "teamID": $TEAM_JSON, "notarized": $NOTARIZED,
-  "distribution": "$MODE", "assets": ["$PREFIX.zip", "$PREFIX.dmg"]
+  "distribution": "$DISTRIBUTION", "assets": ["$PREFIX.zip", "$PREFIX.dmg"]
 }
 EOF
 (cd "$STAGE" && /usr/bin/shasum -a 256 "$PREFIX.zip" "$PREFIX.dmg" release-manifest.json > SHA256SUMS)
@@ -88,6 +93,8 @@ for NAME in "$PREFIX.dmg" "$PREFIX.zip" release-manifest.json SHA256SUMS; do mv 
 printf 'PACKAGES=%s\n' "$OUTPUT"
 if [[ "$MODE" == release ]]; then
   printf '%s\n' 'DMG_NOTARIZATION_PENDING: run notarize-release.sh; do not distribute these intermediate artifacts.'
+elif [[ "$MODE" == preview ]]; then
+  printf '%s\n' 'UNSIGNED_PREVIEW: ad-hoc app; Apple notarization and Gatekeeper acceptance are not claimed.'
 else
   printf '%s\n' 'LOCAL_ONLY: ad-hoc preview; not a notarized public release.'
 fi

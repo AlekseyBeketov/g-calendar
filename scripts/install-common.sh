@@ -60,7 +60,8 @@ gc_verify_bundle() {
   gc_verify_macho "$app/Contents/MacOS/$executable" || return 1
   minimum="$(gc_plist "$app" LSMinimumSystemVersion)"
   [[ "$minimum" == 13.0 ]] || { gc_fail 'Неожиданная минимальная версия macOS.'; return 1; }
-  /usr/bin/codesign --verify --strict -R "=identifier \"$GC_BUNDLE_ID\"" "$app" || return 1
+  gc_verify_bundle_tree "$app" || return 1
+  /usr/bin/codesign --verify --deep --strict -R "=identifier \"$GC_BUNDLE_ID\"" "$app" || return 1
   actual="$(/usr/bin/codesign -d --verbose=4 "$app" 2>&1)"
   printf '%s\n' "$actual" | /usr/bin/grep -qx "Identifier=$GC_BUNDLE_ID" || { gc_fail 'Подпись не соответствует bundle ID.'; return 1; }
 }
@@ -175,18 +176,42 @@ gc_uninstall_bundle() {
 }
 gc_zipinfo() { /usr/bin/env ZIPINFO= ZIPINFOOPT= /usr/bin/zipinfo "$@"; }
 gc_unzip() { /usr/bin/env UNZIP= UNZIPOPT= /usr/bin/unzip -P '' "$@"; }
+gc_valid_sparkle_link() {
+  local relative="$1" target="$2" name
+  case "$relative" in
+    Contents/Frameworks/Sparkle.framework/Versions/Current) [[ "$target" == B ]];;
+    Contents/Frameworks/Sparkle.framework/Resources|Contents/Frameworks/Sparkle.framework/Headers|Contents/Frameworks/Sparkle.framework/PrivateHeaders|Contents/Frameworks/Sparkle.framework/Modules|Contents/Frameworks/Sparkle.framework/XPCServices|Contents/Frameworks/Sparkle.framework/Updater.app|Contents/Frameworks/Sparkle.framework/Autoupdate|Contents/Frameworks/Sparkle.framework/Sparkle)
+      name="${relative##*/}"; [[ "$target" == "Versions/Current/$name" ]];;
+    *) return 1;;
+  esac
+}
+gc_verify_bundle_tree() {
+  local app="$1" link target
+  [[ -z "$(/usr/bin/find "$app" ! -type f ! -type d ! -type l -print -quit)" ]] || { gc_fail 'Special files в приложении запрещены.'; return 1; }
+  while IFS= read -r link; do
+    target="$(readlink "$link")" || return 1
+    gc_valid_sparkle_link "${link#"$app/"}" "$target" || { gc_fail 'Неожиданный symlink в приложении.'; return 1; }
+    [[ -e "$link" ]] || { gc_fail 'Повреждённый framework symlink.'; return 1; }
+  done < <(/usr/bin/find "$app" -type l -print)
+}
 gc_validate_archive() {
-  local archive="$1" listing
+  local archive="$1" listing link target
   # Bound expansion before CRC testing, which itself decompresses every entry.
-  # The current app has no symlinks or special files; reject before extraction.
+  # Only the exact internal links from the pinned Sparkle framework are allowed.
   gc_zipinfo -l "$archive" | /usr/bin/awk '
-    /^[bclps?]/ {exit 1}
-    /^[-d]/ {bytes+=$4; count++; if(bytes>536870912 || count>10000)exit 1}
+    /^[bcps?]/ {exit 1}
+    /^[-dl]/ {bytes+=$4; count++; if(bytes>536870912 || count>10000)exit 1}
     END {if(count==0 || bytes>536870912 || count>10000)exit 1}' || { gc_fail 'ZIP содержит links/special files или слишком велик.'; return 1; }
+  while IFS= read -r link; do
+    target="$(gc_unzip -p "$archive" "$link")" || return 1
+    gc_valid_sparkle_link "${link#g-calendar.app/}" "$target" || { gc_fail 'ZIP содержит небезопасный symlink.'; return 1; }
+  done < <(gc_zipinfo -l "$archive" | /usr/bin/awk '/^l/ {print $NF}')
   listing="$(gc_zipinfo -1 "$archive")" || return 1
   [[ -n "$listing" ]] || { gc_fail 'Пустой ZIP.'; return 1; }
   printf '%s\n' "$listing" | LC_ALL=C /usr/bin/awk '
     /[^ -~]/ || /\\/ || /:/ || /^\// {exit 1}
+    /^g-calendar.app\/Contents\/Frameworks\/Sparkle.framework\/(Resources|Headers|PrivateHeaders|Modules|XPCServices|Updater.app|Autoupdate|Sparkle)\// {exit 1}
+    /^g-calendar.app\/Contents\/Frameworks\/Sparkle.framework\/Versions\/Current\// {exit 1}
     $0=="._g-calendar.app" {count++; next}
     {n=split($0,a,"/"); if(a[1]!="g-calendar.app")exit 1; for(i=1;i<=n;i++)if(a[i]==".." || a[i]==".")exit 1; count++}
     END {if(count>10000)exit 1}' || { gc_fail 'ZIP содержит небезопасные пути.'; return 1; }
@@ -199,7 +224,7 @@ gc_extract_archive() {
   # ditto consumes AppleDouble metadata instead of leaving extra ._* resources
   # inside the signed bundle, and preserves resource forks/tickets/quarantine.
   gc_ditto -x -k "$1" "$2" || return 1
-  [[ -z "$(/usr/bin/find "$2" -type l -print -quit)" ]] || { gc_fail 'Links в распакованном ZIP запрещены.'; return 1; }
+  gc_verify_bundle_tree "$2/g-calendar.app" || return 1
   [[ "$(/usr/bin/find "$2" -mindepth 1 -maxdepth 1 -print)" == "$2/g-calendar.app" ]] || { gc_fail 'Неожиданный root распакованного ZIP.'; return 1; }
   gc_verify_bundle "$2/g-calendar.app" || return 1
 }

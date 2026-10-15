@@ -32,6 +32,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/WorkspaceSnapshotReducer.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \
   "$ROOT/Sources/GCalendar/RuntimeModes.swift" \
+  "$ROOT/Sources/GCalendar/StartupPreferences.swift" \
   "$ROOT/Sources/GCalendar/Reminders.swift" \
   "$ROOT/Sources/GCalendar/AutomaticNotifications.swift" \
   "$ROOT/Sources/GCalendar/MutationService.swift" \
@@ -43,6 +44,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Tests/GoogleRESTTests.swift" \
   "$ROOT/Tests/TaskOrderingTests.swift" \
   "$ROOT/Tests/AutomaticNotificationTests.swift" \
+  "$ROOT/Tests/StartupPreferencesTests.swift" \
   -o "$TEST_BINARY"
 
 G_CALENDAR_FIXTURES="$ROOT/Tests/Fixtures" "$TEST_BINARY"

@@ -131,7 +131,7 @@ struct GoogleOnboardingView: View {
                         .accessibilityIdentifier("google-onboarding-other-transport")
                 }
                 .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .center)
+                .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 72), alignment: .center)
                 .padding(.horizontal, 28)
                 .padding(.vertical, 36)
             }

@@ -1,15 +1,40 @@
 # Упаковка и выпуск macOS
 
-Текущая сборка: **arm64, macOS 13+**. SwiftUI/AppKit стек сохраняется. Владелец отказался оформлять Apple Developer Program. Поэтому сейчас можно собирать и проверять локальный ad-hoc DMG, но он не является нотарифицированным и не обещает обычный запуск скачанного приложения без предупреждения Gatekeeper. Публичный GitHub Release пока отдельно не запрошен.
+Текущая сборка — **0.2.0 (build 2), arm64, macOS 13+**. Apple Developer Program не используется. Поддерживаются локальные ad-hoc пакеты и явный режим **unsigned-preview** с подписанной EdDSA лентой и ZIP для Sparkle. EdDSA подтверждает подлинность обновления, но не заменяет Apple notarization или первую проверку Gatekeeper. Публичный Release автоматически не создаётся.
 
-Если владелец отдельно запросит публикацию без Developer ID, сначала подготовить и проверить явный режим публичного unsigned-preview: дать артефакту однозначное имя/manifest status, приложить SHA-256 и шаги первого запуска с ссылкой на [официальную инструкцию Apple](https://support.apple.com/en-us/102445). Не объявлять это устранением предупреждения и не рекомендовать удаление quarantine или отключение Gatekeeper. Текущий `local` режим помечает файлы `-local`/`LOCAL_ONLY`; не переименовывать его вручную под публичный релиз и не ослаблять `install-release.sh` без отдельной реализации и проверки.
+## Выпустить обновление через GitHub Releases
+
+1. Запишите пользовательские изменения в `CHANGELOG.md` и подготовьте короткий Markdown-файл примечаний для конкретного выпуска. Каждый логический продуктовый change проходит проверки и получает отдельный коммит; push исходников не публикует приложение.
+2. Поднимите SemVer и build number: `./scripts/set-version.sh --version 0.3.0`. Числовой `CFBundleVersion` должен строго увеличиваться; именно по нему Sparkle сравнивает версии. Для воспроизводимого номера можно передать `--build N`, но он также должен быть больше текущего. Просмотрите и закоммитьте diff plist и changelog.
+3. Выполните релевантные проверки и `./scripts/build-app.sh`. Все исходники, версия в bundle и будущий tag должны относиться к одному проверенному коммиту.
+4. Подготовьте файлы в новом каталоге:
+
+```sh
+./scripts/prepare-update.sh --output dist/packages/0.3.0-preview --notes /absolute/path/to/release-notes.md
+./scripts/test-updates.sh dist/packages/0.3.0-preview
+```
+
+Пример предполагает уже выбранную версию 0.3.0; не выполняйте bump только ради чтения инструкции. Helper создаёт `g-calendar-<version>-arm64-preview.dmg`, ZIP, `release-manifest.json`, `SHA256SUMS` и **`appcast.xml`**. Он проверяет соответствие публичного ключа в bundle ключу Keychain, подписывает ленту и архив, проверяет подписи и финальные checksum. Подписанный XML нельзя редактировать после генерации.
+
+5. По отдельному запросу владельца создайте draft GitHub Release с тегом `v<version>` на проверенный source commit и приложите **все пять файлов**. Просмотрите release notes, архитектуру, manifest (`signing=ad-hoc`, `distribution=unsigned-preview`, `notarized=false`) и проверьте установку скачанного DMG на Mac с сохранённым quarantine. Затем публикуйте только после явного разрешения. Не выдавайте SHA-256 или EdDSA за Developer ID. Официальные варианты пользовательского первого открытия описывает [Apple](https://support.apple.com/en-us/102445); не отключайте Gatekeeper и не удаляйте quarantine.
+6. Release должен быть обычным стабильным **Latest**, поскольку приложение читает `https://github.com/AlekseyBeketov/g-calendar/releases/latest/download/appcast.xml`. Draft/prerelease не является этим каналом. Внутри ленты ZIP указывает на конкретный tag, поэтому старые архивы и теги не перезаписывают.
+
+Обычная публикация исходников или создание тега без `appcast.xml` не включает обновление пользователей. До первого опубликованного appcast ручная проверка может показать ошибку недоступной ленты. Последующие подписанные версии появятся у пользователей с включённым автообновлением примерно в течение суток работы приложения; ручная проверка доступна сразу.
+
+## Подпись и хранение ключа
+
+В macOS Keychain создан отдельный Sparkle signing account **`g-calendar`**. Приватный ключ не находится в репозитории, app bundle, переменных команд или release assets. В `resources/Info.plist` лежит только `SUPublicEDKey`. Официальные инструменты pinned Sparkle 2.10.0 находятся в ignored `.build/dependencies/sparkle-2.10.0/bin/` после `scripts/fetch-sparkle.sh`.
+
+До первого распространения владелец должен сделать приватную зашифрованную резервную копию ключа по [инструкции Sparkle](https://sparkle-project.org/documentation/). Не экспортируйте его в checkout и не печатайте в отчётах. Без Developer ID потеря EdDSA-ключа не позволяет безопасно выпустить обновление для уже установленных приложений: потребуется ручная переустановка. Не генерируйте новый ключ при каждом релизе.
+
+В приложении включены `SURequireSignedFeed` и `SUVerifyUpdateBeforeExtraction`: проверяются и лента, и ZIP до распаковки. Auto-update использует Sparkle с собственной установкой и перезапуском; он не вызывает строгий Developer-ID-only `install-release.sh`. Этот старый сценарий остаётся отдельным, доступным только для будущих notarized-пакетов. Телеметрия Sparkle отключена. Проверки/скачивание начинаются после завершения начальной настройки; demo и synthetic режимы Sparkle не запускают.
 
 ## Локальный DMG
 
 Для следующего осознанного изменения версии используйте helper до сборки:
 
 ```sh
-./scripts/set-version.sh --version 0.2.0
+./scripts/set-version.sh --version 0.3.0
 ```
 
 Скрипт проверяет SemVer, обновляет `CFBundleShortVersionString` и увеличивает числовой `CFBundleVersion`. Если нужен заданный номер сборки, передайте `--build N`. После этого просмотрите diff `resources/Info.plist` и только затем собирайте пакет. Сам helper не создаёт Git tag, Release или фоновые обновления.
@@ -27,7 +52,7 @@
 
 ## Developer ID + Apple notarization (не текущий путь владельца)
 
-Этот сценарий неприменим, пока владелец не пересмотрит отказ от Apple Developer Program. Только после такого решения владелец заранее предоставляет существующую **Developer ID Application** identity, её ожидаемый 10-значный Team ID и существующий Keychain profile для `notarytool`. Секреты не помещаются в репозиторий, команды не принимают Apple ID/password параметрами и не выводят содержимое service responses. Не создавать credentials автоматически.
+Этот сценарий неприменим, пока владелец не пересмотрит отказ от Apple Developer Program. Текущий `sign-release.sh` дополнительно останавливается при наличии nested framework; перед будущим Developer ID выпуском потребуется реализовать явный порядок переподписи helpers Sparkle изнутри наружу. Только после такого решения владелец заранее предоставляет существующую **Developer ID Application** identity, её ожидаемый 10-значный Team ID и существующий Keychain profile для `notarytool`. Секреты не помещаются в репозиторий, команды не принимают Apple ID/password параметрами и не выводят содержимое service responses. Не создавать credentials автоматически.
 
 В приватной оболочке задаются `G_CALENDAR_SIGN_IDENTITY`, `G_CALENDAR_TEAM_ID`, `G_CALENDAR_NOTARY_PROFILE`, затем:
 
@@ -53,7 +78,7 @@ Notary failure не меняет исходное приложение и не �
 
 ## Публикация
 
-Эти скрипты **не** создают GitHub Release, не загружают assets и не включают auto-update. После отдельного разрешения владельца: закреплённый tag, draft Release, все assets и SHA256SUMS; проверить GitHub integrity/immutable release, затем опубликовать. Digest соседнего файла защищает от порчи; Developer ID requirement подтверждает издателя. Homebrew cask уместен после проверенного подписанного релиза; не добавлять `zap` пользовательских данных.
+Скрипты не создают GitHub Release и не загружают assets. Auto-update уже встроен в приложение; для него нужно публиковать подписанную ленту вместе с архивом по процедуре выше. После отдельного разрешения владельца: закреплённый tag, draft Release, все assets и SHA256SUMS; проверить GitHub integrity/immutable release, затем опубликовать. Digest соседнего файла защищает от порчи; Developer ID requirement подтверждает издателя. Homebrew cask уместен после проверенного подписанного релиза; не добавлять `zap` пользовательских данных.
 
 ## Первичные источники
 
@@ -62,3 +87,6 @@ Notary failure не меняет исходное приложение и не �
 - [Apple: Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution) — проверка Gatekeeper до распространения.
 
 Документация Apple проверена через официальный Context7. Фактическая signed acceptance остаётся внешней до credentials и чистого Mac.
+
+- [Sparkle: programmatic setup](https://sparkle-project.org/documentation/programmatic-setup/) — native updater и SwiftUI.
+- [Sparkle: publishing](https://sparkle-project.org/documentation/publishing/) — подпись архивов и appcast.

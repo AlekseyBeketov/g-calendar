@@ -51,6 +51,8 @@ final class WorkspaceViewModel: ObservableObject {
     private let transportContext: WorkspaceTransportContext?
     private var transportSettingsObserver: AnyCancellable?
     let googleTransportSettings: GoogleTransportSettings
+    let applicationUpdates: ApplicationUpdates
+    @Published private(set) var startupPreferencesCompleted: Bool
     private let mutationJournal: MutationJournal
     private let defaults: UserDefaults
     private let demoAdapter: DemoWorkspaceAdapter?
@@ -77,6 +79,8 @@ final class WorkspaceViewModel: ObservableObject {
     init(mode: AppLaunchMode = .normal, defaults suppliedDefaults: UserDefaults? = nil, scheduler suppliedScheduler: ReminderScheduling? = nil) {
         launchMode = mode
         let defaults = suppliedDefaults ?? (mode == .normal ? .standard : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
+        applicationUpdates = ApplicationUpdates(mode: mode, defaults: defaults)
+        startupPreferencesCompleted = StartupPreferences(defaults: defaults).completed
         let context = mode == .normal ? WorkspaceTransportContext.load(defaults: defaults) : nil
         transportContext = context
         googleTransportSettings = GoogleTransportSettings(active: context?.kind ?? .rest, defaults: defaults, activeProfile: context?.profile,
@@ -164,6 +168,10 @@ final class WorkspaceViewModel: ObservableObject {
         selectedCalendarID = CalendarNavigation.selectedID(selectedCalendarID, calendars: snapshot.calendars)
         transportSettingsObserver = googleTransportSettings.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         googleTransportSettings.applyChanges = { [weak self] in self?.applyGoogleTransportChanges() }
+        applicationUpdates.canInstallUpdate = { [weak self] in
+            guard let self else { return false }
+            return !self.mutationsBlocked && !self.requiresGoogleOnboarding && !self.requiresStartupPreferences
+        }
         automaticNotificationsEnabled = defaults.object(forKey: automaticSettingsKey) as? Bool ?? true
         if mode == .normal {
             Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -222,6 +230,18 @@ final class WorkspaceViewModel: ObservableObject {
     var requiresGoogleOnboarding: Bool {
         guard launchMode == .normal, let transportContext else { return false }
         return transportContext.kind == .rest && transportContext.identity == nil && !transportContext.recoveryOnly
+    }
+    var requiresStartupPreferences: Bool {
+        launchMode == .normal && !requiresGoogleOnboarding && transportContext?.recoveryOnly != true
+            && !transportSettingsBlocked && !startupPreferencesCompleted
+    }
+    func completeStartupPreferences() {
+        let preferences = StartupPreferences(defaults: defaults)
+        preferences.saveAutomaticUpdates(applicationUpdates.automaticUpdatesEnabled)
+        preferences.complete()
+        startupPreferencesCompleted = true
+        applicationUpdates.startIfNeeded()
+        refresh()
     }
     func signInToGoogle() {
         googleTransportSettings.signIn(blocked: transportSettingsBlocked) { [weak self] in
@@ -404,6 +424,7 @@ final class WorkspaceViewModel: ObservableObject {
 
     func refresh() {
         refreshMutationRecoveryState()
+        guard !requiresGoogleOnboarding && !requiresStartupPreferences else { return }
         if launchMode == .demo {
             guard let demoAdapter else { return }
             snapshot = demoAdapter.snapshot()
@@ -1219,7 +1240,10 @@ struct GCalendarApp: App {
                     else if launchMode == .notificationTest { await model.runNotificationTestAndExit() }
                     else if launchMode == .syntheticAcceptance { await model.runSyntheticAcceptanceAndExit() }
                     else {
-                        if !model.requiresGoogleOnboarding { model.refresh() }
+                        if !model.requiresGoogleOnboarding && !model.requiresStartupPreferences { model.refresh() }
+                        if !model.requiresGoogleOnboarding && StartupPreferences.shouldStartUpdater(mode: launchMode, completed: model.startupPreferencesCompleted) {
+                            model.applicationUpdates.startIfNeeded()
+                        }
                         if launchMode == .demo {
                             print("G_CALENDAR_DEMO \(model.statusMessage) calendar_count=\(model.snapshot.calendars.count) event_count=\(model.snapshot.events.count) task_list_count=\(model.snapshot.taskLists.count) task_count=\(model.snapshot.tasks.count)")
                             fflush(stdout)

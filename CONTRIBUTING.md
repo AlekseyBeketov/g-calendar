@@ -43,3 +43,7 @@ Model/native UI tests используют synthetic fixtures. Installer suite �
 Рабочие планы реализации и ExecPlan (например, `docs/plans/2026-10-14-author-support.md`) храните локально в `docs/plans/`: они исключены из Git. Не добавляйте их через `git add -f`. Согласованные продуктовые дизайны `*-design.md` остаются в репозитории; полезные результаты переносите в OpenSpec, пользовательскую документацию и [журнал проверок](docs/verification.md). Подробнее — [правила планов](docs/plans/README.md).
 
 Local ad-hoc bundle не является публичным подписанным релизом. Developer ID credentials, notarization, clean-Mac acceptance, лицензия и публикация — отдельные gates в [RELEASING](docs/RELEASING.md) и [PENDING_DECISIONS](docs/PENDING_DECISIONS.md).
+
+## Версии и изменения
+
+Используйте Conventional Commits (`feat:`, `fix:`, `docs:`, `build:`) и отдельный коммит на логическую задачу. Пользовательские изменения записывайте в [CHANGELOG.md](CHANGELOG.md). SemVer повышайте осознанно перед выпуском через `scripts/set-version.sh`; build number никогда не уменьшайте. [Release guide](docs/RELEASING.md) описывает подготовку подписанной ленты Sparkle, DMG/ZIP и GitHub Release. Private signing key остаётся в Keychain. Переводы README.md и README.ru.md обновляйте совместно.

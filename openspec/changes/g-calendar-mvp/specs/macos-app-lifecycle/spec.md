@@ -1,5 +1,22 @@
 ## ADDED Requirements
 
+### Requirement: Complete startup preferences after account connection
+After Google authorization succeeds, the app MUST present a second setup step before the normal workspace. It MUST offer independent automatic-update and launch-at-login choices, persist them, and provide a clear completion action. Launch-at-login registration MUST occur only on an explicit toggle action; failure or required macOS approval MUST be visible. Completing setup MUST start read-only workspace synchronization. Existing unresolved mutation recovery MUST remain accessible and take precedence over this step.
+
+#### Scenario: Finish the second step
+- **WHEN** a connected user selects preferences and chooses to start using the app
+- **THEN** the choices and setup completion survive relaunch and the calendar workspace opens
+- **AND** both choices remain available in Settings
+
+#### Scenario: Decline automatic updates
+- **WHEN** the user disables automatic updates during setup or later in Settings
+- **THEN** scheduled update checks and automatic downloads are disabled
+- **AND** an explicit manual update check remains available after setup
+
+#### Scenario: Synthetic launch
+- **WHEN** the app runs in demo, notification diagnostics or synthetic acceptance mode
+- **THEN** Sparkle is not instantiated or started and login items are not registered
+
 ### Requirement: First launch requires a Google account connection
 When no Google account is connected, the app MUST present a dedicated, focused first-run screen before exposing the calendar/task workspace. The screen MUST offer a primary Google sign-in action, explain in plain language what connection enables, and provide visible loading, cancellation, error and retry states. The native workspace MUST remain gated until sign-in is successfully stored. No `gws` installation, terminal setup or OAuth JSON import may be required from an ordinary user. Signing out MUST return the app to the same gated screen. This first-run flow MUST NOT request notification permission or perform a Google mutation.
 

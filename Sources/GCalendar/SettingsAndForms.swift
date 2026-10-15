@@ -479,6 +479,8 @@ struct SettingsView: View {
                             .disabled(!loginItems.isAvailable || loginItems.isUpdating)
                     }
 
+                    ApplicationUpdateSettingsSection(updates: model.applicationUpdates, blocked: model.mutationsBlocked)
+
                     SettingsSection(title: "Горячие клавиши") {
                         WorkspaceShortcutSettingsView()
                     }
@@ -580,7 +582,7 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsSection<Content: View>: View {
+struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 

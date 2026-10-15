@@ -16,6 +16,8 @@ struct RootView: View {
                     onCancel: { model.googleTransportSettings.cancelSignIn() },
                     onOpenSettings: { local.showSettings = true }
                 )
+            } else if model.requiresStartupPreferences {
+                StartupPreferencesView(updates: model.applicationUpdates, onComplete: { model.completeStartupPreferences() })
             } else {
                 workspace
             }

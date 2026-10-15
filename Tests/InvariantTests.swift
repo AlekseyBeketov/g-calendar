@@ -247,6 +247,7 @@ struct InvariantTests {
         run("google-rest-allowlisted-http-retry-cancel-core", testGoogleRESTCore)
         run("google-oauth-pkce-callback-singleflight-context-isolation", testGoogleOAuthIsolation)
         await runAsync("google-first-run-defaults-to-rest-and-keeps-gws-opt-in", testGoogleRESTDefault)
+        run("startup-preferences-consent-relaunch-and-demo-isolation", testStartupPreferences)
         run("google-urlsession-streaming-response-cap", testGoogleHTTPStreamingLimit)
         if ProcessInfo.processInfo.environment["G_CALENDAR_TEST_LOOPBACK"] == "1" {
             await runAsync("google-oauth-native-loopback-local-fixture", testGoogleNativeLoopback)

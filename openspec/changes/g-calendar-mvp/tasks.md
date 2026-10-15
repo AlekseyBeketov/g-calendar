@@ -177,15 +177,15 @@ Implement without computer-use. Each feature receives a separate verified commit
 ## 23. Versioning, update strategy and notification icon (2026-10-15)
 
 - [x] 23.1 Add a SemVer/build-number helper and document the release-time invocation without creating tags or publishing assets.
-- [ ] 23.2 Choose and validate a user-mediated or automatic update channel compatible with the owner's ad-hoc distribution decision. Sparkle auto-update is deferred until archive-signing and Gatekeeper compatibility are demonstrated.
-- [x] 23.3 Require the icon named by `CFBundleIconFile` to be present in app bundles during release verification; rebuild and verify the packaged icon against the approved source. Launch Services registration failed with -10822 in the restricted session, so future banner acceptance still requires an ordinary relaunch.
+- [x] 23.2 Integrate Sparkle 2.10.0 for ad-hoc builds without Library Validation; authenticate the feed and archives using EdDSA. Framework loading, real archive signatures and tamper rejection pass; first-open Gatekeeper acceptance remains external.
+- [x] 23.3 Require the icon named by `CFBundleIconFile` to be present in app bundles during release verification; rebuild and verify the packaged icon against the approved source. Remove only the 71 stale registered build backups, register the current bundle and confirm delivery of a synthetic notification; visual banner acceptance remains manual.
 - [ ] 23.4 Owner manually relaunches the rebuilt app and confirms a future notification banner displays the approved icon.
 
 ## 24. GitHub updates and final onboarding preferences (2026-10-15)
 
-- [ ] 24.1 Embed pinned Sparkle 2 with EdDSA archive verification and a stable GitHub-hosted appcast; keep private signing material outside the repository.
-- [ ] 24.2 Add an automatic-update setting and a manual Check for Updates action; suppress updater activity in synthetic/demo modes.
-- [ ] 24.3 Add a second onboarding step after Google sign-in with automatic-update and launch-at-login choices, preserving explicit user preferences.
-- [ ] 24.4 Provide version/change-history and release preparation commands that produce signed update assets without publishing a release implicitly.
-- [ ] 24.5 Make README English by default with a prominent Russian-instructions link and an equivalent Russian README.
+- [x] 24.1 Embed pinned Sparkle 2 with EdDSA archive verification and a stable GitHub-hosted appcast; keep private signing material outside the repository.
+- [x] 24.2 Add an automatic-update setting and a manual Check for Updates action; suppress updater activity in synthetic/demo modes.
+- [x] 24.3 Add a second onboarding step after Google sign-in with automatic-update and launch-at-login choices, preserving explicit user preferences.
+- [x] 24.4 Provide version/change-history and release preparation commands that produce signed update assets without publishing a release implicitly.
+- [x] 24.5 Make README English by default with a prominent Russian-instructions link and an equivalent Russian README.
 - [ ] 24.6 Verify implementation, rebuild, commit each logical task and push to remote main as explicitly requested on 2026-10-15.
