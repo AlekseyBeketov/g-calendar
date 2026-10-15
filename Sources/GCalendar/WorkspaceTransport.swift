@@ -69,14 +69,16 @@ struct WorkspaceTransportContext: @unchecked Sendable {
         guard let profiles = try? FileManager.default.contentsOfDirectory(at: rest, includingPropertiesForKeys: nil) else { return false }
         return profiles.allSatisfy { !MutationJournal(fileURL: $0.appendingPathComponent("pending-verification.json")).isBlocked }
     }
-    static func load(defaults: UserDefaults, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient(), applicationDirectory: URL = Self.applicationDirectory) -> Self {
-        let requested = Kind(rawValue: defaults.string(forKey: "requestedGoogleTransport") ?? "gws") ?? .gws
+    static func load(defaults: UserDefaults, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient(), applicationDirectory: URL = Self.applicationDirectory,
+                     bundledConfiguration: GoogleOAuthClientConfiguration? = .bundled) -> Self {
+        let requested = Kind(rawValue: defaults.string(forKey: "requestedGoogleTransport") ?? "rest") ?? .rest
         let oldKind = Kind(rawValue: defaults.string(forKey: "activeGoogleTransport") ?? "gws") ?? .gws
         let oldIdentity = defaults.string(forKey: "activeGoogleRESTIdentity")
         var config: GoogleOAuthClientConfiguration?, credential: GoogleOAuthCredential?
         var problem: String?
         do {
-            config = try secrets.read("configuration").map { try JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: $0) }
+            let storedConfiguration = try secrets.read("configuration").map { try JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: $0) }
+            config = storedConfiguration ?? bundledConfiguration
             credential = try secrets.read("credential").map { try JSONDecoder().decode(GoogleOAuthCredential.self, from: $0) }
         } catch { problem = GoogleRESTFailure.authentication.errorDescription }
         let newIdentity: String?
@@ -132,14 +134,21 @@ final class GoogleTransportSettings: ObservableObject {
     private var listener: GoogleLoopbackListener?
     private var configuration: GoogleOAuthClientConfiguration?
     private let activeProfile: GoogleOAuthProfile?
+    @Published private(set) var signInError: String?
     var applyChanges: (() -> Void)?
     var canReauthenticate: Bool { active == .rest && activeProfile != nil && configuration == activeProfile?.configuration }
-    init(active: WorkspaceTransportContext.Kind, defaults: UserDefaults, activeProfile: GoogleOAuthProfile? = nil, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient()) {
+    var canStartSignIn: Bool { configuration != nil && !signingIn }
+    init(active: WorkspaceTransportContext.Kind, defaults: UserDefaults, activeProfile: GoogleOAuthProfile? = nil, secrets: GoogleSecretStoring = GoogleKeychainSecretStore(), http: GoogleHTTPClient = GoogleURLSessionHTTPClient(),
+         bundledConfiguration: GoogleOAuthClientConfiguration? = .bundled) {
         self.active = active; self.defaults = defaults; self.secrets = secrets; self.http = http; self.activeProfile = activeProfile
-        requested = WorkspaceTransportContext.Kind(rawValue: defaults.string(forKey: "requestedGoogleTransport") ?? "gws") ?? .gws
+        requested = WorkspaceTransportContext.Kind(rawValue: defaults.string(forKey: "requestedGoogleTransport") ?? "rest") ?? .rest
         do {
             if let activeProfile { configuration = activeProfile.configuration }
             else if let data = try secrets.read("configuration") { configuration = try JSONDecoder().decode(GoogleOAuthClientConfiguration.self, from: data) }
+            else if let bundledConfiguration {
+                configuration = bundledConfiguration
+                try secrets.write(JSONEncoder().encode(bundledConfiguration), key: "configuration")
+            }
             status = try secrets.read("credential") == nil ? "Вход не выполнен." : "Google аккаунт подключён. Изменения применяются после перезапуска."
         } catch { status = GoogleRESTFailure.authentication.errorDescription ?? "Ошибка Keychain." }
     }
@@ -185,8 +194,13 @@ final class GoogleTransportSettings: ObservableObject {
             if recovering { guard canReauthenticate, !signingIn else { throw MutationRecoveryFailure.pendingVerification } }
             else { try allowed(blocked) }
         } catch { status = MutationRecoveryFailure.pendingVerification.errorDescription ?? "Вход заблокирован."; return }
-        guard let configuration else { status = GoogleRESTFailure.setupRequired.errorDescription ?? "Импортируйте JSON."; return }
-        cancelledSignIn = false; signingIn = true; status = recovering ? "Выберите тот же Google аккаунт для проверки незавершённой записи." : "Ожидается вход в системном браузере…"
+        guard let configuration else {
+            let message = "Не удалось подготовить подключение Google. Проверьте настройки приложения."
+            status = message
+            signInError = message
+            return
+        }
+        cancelledSignIn = false; signInError = nil; signingIn = true; status = recovering ? "Выберите тот же Google аккаунт для проверки незавершённой записи." : "Ожидается вход в системном браузере…"
         let listener = GoogleLoopbackListener(); self.listener = listener
         let http = http, secrets = secrets, expectedProfile = recovering ? activeProfile : nil
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -216,9 +230,18 @@ final class GoogleTransportSettings: ObservableObject {
                     self.requiresRestart = true
                     self.requested = .rest
                     self.defaults.set("rest", forKey: "requestedGoogleTransport")
-                    self.status = "Google аккаунт подключён. Применяем Google REST…"
+                    self.status = "Google аккаунт подключён. Применяем настройки…"
                     self.applyChanges?()
-                } catch { self.status = (error as? LocalizedError)?.errorDescription ?? "Вход не выполнен." }
+                } catch {
+                    let message = (error as? LocalizedError)?.errorDescription ?? "Вход не выполнен. Попробуйте ещё раз."
+                    if let failure = error as? GoogleRESTFailure, case .cancelled = failure {
+                        self.status = "Вход отменён."
+                        self.signInError = nil
+                    } else {
+                        self.status = message
+                        self.signInError = message
+                    }
+                }
             }
         }
     }

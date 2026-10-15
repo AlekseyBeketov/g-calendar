@@ -5,12 +5,12 @@
 ## Goals / Non-Goals
 
 **Goals:**
-- Native application UI/lifecycle, local read-only Google integration and cache; week/day + task workflows; safe user-triggered writes validated with fixtures plus an owner-approved create/read-back smoke limited to synthetic objects; opt-in task and local-only timed Calendar event reminders.
+- Native application UI/lifecycle, direct Google REST API as the default connection, a required first-run Google account sign-in, local read-only Google integration and cache; week/day + task workflows; safe user-triggered writes validated with fixtures plus an owner-approved create/read-back smoke limited to synthetic objects; opt-in task and local-only timed Calendar event reminders.
 - A reproducible app bundle build from the checked-in source and scripts, even if the active SwiftPM installation requires a documented direct-compiler fallback.
-- A clear security boundary between UI operations, allowlisted gws calls and forbidden auth/credential operations.
+- A clear security boundary between UI operations, Google OAuth/Keychain credentials, direct API calls and the optional constrained gws process.
 
 **Non-Goals:**
-- Google parity, a web wrapper, paid/hosted services, background push receiver, new OAuth consent flow or credential migration.
+- Google parity, a web wrapper, paid/hosted services, background push receiver or credential migration.
 - Production/personal-object mutations, invitations/email, notification permission prompts during automated tests, login helpers or public release signing. The separately authorized live acceptance may operate only on this run's own synthetic event/task, with exact GET before and after each mutation and private IDs; no unrelated resource or broad cleanup is in scope.
 - Pending offline-write queue or claims that local task/event reminder times are Google-synced.
 
@@ -20,7 +20,7 @@ Current owner decision 2026-10-05: Pixel Paper is the approved visual foundation
 
 1. **Native UI: SwiftUI first, small AppKit bridges.** This is a single-platform macOS product. Use `NavigationSplitView`, native toolbar/list/search and semantic/system appearance. AppKit is limited to gaps such as NSApplication activation or window behavior; no embedded browser. Tauri is deferred: Cargo/Rust is absent, and its WebView/JS-to-Rust stack adds no MVP benefit. Keep `docs/ui.md` as a visual contract, not an instruction to build a web app.
 
-2. **Google adapter: existing gws as a child process, never shell.** A `GWSExecutableResolver` uses a user-configured path and safe standard candidates (including `$HOME/.local/bin/gws`); it must not assume the GUI inherits interactive PATH. `ProcessRunner` receives URL and separate arguments, sets a controlled working directory and HOME, captures status/stdout/stderr, and enforces a timeout/output limit. It does not read, export, log, or copy tokens; it never runs login/auth/status-debug commands. Command factory allowlists calendar/list/events-list, tasklists-list/tasks-list for sync and explicitly-supported writes only from user-triggered UI handlers. No arbitrary service/method input.
+2. **Google adapter: REST by default; gws is optional.** A fresh install or unset transport preference selects direct Google Calendar and Tasks API access. The first-run screen gates the workspace until an explicit OAuth sign-in completes using the app's configured Desktop OAuth client, PKCE and validated loopback callback; refresh credentials are stored only in Keychain. Calendar/task reads begin only after sign-in, and no Google mutation occurs during onboarding. `gws` remains an explicit secondary choice in Settings and is never auto-installed or selected as a fallback. When selected, `GWSExecutableResolver` uses a user-configured path and safe standard candidates (including `$HOME/.local/bin/gws`); `ProcessRunner` uses a separate argument vector, timeout/output limits and allowlisted operations. The app does not read or export gws credentials or invoke auth-changing commands.
 
 3. **Typed domain layer, pagination and last-good cache.** Convert gws JSON to app-owned event/task/calendar models. List pages must be fully traversed; repeated event expansion and timeZone are explicit query choices. API errors, process errors, malformed JSON, and partial pagination produce an error state, not an empty collection. Commit a new cached snapshot atomically only after all required pages succeed. On failure preserve prior cache and mark stale/error. No offline mutation queue. Logs contain operation category and safe error metadata only, never titles, email, raw requests or auth material.
 
@@ -37,6 +37,7 @@ Current owner decision 2026-10-05: Pixel Paper is the approved visual foundation
 ## Risks / Trade-offs
 
 - [SwiftPM/CLT incompatibility] → coder reproduces on this machine, searches only safe local alternatives; if unresolved, direct compiler script and transparent failed-SwiftPM evidence.
+- [Google OAuth project/client not configured] → keep first-run workspace gated; do not request users to create OAuth projects or import configuration. The app's Desktop OAuth client configuration must be supplied and verified before first-run acceptance.
 - [gws CLI changes or schema discovery/network failure] → pin/document tested version where possible, strict JSON/error parsing, compatibility fixtures, user-configurable executable, and stale cache.
 - [GUI PATH/config mismatch] → absolute executable resolution, preserve current user HOME/config lookup, explicit settings validation without displaying credentials.
 - [unauthorized writes] → prohibit production/personal mutations; allow only current-run synthetic event/task operations explicitly recorded in `docs/HUMAN_APPROVALS.md`, with exact GET before and after each mutation. Fixture tests remain the default for all other writes; read-only calendar enforcement and unsupported recurrence/invitations remain explicit.
@@ -47,10 +48,12 @@ Current owner decision 2026-10-05: Pixel Paper is the approved visual foundation
 
 ## Migration Plan
 
-No existing application data is migrated. On first run, show a setup state that locates the configured gws executable and performs only list/read operations. Successful reads atomically seed a cache; failures preserve any prior snapshot and provide retry. Local reminder metadata is versioned separately. Upgrade errors preserve the last valid data and report a safe diagnostic. Rollback means quit and remove/replace only the newly-built `dist/g-calendar.app`; do not delete user cache automatically.
+No existing application data is migrated. A fresh install or unset transport preference selects Google account access and shows a required sign-in screen until authorization is saved. Existing installs with a durable pending mutation retain their prior transport for exact recovery; other unset preferences migrate to Google. Successful authorization starts read-only synchronization and atomically seeds a cache; failures preserve any prior snapshot and provide retry. `gws` remains opt-in in Settings. Local reminder metadata is versioned separately. Upgrade errors preserve the last valid data and report a safe diagnostic. Rollback means quit and remove/replace only the newly-built `dist/g-calendar.app`; do not delete user cache automatically.
 
 ## Open Questions
 
+- The owner has not enrolled in Apple Developer Program and does not plan to. DMG source-distribution design must therefore explain the unsigned first-open macOS warning without disabling Gatekeeper or claiming notarization.
+- Which app-owned Google Cloud project/Desktop OAuth client will supply the client ID required by the first-run sign-in? Do not ask end users to create one.
 - Can the installed SwiftPM be repaired by a source-level manifest/build invocation, without changing system tool installation or configuration? Coder must test and decide based on exit status.
 - Is direct `swiftc` adequate for both focused tests and repeatable app bundling while the SwiftPM defect persists? Must be demonstrated with actual commands.
 - Exact minimum macOS deployment target and recurrence boundaries should follow successful SDK compile and fixture tests; no unsupported target should be hard-coded before validation.

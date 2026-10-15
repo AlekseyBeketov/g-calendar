@@ -1,5 +1,43 @@
 ## ADDED Requirements
 
+### Requirement: First launch requires a Google account connection
+When no Google account is connected, the app MUST present a dedicated, focused first-run screen before exposing the calendar/task workspace. The screen MUST offer a primary Google sign-in action, explain in plain language what connection enables, and provide visible loading, cancellation, error and retry states. The native workspace MUST remain gated until sign-in is successfully stored. No `gws` installation, terminal setup or OAuth JSON import may be required from an ordinary user. Signing out MUST return the app to the same gated screen. This first-run flow MUST NOT request notification permission or perform a Google mutation.
+
+#### Scenario: First open without a saved account
+- **WHEN** a user opens the app for the first time without a Google account connection
+- **THEN** a designed Google sign-in screen appears instead of the calendar/task workspace
+- **AND** only the explicit sign-in action can start OAuth
+
+#### Scenario: Sign-in is cancelled or fails
+- **WHEN** a user cancels browser sign-in or Google returns an authorization error
+- **THEN** the app remains on the first-run screen, displays a useful safe message and offers another attempt
+
+#### Scenario: Sign-in succeeds or the user signs out
+- **WHEN** Google authorization is saved successfully
+- **THEN** the app enters the workspace and starts read-only synchronization
+- **WHEN** the user later signs out
+- **THEN** the workspace is gated again and no further Google reads start without a new sign-in
+
+### Requirement: Optional gws setup lives in Settings
+The app MUST present `gws` as a secondary, opt-in connection method in Settings. The normal first-run flow MUST NOT instruct ordinary users to install or configure `gws`. If a user explicitly chooses it, Settings MUST provide the executable-path and availability controls without reading or exposing gws credentials.
+
+#### Scenario: Use the standard Google connection
+- **WHEN** a fresh install opens or an existing user has no explicit transport preference
+- **THEN** Google account connection is selected and `gws` is presented only as an optional advanced setting
+
+#### Scenario: Configure optional gws
+- **WHEN** the user selects `gws` in Settings
+- **THEN** the app shows its executable availability and configured path controls
+- **AND** it does not claim to install or authorize gws automatically
+
+### Requirement: Notification icon is included in the application bundle
+The app bundle MUST include the icon file named by `CFBundleIconFile`. The app build and release verifier MUST check that the resource exists and is a valid macOS icon so system notifications can use the current application icon.
+
+#### Scenario: Build and package the application
+- **WHEN** the app is built or packaged
+- **THEN** its `CFBundleIconFile` resource is present in `Contents/Resources`
+- **AND** package verification fails if the icon is missing or invalid
+
 ### Requirement: Voluntary author support from settings
 The settings footer SHALL expose a persistent author-support action beside Done. It SHALL open a separate native sheet with CloudTips as the initial left segment and Boosty as the right segment. Each provider SHALL have its own QR, identifying logo, browser action and copy-link action. The exact destinations SHALL be https://pay.cloudtips.ru/p/bf792932 and https://boosty.to/gcalendar/donate respectively. QR images SHALL retain black-on-white contrast and their quiet margins in Light and Dark. The sheet SHALL NOT display registration claims, automatically open external destinations, mutate Google data or restrict application features.
 

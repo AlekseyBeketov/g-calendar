@@ -79,8 +79,9 @@ final class WorkspaceViewModel: ObservableObject {
         let defaults = suppliedDefaults ?? (mode == .normal ? .standard : UserDefaults(suiteName: "com.alexbeketov.gcalendar.session.\(UUID().uuidString)")!)
         let context = mode == .normal ? WorkspaceTransportContext.load(defaults: defaults) : nil
         transportContext = context
-        googleTransportSettings = GoogleTransportSettings(active: context?.kind ?? .gws, defaults: defaults, activeProfile: context?.profile,
-            secrets: mode == .normal ? GoogleKeychainSecretStore() : GoogleMemorySecretStore())
+        googleTransportSettings = GoogleTransportSettings(active: context?.kind ?? .rest, defaults: defaults, activeProfile: context?.profile,
+            secrets: mode == .normal ? GoogleKeychainSecretStore() : GoogleMemorySecretStore(),
+            bundledConfiguration: mode == .normal ? .bundled : nil)
         let journalURL = context?.journalURL
         mutationJournal = MutationJournal(fileURL: journalURL)
         let journalState = mutationJournal.review()
@@ -218,6 +219,17 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     var presentationDefaults: UserDefaults { defaults }
+    var requiresGoogleOnboarding: Bool {
+        guard launchMode == .normal, let transportContext else { return false }
+        return transportContext.kind == .rest && transportContext.identity == nil && !transportContext.recoveryOnly
+    }
+    func signInToGoogle() {
+        googleTransportSettings.signIn(blocked: transportSettingsBlocked) { [weak self] in
+            guard let self else { return false }
+            return self.launchMode == .normal && !self.mutationInFlight
+                && (!self.transportSettingsBlocked || self.googleReauthenticationAllowed)
+        }
+    }
     var transportSettingsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
     var googleReauthenticationAllowed: Bool { launchMode == .normal && pendingMutation != nil && !mutationInFlight && !mutationJournalBusy && googleTransportSettings.canReauthenticate }
     private var mutationAccessBlocked: Bool { transportContext?.recoveryOnly == true || googleTransportSettings.requiresRestart || googleTransportSettings.signingIn || transportSettingsBlocked }
@@ -1207,7 +1219,7 @@ struct GCalendarApp: App {
                     else if launchMode == .notificationTest { await model.runNotificationTestAndExit() }
                     else if launchMode == .syntheticAcceptance { await model.runSyntheticAcceptanceAndExit() }
                     else {
-                        model.refresh()
+                        if !model.requiresGoogleOnboarding { model.refresh() }
                         if launchMode == .demo {
                             print("G_CALENDAR_DEMO \(model.statusMessage) calendar_count=\(model.snapshot.calendars.count) event_count=\(model.snapshot.events.count) task_list_count=\(model.snapshot.taskLists.count) task_count=\(model.snapshot.tasks.count)")
                             fflush(stdout)

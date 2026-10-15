@@ -1,6 +1,6 @@
 # ADR-0001: Native SwiftUI + gws как первый адаптер
 
-- Статус: accepted 2026-10-01
+- Статус: superseded 2026-10-15; текущее решение — [ADR-0002](ADR-0002-google-rest-onboarding.md)
 - Контекст: целевая платформа только macOS; приложению нужны системный lifecycle, нативный календарный UI и macOS notifications. Владелец подтвердил, что локальный `gws` имеет действующую Calendar/Tasks авторизацию и read-only вызовы проходят; credentials нельзя читать/копировать. В среде доступен Swift 6.4 и CommandLineTools, но полный Xcode не установлен как активная developer directory, Cargo отсутствует.
 - Решение: UI/lifecycle — SwiftUI, узкий AppKit bridge при необходимости; доменные модели и sync — Foundation; уведомления — UserNotifications. Первый backend — отдельный процесс `gws` по абсолютному пути, с allowlist читающих команд и JSON args через `Process`; auth остаётся внутри gws.
 - Сборка: `swiftc` минимального SwiftUI `.app` доказал жизнеспособность native target в текущей среде. Текущая SwiftPM установка не собирает даже стандартный сгенерированный package из-за unresolved PackageDescription initializer на manifest-link stage. Coder проверяет workaround; если не найден без установки/изменения системной среды, репозиторий обязан использовать воспроизводимый прямой `swiftc` build/test workflow и честно указать что `swift build` / `swift test` не прошли.

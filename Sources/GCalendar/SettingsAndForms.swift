@@ -422,7 +422,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: AppTheme.sectionGap) {
                     GoogleTransportSettingsSection(settings: model.googleTransportSettings)
                         .environmentObject(model)
-                    SettingsSection(title: "Google Workspace CLI") {
+                    SettingsSection(title: "Дополнительный способ: gws") {
                         VStack(alignment: .leading, spacing: AppTheme.fieldGap) {
                             Text("Оставьте путь пустым для безопасного поиска gws. Приложение проверяет только исполняемый файл и не читает и не показывает OAuth-данные.")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -678,35 +678,30 @@ private struct GoogleTransportSettingsSection: View {
     @ObservedObject var settings: GoogleTransportSettings
     @EnvironmentObject private var model: WorkspaceViewModel
     var body: some View {
-        SettingsSection(title: "Транспорт Google") {
-            Text("Активен: \(settings.active == .gws ? "gws" : "Google REST"). Изменения применяются автоматически.")
+        SettingsSection(title: "Подключение Google") {
+            Text(settings.active == .gws ? "Используется дополнительный способ gws." : "Используется подключение аккаунта Google.")
                 .font(.caption).foregroundStyle(.secondary)
-            Picker("Транспорт", selection: Binding(get: { settings.requested }, set: { settings.request($0, blocked: model.transportSettingsBlocked) })) {
+            Picker("Способ подключения", selection: Binding(get: { settings.requested }, set: { settings.request($0, blocked: model.transportSettingsBlocked) })) {
+                Text("Google").tag(WorkspaceTransportContext.Kind.rest)
                 Text("gws").tag(WorkspaceTransportContext.Kind.gws)
-                Text("Google REST").tag(WorkspaceTransportContext.Kind.rest)
-            }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
+            }
+            .pickerStyle(.segmented)
+            .pointingHandCursor()
+            .disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
             HStack {
-                Button("Импорт Desktop OAuth JSON") {
-                    let panel = NSOpenPanel()
-                    panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false; panel.canChooseDirectories = false
-                    if panel.runModal() == .OK, let url = panel.url {
-                        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 65_536,
-                              let data = try? Data(contentsOf: url) else { return }
-                        if settings.importDesktopJSON(data, blocked: model.transportSettingsBlocked) { signIn() }
-                    }
-                }.pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked || settings.signingIn)
                 if settings.signingIn {
                     Button("Отменить вход") { settings.cancelSignIn() }.pointingHandCursor()
                 } else {
-                    Button("Войти через браузер") {
+                    Button("Войти через Google") {
                         signIn()
-                    }.pointingHandCursor().disabled(model.launchMode != .normal || (model.transportSettingsBlocked && !model.googleReauthenticationAllowed))
+                    }.pointingHandCursor().disabled(model.launchMode != .normal || !settings.canStartSignIn
+                                                     || (model.transportSettingsBlocked && !model.googleReauthenticationAllowed))
                     Button("Выйти") { settings.signOut(blocked: model.transportSettingsBlocked) }
                         .pointingHandCursor().disabled(model.launchMode != .normal || model.transportSettingsBlocked)
                 }
             }
             Text(settings.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("Собственный OAuth client типа Desktop app. JSON и refresh token сохраняются в Keychain этого Mac. REST напоминания включаются отдельно.")
+            Text("Вход откроется в браузере Google. Пароль остаётся у Google, а разрешение можно отозвать в настройках аккаунта. Доступ к уведомлениям запрашивается отдельно.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }

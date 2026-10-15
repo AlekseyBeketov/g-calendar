@@ -34,7 +34,7 @@ enum GoogleRESTFailure: Error, LocalizedError {
     case setupRequired, network, redirected, authentication, invalidConfiguration, cancelled
     var errorDescription: String? {
         switch self {
-        case .setupRequired: return "Google REST: импортируйте Desktop OAuth JSON и выполните вход."
+        case .setupRequired: return "Сначала подключите аккаунт Google в настройках."
         case .network: return "Google REST: соединение прервано; результат записи требует проверки."
         case .redirected: return "Google REST: перенаправление на другой адрес запрещено."
         case .authentication: return "Google REST: требуется повторный вход."

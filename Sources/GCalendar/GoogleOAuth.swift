@@ -7,15 +7,28 @@ import AppKit
 struct GoogleOAuthClientConfiguration: Codable, Equatable {
     let clientID: String
     let clientSecret: String?
+
+    static let bundleClientIDKey = "GoogleOAuthClientID"
+    static var bundled: Self? { bundled(from: Bundle.main.infoDictionary ?? [:]) }
+
+    static func bundled(from infoDictionary: [String: Any]) -> Self? {
+        guard let id = infoDictionary[bundleClientIDKey] as? String, isValidClientID(id) else { return nil }
+        return Self(clientID: id, clientSecret: nil)
+    }
+
     static func imported(_ data: Data) throws -> Self {
         guard data.count <= 65_536,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let installed = root["installed"] as? [String: Any], root["web"] == nil,
-              let id = installed["client_id"] as? String, id.hasSuffix(".apps.googleusercontent.com"), id.count <= 1024,
+              let id = installed["client_id"] as? String, isValidClientID(id),
               installed["auth_uri"] as? String == "https://accounts.google.com/o/oauth2/auth",
               installed["token_uri"] as? String == "https://oauth2.googleapis.com/token",
               let redirects = installed["redirect_uris"] as? [String], redirects.contains(where: { $0 == "http://localhost" || $0 == "http://127.0.0.1" }) else { throw GoogleRESTFailure.invalidConfiguration }
         return Self(clientID: id, clientSecret: installed["client_secret"] as? String)
+    }
+
+    private static func isValidClientID(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 1024 && value.hasSuffix(".apps.googleusercontent.com")
     }
 }
 

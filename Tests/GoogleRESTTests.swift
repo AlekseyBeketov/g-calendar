@@ -26,6 +26,42 @@ private struct UnavailableFixtureGoogleTokens: GoogleAccessTokenProviding {
 }
 
 extension InvariantTests {
+    static func testGoogleRESTDefault() async throws {
+        let defaultsName = "google-rest-default-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("google-rest-default-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let secrets = GoogleMemorySecretStore()
+
+        let context = WorkspaceTransportContext.load(defaults: defaults, secrets: secrets, http: FakeGoogleHTTPClient([]), applicationDirectory: directory)
+        try check(context.kind == .rest && context.identity == nil && context.setupProblem != nil,
+                  "a fresh install selects Google and blocks workspace access until an account is connected")
+        try check(defaults.string(forKey: "activeGoogleTransport") == "rest",
+                  "a fresh install records Google REST as the active transport")
+        do {
+            _ = try context.factory(configuredGWSPath: "")
+            throw TestFailure(description: "unconnected fresh install produced a Google API factory")
+        } catch GoogleRESTFailure.setupRequired { assertions += 1 }
+
+        let explicitGWSDefaultsName = "google-gws-opt-in-" + UUID().uuidString
+        let explicitGWSDefaults = UserDefaults(suiteName: explicitGWSDefaultsName)!
+        defer { explicitGWSDefaults.removePersistentDomain(forName: explicitGWSDefaultsName) }
+        explicitGWSDefaults.set("gws", forKey: "requestedGoogleTransport")
+        let explicitGWS = WorkspaceTransportContext.load(defaults: explicitGWSDefaults, secrets: secrets,
+            http: FakeGoogleHTTPClient([]), applicationDirectory: directory.appendingPathComponent("explicit-gws"))
+        try check(explicitGWS.kind == .gws && explicitGWS.setupProblem == nil,
+                  "an explicit gws selection remains available as an optional transport")
+
+        let settingsDefaultIsGoogle = await MainActor.run { () -> Bool in
+            let settingsDefaults = UserDefaults(suiteName: defaultsName)!
+            let settings = GoogleTransportSettings(active: .rest, defaults: settingsDefaults,
+                secrets: GoogleMemorySecretStore(), http: FakeGoogleHTTPClient([]))
+            return settings.requested == .rest
+        }
+        try check(settingsDefaultIsGoogle, "the connection selector also defaults to Google")
+    }
+
     static func testGoogleRESTCore() throws {
         let factory = GWSCommandFactory.googleREST()
         let builder = GoogleRESTRequestBuilder()

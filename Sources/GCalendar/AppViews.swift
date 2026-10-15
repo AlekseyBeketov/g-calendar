@@ -5,6 +5,48 @@ struct RootView: View {
     @StateObject private var local = ViewLocalState()
 
     var body: some View {
+        Group {
+            if model.requiresGoogleOnboarding {
+                GoogleOnboardingView(
+                    isSigningIn: model.googleTransportSettings.signingIn,
+                    canSignIn: model.googleTransportSettings.canStartSignIn,
+                    statusMessage: onboardingStatusMessage,
+                    errorMessage: model.googleTransportSettings.signInError,
+                    onSignIn: { model.signInToGoogle() },
+                    onCancel: { model.googleTransportSettings.cancelSignIn() },
+                    onOpenSettings: { local.showSettings = true }
+                )
+            } else {
+                workspace
+            }
+        }
+        .onChange(of: model.sidebarToggleRequestID) { _ in
+            local.columnVisibility = local.columnVisibility == .detailOnly ? .all : .detailOnly
+        }
+        .tint(AppTheme.accent)
+        .sheet(isPresented: $local.showSettings) { SettingsView() }
+        .sheet(isPresented: $local.showTaskLists) { TaskListManagerView() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refreshMutationRecoveryState()
+            model.updateLocalDate()
+            model.reconcileLocalReminders(trigger: .appActivation)
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            model.updateLocalDate()
+            model.reconcileLocalReminders(trigger: .systemWake)
+        }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in
+            model.updateLocalDate(now: now)
+        }
+    }
+
+    private var onboardingStatusMessage: String? {
+        let settings = model.googleTransportSettings
+        guard settings.signingIn || settings.requiresRestart || settings.signInError != nil else { return nil }
+        return settings.status
+    }
+
+    private var workspace: some View {
         NavigationSplitView(columnVisibility: $local.columnVisibility) {
             SidebarView(showTaskLists: $local.showTaskLists)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 245, max: 310)
@@ -55,25 +97,7 @@ struct RootView: View {
                                  openSettings: { DemoPerformanceProbe.shared.begin(.form); local.showSettings = true })
             }
         }
-        .onChange(of: model.sidebarToggleRequestID) { _ in
-            local.columnVisibility = local.columnVisibility == .detailOnly ? .all : .detailOnly
-        }
         .navigationSplitViewStyle(.balanced)
-        .tint(AppTheme.accent)
-        .sheet(isPresented: $local.showSettings) { SettingsView() }
-        .sheet(isPresented: $local.showTaskLists) { TaskListManagerView() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            model.refreshMutationRecoveryState()
-            model.updateLocalDate()
-            model.reconcileLocalReminders(trigger: .appActivation)
-        }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            model.updateLocalDate()
-            model.reconcileLocalReminders(trigger: .systemWake)
-        }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in
-            model.updateLocalDate(now: now)
-        }
     }
 }
 

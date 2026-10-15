@@ -21,12 +21,35 @@ The app SHALL distinguish rejection before a write from a write whose outcome is
 - **WHEN** validation or authorization prevents a request from being sent
 - **THEN** the app reports a pre-write rejection, retains the draft and permits a corrected explicit Save without falsely recording an accepted write
 
-### Requirement: gws commands are executed through a constrained process boundary
-The system MUST resolve a configured absolute `gws` executable and invoke it with `Foundation.Process` and a separate argument vector. The system MUST NOT construct shell command strings or accept arbitrary service/method commands from UI input. Authentication remains owned by gws; the app MUST NOT read/export credentials or invoke auth-changing commands.
+### Requirement: Google account connection is the default and gates workspace access
+The normal application connection MUST use the direct Google Calendar and Tasks APIs. A fresh install and an existing install without an explicit transport choice MUST select Google account connection by default. Until a Google account has completed OAuth authorization, the app MUST show its first-run connection experience and MUST NOT expose calendar/task data operations or silently fall back to `gws`. The OAuth flow MUST use the app's configured Desktop OAuth client, PKCE and a validated loopback callback; long-lived credentials MUST be stored in macOS Keychain and MUST NOT be written to app cache, logs or screenshots. Only after authorization is saved may the app begin read operations.
 
-#### Scenario: GUI app locates the configured CLI
+#### Scenario: Open the app without a connected account
+- **WHEN** the app launches with no saved Google authorization
+- **THEN** the required Google connection experience is shown before the calendar/task workspace
+- **AND** no calendar/task request or `gws` process is started
+
+#### Scenario: Complete the first Google sign-in
+- **WHEN** the user explicitly chooses to connect Google and authorization completes
+- **THEN** the app stores the refresh credential in Keychain, then begins read-only calendar/task synchronization
+- **AND** a failed, cancelled or rejected authorization leaves the workspace gated and offers retry
+
+#### Scenario: Preserve an explicit optional gws selection
+- **WHEN** a user has explicitly selected `gws` in Settings
+- **THEN** the stored selection remains `gws` across launches until changed by the user
+- **AND** an unresolved mutation journal continues to block transport switching until safely recovered
+
+### Requirement: gws is an optional transport executed through a constrained process boundary
+The system MUST expose `gws` only as an optional connection choice in Settings. It MUST resolve a configured absolute executable or a documented safe candidate and invoke it with `Foundation.Process` and a separate argument vector. It MUST NOT auto-install `gws`, construct shell command strings, accept arbitrary service/method commands from UI input, read/export its credentials, or invoke auth-changing commands. Selecting `gws` MUST NOT happen as an implicit fallback when Google account authorization is missing or fails.
+
+#### Scenario: User chooses gws in Settings
 - **WHEN** the app starts without an interactive shell PATH
 - **THEN** it uses a validated configured absolute executable or a documented safe candidate and reports a non-secret setup error if unavailable
+
+#### Scenario: Missing optional CLI
+- **WHEN** the user explicitly selects `gws` but no executable is available
+- **THEN** the app explains that this optional method requires `gws` and offers the configured-path setting
+- **AND** it does not attempt to install the CLI or silently switch connection methods
 
 #### Scenario: Invoke a supported list operation
 - **WHEN** the adapter performs a supported read request
