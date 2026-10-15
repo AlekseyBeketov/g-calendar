@@ -307,6 +307,7 @@ struct InvariantTests {
         run("task-date-group-spacing-projection", testTaskDateGroups)
         run("responsive-scroll-interpolation", testScrollInterpolation)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)
+        run("local-notification-title-and-localized-reminder-time", testLocalNotificationContent)
         await runAsync("event-reminder-composite-id-dedupe-range-and-exact-removal", testEventReminderLifecycle)
         run("mutation-guards-and-exact-arguments", testMutationGuardsAndExactArguments)
         run("task-ordering-tree-preferences-and-cache-compatibility", testTaskOrdering)
@@ -1285,6 +1286,33 @@ struct InvariantTests {
                   "a no-match query over an uncovered range must not be presented as a definitive search result")
         try check(noResults == .noResults, "search no-match state must stay distinct from a verified empty range")
         try check(content == .hasContent, "known tasks must remain visible while event-range coverage is incomplete")
+    }
+
+    static func testLocalNotificationContent() throws {
+        let fireDate = ISO8601DateFormatter().date(from: "2026-10-15T21:05:43Z")!
+        let zone = TimeZone(identifier: "Europe/Moscow")!
+        let native = LocalReminderNotificationFactory.request(identifier: "g-calendar.rest.fixture.task.1",
+            title: "Synthetic task", fireDate: fireDate, locale: Locale(identifier: "ru_RU"), timeZone: zone)
+        try check(!native.content.subtitle.isEmpty, "local native notification must show its reminder date and time")
+        try check(native.content.title == "Synthetic task", "local notification uses the resource title")
+        try check(native.content.subtitle.contains("16") && native.content.subtitle.contains("2026")
+                  && native.content.subtitle.contains("00:05"), "local reminder shows the next local day and exact minute")
+        try check(native.content.body == "Локальное напоминание", "local timestamp is identified as a reminder rather than Google task time")
+        try check(native.identifier == "g-calendar.rest.fixture.task.1"
+                  && native.content.userInfo["workspaceContext"] as? String == "fixture"
+                  && native.content.userInfo["transport"] as? String == "rest", "native payload preserves identity and account namespace")
+        let trigger = native.trigger as? UNCalendarNotificationTrigger
+        try check(trigger?.repeats == false && trigger?.dateComponents.day == 16
+                  && trigger?.dateComponents.hour == 0 && trigger?.dateComponents.minute == 5
+                  && trigger?.dateComponents.second == 43, "displayed reminder time agrees with its precise one-shot trigger")
+        try check(trigger?.dateComponents.timeZone == zone
+                  && trigger?.dateComponents.date == fireDate,
+                  "native trigger retains the same absolute instant as the displayed timezone")
+        let english = LocalReminderNotificationFactory.request(identifier: "g-calendar.event.fixture",
+            title: "Synthetic event", fireDate: fireDate, locale: Locale(identifier: "en_US"), timeZone: TimeZone(secondsFromGMT: 0)!)
+        try check(english.content.title == "Synthetic event" && english.content.subtitle.contains("Oct")
+                  && english.content.subtitle.contains("9:05"), "local event request formats time using the selected locale")
+        try check(english.content.userInfo.isEmpty, "non-REST request does not acquire an unrelated account namespace")
     }
 
     static func testNotificationTriggerPrecision() throws {

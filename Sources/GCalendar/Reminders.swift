@@ -410,26 +410,15 @@ final class UserNotificationScheduler: ReminderScheduling, NotificationStatusPro
     }
 
     func schedule(_ reminder: ReminderRequest) async throws {
-        try await add(identifier: reminder.identifier, body: reminder.title, fireDate: reminder.fireDate)
+        try await add(identifier: reminder.identifier, title: reminder.title, fireDate: reminder.fireDate)
     }
 
     func schedule(_ reminder: EventReminderRequest) async throws {
-        try await add(identifier: reminder.identifier, body: reminder.title, fireDate: reminder.fireDate)
+        try await add(identifier: reminder.identifier, title: reminder.title, fireDate: reminder.fireDate)
     }
 
-    private func add(identifier: String, body: String, fireDate: Date) async throws {
-        let content = UNMutableNotificationContent()
-        content.title = "Локальное напоминание"
-        content.body = body
-        content.sound = .default
-        if identifier.hasPrefix("g-calendar.rest.") {
-            let parts = identifier.split(separator: ".")
-            if parts.count > 2 { content.userInfo = ["workspaceContext": String(parts[2]), "transport": "rest"] }
-        }
-        let components = ReminderTriggerFactory.dateComponents(for: fireDate)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-        try await center.add(request)
+    private func add(identifier: String, title: String, fireDate: Date) async throws {
+        try await center.add(LocalReminderNotificationFactory.request(identifier: identifier, title: title, fireDate: fireDate))
     }
 
     func cancel(identifier: String) async {
@@ -574,5 +563,33 @@ struct EventReminderCoordinator {
 enum ReminderTriggerFactory {
     static func dateComponents(for date: Date, calendar: Calendar = .current) -> DateComponents {
         calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+    }
+}
+
+/// Builds the same native payload used by the scheduler without contacting Notification Center.
+enum LocalReminderNotificationFactory {
+    static func request(identifier: String, title: String, fireDate: Date,
+                        locale: Locale = .current, timeZone: TimeZone = .current) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        content.subtitle = formatter.string(from: fireDate)
+        content.body = "Локальное напоминание"
+        content.sound = .default
+        if identifier.hasPrefix("g-calendar.rest.") {
+            let parts = identifier.split(separator: ".")
+            if parts.count > 2 { content.userInfo = ["workspaceContext": String(parts[2]), "transport": "rest"] }
+        }
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        var components = ReminderTriggerFactory.dateComponents(for: fireDate, calendar: calendar)
+        components.calendar = calendar
+        components.timeZone = timeZone
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        return UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
     }
 }

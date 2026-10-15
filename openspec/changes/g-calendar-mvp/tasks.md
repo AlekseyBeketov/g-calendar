@@ -189,3 +189,8 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 24.4 Provide version/change-history and release preparation commands that produce signed update assets without publishing a release implicitly.
 - [x] 24.5 Make README English by default with a prominent Russian-instructions link and an equivalent Russian README.
 - [x] 24.6 Verify implementation, rebuild and push each logical task to remote main: updater/setup `4d58c77`, bilingual instructions `6413412`. Invariants 989, task layout 106, installers 26; real signed update/archive and isolated updater startup checks pass. Built app and final local preview are ready; no GitHub Release/tag published.
+
+## 25. Completion audit: local notification details (2026-10-15)
+
+- [x] 25.1 Cover the real retained local scheduler's native request with a regression test; add localized reminder time, resource title and exact-time trigger metadata without restoring retired editors.
+- [x] 25.2 Rebuild, regenerate and verify preview assets, commit and push the correction to main. Invariants: 998; signed ZIP/feed and readonly DMG checks pass. Visual banner acceptance remains explicit in 23.4.

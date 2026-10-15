@@ -69,3 +69,14 @@ Automatic notifications MUST use the installed app bundle's «Календарь
 #### Scenario: System settings prevent a banner
 - **WHEN** a scheduled request is suppressed by Focus or macOS settings
 - **THEN** scheduler/system status and a route to notification settings are shown without guaranteed delivery claims
+
+### Requirement: Legacy and diagnostic local notification content
+Native requests from the retained local scheduler MUST show the resource title, localized reminder fire date/time and a local-reminder label. The trigger MUST retain the same instant, seconds precision, non-repeating behavior and account namespace. This does not restore retired local reminder editors or imply synchronized Google task time.
+
+#### Scenario: Local reminder crosses midnight
+- **WHEN** a retained local task or event request fires on the next calendar day in the device timezone
+- **THEN** its subtitle shows that local date and time, its title shows the resource summary and its exact trigger agrees with the displayed instant
+
+#### Scenario: Synthetic diagnostic notification
+- **WHEN** explicit notification-test mode schedules its single authorized test request
+- **THEN** it uses the same native content factory without accessing Google or changing reminder metadata
