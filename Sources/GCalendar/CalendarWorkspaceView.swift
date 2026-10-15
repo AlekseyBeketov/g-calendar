@@ -15,30 +15,7 @@ struct CalendarWorkspaceView: View {
         let visibleDays = projection.days.map(\.day)
         let contentState = projection.contentState(rangeCovered: model.calendarRangeIsCovered, hasSearch: !model.searchText.isEmpty)
         VStack(spacing: 16) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(periodTitle).font(.title2.weight(.semibold))
-                    HStack(spacing: 8) {
-                        Text(model.calendarMode.rawValue).font(.caption).foregroundStyle(.secondary)
-                        if let calendar = model.selectedCalendar {
-                            Text(calendar.isWritable ? calendar.title : "\(calendar.title) · Только просмотр")
-                                .font(.caption).foregroundStyle(calendar.isWritable ? AppTheme.textSecondary : AppTheme.warning).lineLimit(1)
-                        }
-                    }
-                }
-                Spacer()
-                Picker("Вид календаря", selection: $model.calendarMode) {
-                    ForEach(WorkspaceViewModel.CalendarMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
-                }.pointingHandCursor()
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 225)
-                Button { local.showingEventEditor = true; local.selectedEvent = nil } label: { Label("Событие", systemImage: "plus") }.pointingHandCursor()
-                    .disabled(model.selectedCalendar?.isWritable != true || model.mutationsBlocked)
-                    .help(model.selectedCalendar?.isWritable == true ? "Создать событие" : "Выберите календарь с правом записи")
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
+            calendarHeader
 
             if model.snapshot.calendars.isEmpty {
                 WorkspaceEmptyState(title: model.snapshot.fetchedAt == .distantPast ? "Календари не загружены" : "Нет доступных календарей", symbol: "calendar",
@@ -197,6 +174,80 @@ struct CalendarWorkspaceView: View {
         calendar.timeZone = model.selectedTimeZone
         let end = calendar.date(byAdding: .day, value: -1, to: range.endExclusive) ?? range.endExclusive
         return "\(formattedDate(range.start, template: "d MMM")) – \(formattedDate(end, template: "d MMM"))"
+    }
+
+    private var calendarHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                calendarNavigation
+                Text(periodTitle)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                calendarModePicker
+                createEventButton
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    calendarNavigation
+                    Text(periodTitle)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(AppTheme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    calendarModePicker
+                    createEventButton
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+    }
+
+    private var calendarNavigation: some View {
+        HStack(spacing: 6) {
+            Button { model.moveDate(-1) } label: { Image(systemName: "chevron.left").frame(width: 28, height: 28) }
+                .pointingHandCursor()
+                .buttonStyle(.plain)
+                .accessibilityLabel("Предыдущий период")
+                .help("Назад")
+            Button("Сегодня") { model.goToToday() }
+                .pointingHandCursor()
+                .buttonStyle(.bordered)
+            Button { model.moveDate(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 28) }
+                .pointingHandCursor()
+                .buttonStyle(.plain)
+                .accessibilityLabel("Следующий период")
+                .help("Вперёд")
+        }
+        .fixedSize()
+    }
+
+    private var calendarModePicker: some View {
+        Picker("Вид календаря", selection: $model.calendarMode) {
+            ForEach(WorkspaceViewModel.CalendarMode.allCases, id: \.self) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .pointingHandCursor()
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(width: 225)
+    }
+
+    private var createEventButton: some View {
+        Button { local.showingEventEditor = true; local.selectedEvent = nil } label: {
+            Label("Событие", systemImage: "plus")
+        }
+        .pointingHandCursor()
+        .disabled(model.selectedCalendar?.isWritable != true || model.mutationsBlocked)
+        .help(model.selectedCalendar?.isWritable == true ? "Создать событие" : "Выберите календарь с правом записи")
     }
 
     private func formattedDate(_ date: Date, template: String) -> String {

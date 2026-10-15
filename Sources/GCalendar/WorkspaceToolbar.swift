@@ -14,13 +14,6 @@ struct WorkspaceToolbar: ToolbarContent {
     let openSettings: () -> Void
 
     var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .automatic) {
-            if isCalendar {
-                Button { moveDate(-1) } label: { Image(systemName: "chevron.left") }.pointingHandCursor().help("Назад").accessibilityLabel("Предыдущий период")
-                Button { goToToday() } label: { Text("Сегодня") }.pointingHandCursor()
-                Button { moveDate(1) } label: { Image(systemName: "chevron.right") }.pointingHandCursor().help("Вперёд").accessibilityLabel("Следующий период")
-            }
-        }
         ToolbarItem(placement: .automatic) {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.textSecondary)

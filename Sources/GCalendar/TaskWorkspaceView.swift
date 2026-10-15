@@ -25,6 +25,11 @@ struct TaskWorkspaceView: View {
         return boardGroups.filter { local.taskColumnsVisible || !local.collapsedGroups.contains("board:" + $0.id) }.flatMap(\.tasks)
     }
     private var visibleTaskIdentities: [TaskSelectionIdentity] { keyboardVisibleTasks.map(\.selectionIdentity) }
+    private var boardTaskCount: Int {
+        model.snapshot.tasks.filter {
+            !$0.deleted && (model.selectedTaskListID == nil || $0.taskListID == model.selectedTaskListID)
+        }.count
+    }
 
     var body: some View {
         GeometryReader { viewport in
@@ -60,24 +65,40 @@ struct TaskWorkspaceView: View {
 
     private var workspaceHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) { listSelector; Spacer(minLength: 16); workspaceActions }
-                VStack(alignment: .leading, spacing: 12) { listSelector; workspaceActions }
+            HStack(spacing: 12) {
+                listSelector
+                    #if G_CALENDAR_TASK_LAYOUT_TEST
+                    .background(TaskBoardFrameProbe(identifier: "header-board-selector"))
+                    #endif
+                Spacer(minLength: 8)
+                createTaskButton
             }
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in
-                        Button { model.taskFilter = filter } label: {
-                            Text(filter.rawValue).font(.callout.weight(.medium)).padding(.horizontal, 12).frame(height: 32)
-                                .background(model.taskFilter == filter ? AppTheme.selection : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
-                                .contentShape(.interaction, Rectangle())
-                        }.pointingHandCursor().buttonStyle(.plain)
-                        .foregroundStyle(model.taskFilter == filter ? AppTheme.accent : AppTheme.textSecondary)
-                        .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
-                    }
-                }
-            }.scrollIndicators(.hidden)
+            HStack(spacing: 12) {
+                taskFilters
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    #if G_CALENDAR_TASK_LAYOUT_TEST
+                    .background(TaskBoardFrameProbe(identifier: "filters"))
+                    #endif
+                taskViewControls
+            }
         }.padding(.horizontal, 24).padding(.top, 16)
+    }
+
+    private var taskFilters: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                ForEach(WorkspaceViewModel.TaskFilter.allCases, id: \.self) { filter in
+                    Button { model.taskFilter = filter } label: {
+                        Text(filter.rawValue).font(.callout.weight(.medium)).padding(.horizontal, 12).frame(height: 32)
+                            .background(model.taskFilter == filter ? AppTheme.selection : AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+                            .contentShape(.interaction, Rectangle())
+                    }.pointingHandCursor().buttonStyle(.plain)
+                    .foregroundStyle(model.taskFilter == filter ? AppTheme.accent : AppTheme.textSecondary)
+                    .accessibilityAddTraits(model.taskFilter == filter ? .isSelected : [])
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
     }
 
     private var taskBoards: some View {
@@ -166,39 +187,60 @@ struct TaskWorkspaceView: View {
             }
             Divider()
             Button("Управлять списками…") { local.showTaskLists = true }
-        } label: { Text(model.selectedTaskList?.title ?? "Все доски").font(.title2.weight(.semibold)).lineLimit(1) }
+        } label: {
+            HStack(spacing: 10) {
+                Text(model.selectedTaskList?.title ?? "Все доски")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                Text("\(boardTaskCount)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(AppTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
         .pointingHandCursor().menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "Все доски")")
+        .accessibilityLabel("Список задач: \(model.selectedTaskList?.title ?? "Все доски"), задач: \(boardTaskCount)")
     }
 
-    private var workspaceActions: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            Button { beginNewTask(on: model.selectedTaskListID) } label: {
-                Label("Создать", systemImage: "plus").labelStyle(TaskWorkspaceHeaderLabelStyle())
-            }
-                .pointingHandCursor().buttonStyle(.borderedProminent).disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked).help("Создать задачу")
-                #if G_CALENDAR_TASK_LAYOUT_TEST
-                .background(TaskBoardFrameProbe(identifier: "create-control"))
-                #endif
-            HStack(spacing: 8) {
-                if model.selectedTaskListID == nil {
-                    Picker("Представление задач", selection: $presentationRawValue) {
-                        ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
-                            Label(mode.rawValue, systemImage: mode.symbol)
-                                .labelStyle(TaskWorkspaceHeaderLabelStyle())
-                                .tag(mode.rawValue)
-                        }
-                    }.pointingHandCursor().labelsHidden().pickerStyle(.menu).frame(width: 132)
-                    .accessibilityIdentifier("task-presentation-picker")
-                    #if G_CALENDAR_TASK_LAYOUT_TEST
-                    .background(TaskBoardFrameProbe(identifier: "presentation-control"))
-                    #endif
+    private var createTaskButton: some View {
+        Button { beginNewTask(on: model.selectedTaskListID) } label: {
+            Label("Создать задачу", systemImage: "plus").labelStyle(TaskWorkspaceHeaderLabelStyle())
+        }
+        .pointingHandCursor()
+        .buttonStyle(.borderedProminent)
+        .disabled(model.snapshot.taskLists.isEmpty || model.mutationsBlocked)
+        .help("Создать задачу")
+        #if G_CALENDAR_TASK_LAYOUT_TEST
+        .background(TaskBoardFrameProbe(identifier: "create-control"))
+        #endif
+    }
+
+    private var taskViewControls: some View {
+        HStack(spacing: 8) {
+            if model.selectedTaskListID == nil {
+                Picker("Представление задач", selection: $presentationRawValue) {
+                    ForEach(TaskWorkspacePresentation.allCases, id: \.self) { mode in
+                        Label(mode.rawValue, systemImage: mode.symbol)
+                            .labelStyle(TaskWorkspaceHeaderLabelStyle())
+                            .tag(mode.rawValue)
+                    }
                 }
-                TaskBoardMenu(board: model.selectedTaskList, systemImage: "gearshape", title: "Настроить")
-                    #if G_CALENDAR_TASK_LAYOUT_TEST
-                    .background(TaskBoardFrameProbe(identifier: "settings-control"))
-                    #endif
+                .pointingHandCursor()
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 132)
+                .accessibilityIdentifier("task-presentation-picker")
+                #if G_CALENDAR_TASK_LAYOUT_TEST
+                .background(TaskBoardFrameProbe(identifier: "presentation-control"))
+                #endif
             }
+            TaskBoardMenu(board: model.selectedTaskList, systemImage: "gearshape", title: "Настроить")
+                #if G_CALENDAR_TASK_LAYOUT_TEST
+                .background(TaskBoardFrameProbe(identifier: "settings-control"))
+                #endif
         }
     }
 
