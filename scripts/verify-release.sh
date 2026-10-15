@@ -21,6 +21,12 @@ read_key() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST"; }
 [[ "$(read_key CFBundleIdentifier)" == com.alexbeketov.gcalendar ]] || fail 'Unexpected bundle identity'
 [[ "$(read_key CFBundleExecutable)" == g-calendar ]] || fail 'Unexpected executable'
 [[ "$(read_key LSMinimumSystemVersion)" == 13.0 ]] || fail 'This release pipeline supports macOS 13.0 minimum only'
+ICON_NAME="$(read_key CFBundleIconFile)"
+[[ "$ICON_NAME" =~ ^[A-Za-z0-9._-]+$ ]] || fail 'Missing or unsafe app icon name'
+ICON_PATH="$APP/Contents/Resources/$ICON_NAME"
+if [[ ! -f "$ICON_PATH" && -f "$ICON_PATH.icns" ]]; then ICON_PATH="$ICON_PATH.icns"; fi
+[[ -f "$ICON_PATH" && ! -L "$ICON_PATH" ]] || fail 'App icon resource missing from bundle'
+/usr/bin/file "$ICON_PATH" | /usr/bin/grep -q 'Mac OS X icon' || fail 'App icon resource is not a macOS icon'
 [[ "$(/usr/bin/lipo -archs "$APP/Contents/MacOS/g-calendar")" == arm64 ]] || fail 'Expected arm64-only executable'
 /usr/bin/codesign --verify --strict "$APP" || fail 'Invalid bundle signature'
 TEMP="$(mktemp -d "${TMPDIR:-/private/tmp}/g-calendar-release-check.XXXXXX")"

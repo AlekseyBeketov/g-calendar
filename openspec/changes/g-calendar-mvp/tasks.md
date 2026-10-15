@@ -163,3 +163,29 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 21.1 Add persistent settings-footer action and approved native support sheet with CloudTips first, Boosty second, QR and branding; omit registration copy.
 - [x] 21.2 Verify exact QR payloads and selected-provider actions, render Light/Dark offscreen without computer use, rebuild for authorized main publication. Focused source/bundle checks passed 35 assertions, invariant suite 975, strict OpenSpec valid=true.
+
+## 22. Google first-run connection and visual distribution (2026-10-15)
+
+- [x] 22.1 Make direct Google API the fresh-install and unset-preference default; preserve explicit `gws` selections and block workspace data access until Google is connected. Fixture coverage passes as part of the 980-assertion invariant suite.
+- [x] 22.2 Implement selected first-run screen #3 with progress, cancel and safe error states; keep calendar/task workspace gated until authorization is available.
+- [x] 22.3 Bundle the supplied public OAuth Client ID without a client secret; keep refresh/access credentials out of the bundle. Owner verification of Desktop client type, consent-screen audience and live sign-in remains an external acceptance item.
+- [x] 22.4 Connect first-run action to the PKCE loopback sign-in; persist refresh credentials in Keychain and only then allow read-only synchronization. Owner's live Google account acceptance remains outstanding.
+- [x] 22.5 Keep `gws` opt-in in Settings with a clear optional label, segmented connection selector and executable-path check; never auto-install it or silently fall back to it.
+- [x] 22.6 Implement the owner-selected calendar header #4, task header #3 and Google onboarding #3; build the app bundle. DMG Finder artwork remains unapproved and unchanged.
+- [x] 22.7 Keep the unsigned distribution/release workflow accurate for an owner without Apple Developer Program enrollment; `AGENTS.md` and `docs/RELEASING.md` prohibit Gatekeeper bypass and false notarization claims.
+
+## 23. Versioning, update strategy and notification icon (2026-10-15)
+
+- [x] 23.1 Add a SemVer/build-number helper and document the release-time invocation without creating tags or publishing assets.
+- [ ] 23.2 Choose and validate a user-mediated or automatic update channel compatible with the owner's ad-hoc distribution decision. Sparkle auto-update is deferred until archive-signing and Gatekeeper compatibility are demonstrated.
+- [x] 23.3 Require the icon named by `CFBundleIconFile` to be present in app bundles during release verification; rebuild and verify the packaged icon against the approved source. Launch Services registration failed with -10822 in the restricted session, so future banner acceptance still requires an ordinary relaunch.
+- [ ] 23.4 Owner manually relaunches the rebuilt app and confirms a future notification banner displays the approved icon.
+
+## 24. GitHub updates and final onboarding preferences (2026-10-15)
+
+- [ ] 24.1 Embed pinned Sparkle 2 with EdDSA archive verification and a stable GitHub-hosted appcast; keep private signing material outside the repository.
+- [ ] 24.2 Add an automatic-update setting and a manual Check for Updates action; suppress updater activity in synthetic/demo modes.
+- [ ] 24.3 Add a second onboarding step after Google sign-in with automatic-update and launch-at-login choices, preserving explicit user preferences.
+- [ ] 24.4 Provide version/change-history and release preparation commands that produce signed update assets without publishing a release implicitly.
+- [ ] 24.5 Make README English by default with a prominent Russian-instructions link and an equivalent Russian README.
+- [ ] 24.6 Verify implementation, rebuild, commit each logical task and push to remote main as explicitly requested on 2026-10-15.

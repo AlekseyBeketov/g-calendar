@@ -1,8 +1,18 @@
 # Упаковка и выпуск macOS
 
-Текущая сборка: **arm64, macOS 13+**. SwiftUI/AppKit стек сохраняется. Публичный GitHub Release, выбор лицензии и предоставление Developer ID credentials — отдельные решения владельца. Пуш исходников их не выполняет.
+Текущая сборка: **arm64, macOS 13+**. SwiftUI/AppKit стек сохраняется. Владелец отказался оформлять Apple Developer Program. Поэтому сейчас можно собирать и проверять локальный ad-hoc DMG, но он не является нотарифицированным и не обещает обычный запуск скачанного приложения без предупреждения Gatekeeper. Публичный GitHub Release пока отдельно не запрошен.
+
+Если владелец отдельно запросит публикацию без Developer ID, сначала подготовить и проверить явный режим публичного unsigned-preview: дать артефакту однозначное имя/manifest status, приложить SHA-256 и шаги первого запуска с ссылкой на [официальную инструкцию Apple](https://support.apple.com/en-us/102445). Не объявлять это устранением предупреждения и не рекомендовать удаление quarantine или отключение Gatekeeper. Текущий `local` режим помечает файлы `-local`/`LOCAL_ONLY`; не переименовывать его вручную под публичный релиз и не ослаблять `install-release.sh` без отдельной реализации и проверки.
 
 ## Локальный DMG
+
+Для следующего осознанного изменения версии используйте helper до сборки:
+
+```sh
+./scripts/set-version.sh --version 0.2.0
+```
+
+Скрипт проверяет SemVer, обновляет `CFBundleShortVersionString` и увеличивает числовой `CFBundleVersion`. Если нужен заданный номер сборки, передайте `--build N`. После этого просмотрите diff `resources/Info.plist` и только затем собирайте пакет. Сам helper не создаёт Git tag, Release или фоновые обновления.
 
 После разрешённой актуальной сборки:
 
@@ -15,9 +25,9 @@
 
 **Local** означает целостную ad-hoc подпись и локальную проверку. Это не Developer ID, не notarization и не подтверждённый скачанный Gatekeeper запуск. Не удалять quarantine и не отключать Gatekeeper.
 
-## Developer ID + Apple notarization
+## Developer ID + Apple notarization (не текущий путь владельца)
 
-Владелец заранее предоставляет существующую **Developer ID Application** identity, её ожидаемый 10-значный Team ID и существующий Keychain profile для `notarytool`. Секреты не помещаются в репозиторий, команды не принимают Apple ID/password параметрами и не выводят содержимое service responses. Не создавать credentials автоматически.
+Этот сценарий неприменим, пока владелец не пересмотрит отказ от Apple Developer Program. Только после такого решения владелец заранее предоставляет существующую **Developer ID Application** identity, её ожидаемый 10-значный Team ID и существующий Keychain profile для `notarytool`. Секреты не помещаются в репозиторий, команды не принимают Apple ID/password параметрами и не выводят содержимое service responses. Не создавать credentials автоматически.
 
 В приватной оболочке задаются `G_CALENDAR_SIGN_IDENTITY`, `G_CALENDAR_TEAM_ID`, `G_CALENDAR_NOTARY_PROFILE`, затем:
 

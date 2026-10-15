@@ -6,6 +6,11 @@
 - After completing an implementation session (one or several features/fixes), rebuild with `./scripts/build-app.sh` so `dist/g-calendar.app` contains the latest changes before handing off for manual UI testing. Report the resulting bundle path; do not claim UI verification from a successful build.
 - Use computer-use for checks only when the user explicitly requests it.
 
+## Releases
+- For release packaging, follow `docs/RELEASING.md`: build the app, create and verify the DMG with the repository scripts, and report exact artifact paths and signing status.
+- The owner has declined Apple Developer Program enrollment. Never describe an ad-hoc/local-preview DMG as notarized or Gatekeeper-ready; do not start Developer ID signing or notarization unless the owner explicitly reverses this decision. Tagging or publication still requires an explicit release request.
+- A DMG build is not a GitHub Release. Do not publish or upload release assets without explicit owner authorization.
+
 ## Commit Attribution
 - Repository scope: `/Users/alexbeketov/g-calendar` only.
 - The owner requests a separate Git commit for each verified logical product change.
