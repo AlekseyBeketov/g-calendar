@@ -201,3 +201,7 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 26.2 Embed the approved Retina blue-wave background and arrow; create Finder aliases on the actual image and verify native resolution again after compression/remount.
 - [x] 26.3 Complete final build/package verification and push the DMG artwork change to main. Actual readonly-mount alias resolution and background metadata checks pass; app rebuilt. Notification icon remains a separate open task.
 - [ ] 26.4 Resolve the still-old visible notification icon and obtain fresh human confirmation; system workspace/canonical/running-app icon checks show the new resource.
+
+- [x] 26.5 Builds 3/4: give icon artwork its own resource filename, renew only the current app registration, verify positive/negative bundle fixtures and request acceptance using a visibly build-labeled test banner. Visible icon acceptance remains 26.4.
+
+- [x] 26.6 Reproduce corrupt legacy ICNS sizes, rebuild them with the native encoder and guard all ten representations against the approved raster master.

@@ -1,6 +1,6 @@
 # Упаковка и выпуск macOS
 
-Текущая сборка — **0.2.0 (build 2), arm64, macOS 13+**. Apple Developer Program не используется. Поддерживаются локальные ad-hoc пакеты и явный режим **unsigned-preview** с подписанной EdDSA лентой и ZIP для Sparkle. EdDSA подтверждает подлинность обновления, но не заменяет Apple notarization или первую проверку Gatekeeper. Публичный Release автоматически не создаётся.
+Текущая сборка — **0.2.0 (build 4), arm64, macOS 13+**. Apple Developer Program не используется. Поддерживаются локальные ad-hoc пакеты и явный режим **unsigned-preview** с подписанной EdDSA лентой и ZIP для Sparkle. EdDSA подтверждает подлинность обновления, но не заменяет Apple notarization или первую проверку Gatekeeper. Публичный Release автоматически не создаётся.
 
 ## Выпустить обновление через GitHub Releases
 
@@ -91,3 +91,7 @@ Notary failure не меняет исходное приложение и не �
 
 - [Sparkle: programmatic setup](https://sparkle-project.org/documentation/programmatic-setup/) — native updater и SwiftUI.
 - [Sparkle: publishing](https://sparkle-project.org/documentation/publishing/) — подпись архивов и appcast.
+
+При сборке имя ресурса иконки определяется байтами `resources/AppIcon.icns`; build script обновляет `CFBundleIconFile` в готовом bundle. Начиная с build 3 release verifier отклоняет повторно используемое старое имя. `./scripts/test-app-icon.sh` проверяет оригинальные байты, имя, все десять нативно декодированных размеров и отрицательный fixture; не считайте его доказательством видимого значка в macOS. Для локальной диагностики старой регистрации: `./scripts/refresh-app-registration.sh --renew-current`. Не меняйте bundle ID и не сбрасывайте общую базу уведомлений ради иконки.
+
+Исходники иконки: редактируемый `resources/AppIcon.svg` и утверждённый raster master `resources/AppIcon.png` (1024×1024). После изменения рисунка обновите master и выполните `./scripts/build-icon.sh`: штатные sips/iconutil создадут корректные legacy/Retina representations. Не записывайте PNG вручную в legacy ICNS chunks. Скрипт сначала проверяет результат, затем заменяет ICNS; обычная сборка использует сохранённый ресурс. Отдельная проверка: `./scripts/test-icon-representations.sh`.

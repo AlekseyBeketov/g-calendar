@@ -32,11 +32,13 @@ struct TaskReminderSaveState {
 
 enum NotificationAcceptance {
     /// Explicit test mode only. Never requests permission, reads cache or changes reminders.
-    static func scheduleOneTest(using scheduler: ReminderScheduling, now: Date = Date()) async throws -> ReminderRequest {
+    static func scheduleOneTest(using scheduler: ReminderScheduling, now: Date = Date(), buildNumber: String? = nil) async throws -> ReminderRequest {
         guard await scheduler.permission() == .authorized else { throw GWSFailure.forbiddenOperation }
         let identifier = "g-calendar.acceptance." + UUID().uuidString
+        let title = buildNumber.map { "g-calendar: проверка иконки · сборка \($0)" }
+            ?? "g-calendar: тест системного уведомления"
         let request = ReminderRequest(identifier: identifier, taskID: identifier,
-                                      title: "g-calendar: тест системного уведомления", fireDate: now.addingTimeInterval(3))
+                                      title: title, fireDate: now.addingTimeInterval(3))
         try await scheduler.schedule(request)
         return request
     }

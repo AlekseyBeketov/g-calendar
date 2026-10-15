@@ -25,7 +25,10 @@ if [[ -e "$APP" && ! -f "$APP/Contents/Resources/g-calendar-build-origin.txt" ]]
   exit 2
 fi
 
-cp "$ROOT/resources/AppIcon.icns" "$STAGE/Contents/Resources/WorkspaceIcon.icns"
+ICON_DIGEST="$(/usr/bin/shasum -a 256 "$ROOT/resources/AppIcon.icns" | /usr/bin/cut -d ' ' -f 1)"
+# Give changed artwork a new resource URL instead of reusing a cached icon name.
+ICON_NAME="WorkspaceIcon-${ICON_DIGEST:0:12}"
+cp "$ROOT/resources/AppIcon.icns" "$STAGE/Contents/Resources/$ICON_NAME.icns"
 cp -R "$ROOT/resources/AuthorSupport" "$STAGE/Contents/Resources/AuthorSupport"
 cp "$ROOT/resources/GoogleSignIn/g-logo.png" "$STAGE/Contents/Resources/GoogleSignInLogo.png"
 mkdir -p "$STAGE/Contents/Frameworks"
@@ -41,6 +44,7 @@ if [[ "${G_CALENDAR_DEBUG_BUILD:-0}" == "1" ]]; then OPTIMIZATION="-Onone"; fi
   "${SOURCE_FILES[@]}" -o "$STAGE/Contents/MacOS/g-calendar"
 
 cp "$ROOT/resources/Info.plist" "$STAGE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $ICON_NAME" "$STAGE/Contents/Info.plist"
 printf '%s\n' 'built-by=scripts/build-app.sh' > "$STAGE/Contents/Resources/g-calendar-build-origin.txt"
 /usr/bin/plutil -lint "$STAGE/Contents/Info.plist"
 BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STAGE/Contents/Info.plist")"

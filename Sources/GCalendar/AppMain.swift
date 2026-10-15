@@ -956,14 +956,16 @@ final class WorkspaceViewModel: ObservableObject {
     func runNotificationTestAndExit() async {
         guard launchMode == .notificationTest, let scheduler = reminderCoordinator.scheduler as? UserNotificationScheduler else { return }
         do {
-            let request = try await NotificationAcceptance.scheduleOneTest(using: scheduler)
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            let request = try await NotificationAcceptance.scheduleOneTest(using: scheduler, buildNumber: build)
             var delivered = false
             for _ in 0..<8 {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 if await scheduler.wasDelivered(identifier: request.identifier) { delivered = true; break }
             }
             if !delivered { await scheduler.cancel(identifier: request.identifier) }
-            print("G_CALENDAR_NOTIFICATION_TEST bundle_identifier=\(Bundle.main.bundleIdentifier ?? "unknown") scheduled=1 own_notification_delivered=\(delivered) visible_banner=needs_human_verification")
+            let icon = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconFile") as? String ?? "unknown"
+            print("G_CALENDAR_NOTIFICATION_TEST bundle_identifier=\(Bundle.main.bundleIdentifier ?? "unknown") build=\(build ?? "unknown") icon_resource=\(icon) scheduled=1 own_notification_delivered=\(delivered) visible_banner=needs_human_verification")
             fflush(stdout)
             Darwin.exit(delivered ? 0 : 1)
         } catch {

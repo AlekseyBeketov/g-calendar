@@ -85,3 +85,17 @@ Recurring event задаёт правило повторения, а его occu
 
 `scripts/refresh-app-registration.sh` снимает только регистрации маркированных резервных сборок этого проекта и регистрирует актуальный `dist/g-calendar.app`; файлы backup не удаляются и общая база macOS не сбрасывается. Новые build backups имеют суффикс `.build-backup` вместо `.app`. Запускать helper из обычной пользовательской сессии macOS, если старый значок повторится. В этом проходе helper снял 71 регистрацию и зарегистрировал текущий bundle. Синтетическое уведомление из актуального bundle доставлено (`own_notification_delivered=true`); видимая иконка остаётся ручной приёмкой, ранее доставленные баннеры могут сохранить кэш.
 [24] https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac — Open a Mac app from an unknown developer | Apple Support
+
+## Повторная диагностика старой иконки — 2026-10-15
+
+Владелец подтвердил старую иконку у нового баннера после очистки старых build registrations, а затем и после одного перезапуска пользовательского интерфейса NotificationCenter. Эти действия не исправили видимый дефект.
+
+Предварительная проверка большой иконки была недостаточной: малые representations позже оказались повреждены (см. ниже). `NSWorkspace.icon(forFile:)`, canonical application lookup по bundle ID и `NSRunningApplication.icon` для запущенного dist bundle возвращают новый значок. Собственные записи Notification Center имеют ожидаемый bundle ID. Причина расхождения с системным баннером пока не доказана.
+
+Первичный [отчёт разработчиков Notifier о macOS 26.4](https://github.com/Jamf-Concepts/Notifier/issues/34) описывает похожее расхождение Finder/notifications после смены иконки и неуспешный restart NotificationCenter. Это подтверждает существование похожей проблемы macOS, но не доказывает её причину в g-calendar. Поведение текущего API чтения иконок проверено по документации [NSWorkspace](https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)) и [NSRunningApplication](https://developer.apple.com/documentation/appkit/nsrunningapplication/icon).
+
+Следующая ограниченная мера: начиная с build 3 упаковщик даёт ICNS новое имя при изменении artwork (`WorkspaceIcon-<SHA256 prefix>`) и записывает его в `CFBundleIconFile`. Release verifier проверяет соответствие имени байтам рисунка. Общий bundle ID, пользовательские данные и доступы сохраняются. `refresh-app-registration.sh --renew-current` снимает и заново создаёт только регистрацию текущего проверенного bundle; это не сброс общей базы Launch Services. Тестовый баннер содержит номер сборки, чтобы его было легко отличить от прежних delivered requests. Успех меры требует новой человеческой приёмки.
+
+### Нативная проверка ICNS
+
+Дальнейшая проверка нашла воспроизводимое повреждение малых representations в прежнем вручную сформированном ICNS. Большая PNG и workspace icon выглядели корректно, но iconutil декодировал legacy 16/32px в искажённые pixels. Нативная пересборка из того же утверждённого raster master исправила roundtrip всех десяти размеров. Это отдельный подтверждённый дефект ресурса: владелец всё ещё увидел старый значок у нового баннера build 4. Нативно запущена точная dist-копия, доставка подтверждена. После этого выполнен один перезапуск пользовательского usernoted без удаления его базы и отправлен один новый тест; результат видимой иконки проверяется отдельно.

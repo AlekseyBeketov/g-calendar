@@ -967,6 +967,10 @@ struct InvariantTests {
         let notification = try await NotificationAcceptance.scheduleOneTest(using: allowedNotifications, now: testNow)
         try check(allowedNotifications.requests == [notification] && notification.identifier.hasPrefix("g-calendar.acceptance.") && notification.fireDate == testNow.addingTimeInterval(3),
                   "notification acceptance must schedule exactly one isolated synthetic request")
+        let labeledNotifications = RecordingScheduler(permission: .authorized)
+        let labeled = try await NotificationAcceptance.scheduleOneTest(using: labeledNotifications, now: testNow, buildNumber: "fixture-3")
+        try check(labeled.title.contains("сборка fixture-3") && labeledNotifications.requests == [labeled],
+                  "icon acceptance must visibly distinguish the new build from older delivered banners")
         let deniedNotifications = RecordingScheduler(permission: .denied)
         do {
             _ = try await NotificationAcceptance.scheduleOneTest(using: deniedNotifications, now: testNow)

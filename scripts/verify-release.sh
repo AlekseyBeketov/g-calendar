@@ -27,6 +27,12 @@ ICON_PATH="$APP/Contents/Resources/$ICON_NAME"
 if [[ ! -f "$ICON_PATH" && -f "$ICON_PATH.icns" ]]; then ICON_PATH="$ICON_PATH.icns"; fi
 [[ -f "$ICON_PATH" && ! -L "$ICON_PATH" ]] || fail 'App icon resource missing from bundle'
 /usr/bin/file "$ICON_PATH" | /usr/bin/grep -q 'Mac OS X icon' || fail 'App icon resource is not a macOS icon'
+ICON_BUILD="$(read_key CFBundleVersion)"
+[[ "$ICON_BUILD" =~ ^[0-9]{1,9}$ ]] || fail 'Invalid build number'
+if [[ "$((10#$ICON_BUILD))" -ge 3 ]]; then
+  ICON_DIGEST="$(/usr/bin/shasum -a 256 "$ICON_PATH" | /usr/bin/cut -d ' ' -f 1)"
+  [[ "$ICON_NAME" == "WorkspaceIcon-${ICON_DIGEST:0:12}" ]] || fail 'Icon resource name must identify its artwork revision'
+fi
 [[ "$(/usr/bin/lipo -archs "$APP/Contents/MacOS/g-calendar")" == arm64 ]] || fail 'Expected arm64-only executable'
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-common.sh"
 gc_verify_bundle_tree "$APP" || fail 'Unsafe bundle tree'

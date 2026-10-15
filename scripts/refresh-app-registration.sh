@@ -2,6 +2,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/dist/g-calendar.app"
+RENEW_CURRENT=false
+for ARG in "$@"; do
+  case "$ARG" in
+    --renew-current) RENEW_CURRENT=true ;;
+    --help) echo 'refresh-app-registration.sh [--renew-current]'; exit 0 ;;
+    *) echo "Unknown argument: $ARG" >&2; exit 2 ;;
+  esac
+done
 REGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [[ -x "$REGISTER" && -d "$APP" && ! -L "$APP" ]] || { echo 'Current application or Launch Services tool unavailable' >&2; exit 1; }
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" == com.alexbeketov.gcalendar ]]
@@ -23,6 +31,11 @@ done < <("$REGISTER" -dump | /usr/bin/awk -v root="$ROOT" '
   /^identifier:[[:space:]]+com\.alexbeketov\.gcalendar$/ {
     if(index(path, root "/.build/g-calendar/run-")==1 && path ~ /\/previous-g-calendar\.app$/) print path
   }')
+if [[ "$RENEW_CURRENT" == true ]]; then
+  if ! RESULT="$("$REGISTER" -u "$APP" 2>&1)"; then
+    [[ "$RESULT" == *'-10814'* ]] || { printf '%s\n' "$RESULT" >&2; exit 1; }
+  fi
+fi
 "$REGISTER" -f "$APP"
 printf 'REFRESHED_APP=%s\nUNREGISTERED_BUILD_BACKUPS=%s\n' "$APP" "$COUNT"
 echo 'Relaunch this app to check a future notification; existing delivered banners may retain their cached icon.'

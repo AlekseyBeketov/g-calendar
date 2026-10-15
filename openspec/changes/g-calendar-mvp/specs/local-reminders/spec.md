@@ -80,3 +80,21 @@ Native requests from the retained local scheduler MUST show the resource title, 
 #### Scenario: Synthetic diagnostic notification
 - **WHEN** explicit notification-test mode schedules its single authorized test request
 - **THEN** it uses the same native content factory without accessing Google or changing reminder metadata
+
+### Requirement: Artwork-specific bundle icon resources
+Builds from build number 3 onward MUST derive the bundled ICNS filename from the approved artwork digest and set CFBundleIconFile to that name. Release verification MUST reject mismatched artwork/filename pairs while retaining the same application identity and user settings. This packaging check MUST NOT be presented as proof of a visible macOS banner.
+
+#### Scenario: Change app artwork
+- **WHEN** approved ICNS bytes change
+- **THEN** the next bundle uses a different icon resource filename and the plist names that exact resource
+
+#### Scenario: Distinguish acceptance builds
+- **WHEN** explicit notification-test mode runs from a bundle with a build number
+- **THEN** its single synthetic banner includes that build number, without requesting permission or reading Google data
+
+### Requirement: Native icon representation integrity
+The stored ICNS MUST be generated with the native encoder from the approved raster master. The icon check MUST decode all ten standard 1x/2x representations through iconutil and compare their dimensions and rendered pixels with the master. Comparing only embedded resource bytes or the largest image is insufficient.
+
+#### Scenario: Corrupt legacy small representation
+- **WHEN** a legacy small-size ICNS representation decodes into unrelated pixels despite a valid largest image
+- **THEN** the focused icon check fails before that resource is accepted
