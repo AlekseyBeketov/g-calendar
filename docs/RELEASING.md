@@ -6,7 +6,7 @@
 
 1. Запишите пользовательские изменения в `CHANGELOG.md` и подготовьте короткий Markdown-файл примечаний для конкретного выпуска. Каждый логический продуктовый change проходит проверки и получает отдельный коммит; push исходников не публикует приложение.
 2. Поднимите SemVer и build number: `./scripts/set-version.sh --version 0.3.0`. Числовой `CFBundleVersion` должен строго увеличиваться; именно по нему Sparkle сравнивает версии. Для воспроизводимого номера можно передать `--build N`, но он также должен быть больше текущего. Просмотрите и закоммитьте diff plist и changelog.
-3. Выполните релевантные проверки и `./scripts/build-app.sh`. Все исходники, версия в bundle и будущий tag должны относиться к одному проверенному коммиту.
+3. Выполните релевантные проверки и `./scripts/build-app.sh`. Перед первой упаковкой выполните `./scripts/setup-installer-tools.sh`: pinned Python-инструменты Finder layout устанавливаются только в ignored `.build/installer-layout-venv`, без изменения системного Python. Все исходники, версия в bundle и будущий tag должны относиться к одному проверенному коммиту.
 4. Подготовьте файлы в новом каталоге:
 
 ```sh
@@ -39,14 +39,15 @@
 
 Скрипт проверяет SemVer, обновляет `CFBundleShortVersionString` и увеличивает числовой `CFBundleVersion`. Если нужен заданный номер сборки, передайте `--build N`. После этого просмотрите diff `resources/Info.plist` и только затем собирайте пакет. Сам helper не создаёт Git tag, Release или фоновые обновления.
 
-После разрешённой актуальной сборки:
+После разрешённой актуальной сборки (инструменты оформления подготавливаются один раз):
 
 ```sh
+./scripts/setup-installer-tools.sh
 ./scripts/package-dmg.sh --app dist/g-calendar.app --output dist/packages/local-preview
 ./scripts/verify-release.sh --app dist/g-calendar.app --mode local --artifacts dist/packages/local-preview
 ```
 
-Скрипт работает с копией приложения, не меняет запущенный `dist/g-calendar.app`. Выходной каталог должен быть свежим: существующие assets/checksums не перезаписываются. Получаются `g-calendar-<version>-arm64-local.dmg`, ZIP, `SHA256SUMS`, `release-manifest.json`. В образе приложение, ярлык `/Applications`, светлый переносимый Finder layout и автономная инструкция. Выполняются `hdiutil verify` и проверка содержимого собственного readonly mount; размонтируется только этот mount.
+Скрипт работает с копией приложения, не меняет запущенный `dist/g-calendar.app`. Выходной каталог должен быть свежим: существующие assets/checksums не перезаписываются. Получаются `g-calendar-<version>-arm64-local.dmg`, ZIP, `SHA256SUMS`, `release-manifest.json`. В образе приложение, ярлык `/Applications`, утверждённый голубой фон с волнами и стрелкой, переносимый Finder layout и автономная инструкция. Фон хранится внутри `.installer/background.tiff`; alias создаётся на собственном writable image и повторно разрешается системным API на финальном readonly mount, без путей checkout автора. Подробности и исходник оформления — `resources/installer/README.md`. Выполняются `hdiutil verify` и проверка содержимого собственного readonly mount; размонтируется только этот mount.
 
 **Local** означает целостную ad-hoc подпись и локальную проверку. Это не Developer ID, не notarization и не подтверждённый скачанный Gatekeeper запуск. Не удалять quarantine и не отключать Gatekeeper.
 

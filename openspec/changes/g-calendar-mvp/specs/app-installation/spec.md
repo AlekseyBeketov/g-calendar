@@ -50,3 +50,10 @@ Packaging SHALL distinguish local ad-hoc packages, unsigned-preview packages and
 #### Scenario: Signed release readiness
 - **WHEN** a Developer ID signed distribution package is reported ready
 - **THEN** its final signature, notarization ticket, image contents and checksums have been verified and a downloaded build has passed a clean-machine launch
+
+### Requirement: Approved portable Finder artwork
+The DMG MUST include the approved light-blue wave background with a central transfer arrow, a real draggable app at the left, the Applications shortcut at the right and the installation document below. The background MUST be embedded at Retina resolution and its Finder alias MUST resolve inside the mounted image after compression, without paths to the author's checkout.
+
+#### Scenario: Open the image on another mountpoint
+- **WHEN** the final compressed image is mounted read-only at a different temporary mountpoint
+- **THEN** the native alias resolver locates its own embedded background and the app, Applications shortcut and instructions retain their configured positions

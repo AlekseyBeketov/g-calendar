@@ -11,5 +11,6 @@ User-facing changes are recorded here. Git tags use `vMAJOR.MINOR.PATCH`; each d
 - Check the app's bundled icon during release preparation.
 - Show the title and localized reminder date/time in retained local and diagnostic notifications.
 - Read setup instructions in English or Russian.
+- Install from a DMG with the approved blue-wave background, transfer arrow and native Finder icons.
 
 No public binary release has been published by these changes. Source history before this version is available in Git.

@@ -168,10 +168,10 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 22.1 Make direct Google API the fresh-install and unset-preference default; preserve explicit `gws` selections and block workspace data access until Google is connected. Fixture coverage passes as part of the 980-assertion invariant suite.
 - [x] 22.2 Implement selected first-run screen #3 with progress, cancel and safe error states; keep calendar/task workspace gated until authorization is available.
-- [x] 22.3 Bundle the supplied public OAuth Client ID without a client secret; keep refresh/access credentials out of the bundle. Owner verification of Desktop client type, consent-screen audience and live sign-in remains an external acceptance item.
-- [x] 22.4 Connect first-run action to the PKCE loopback sign-in; persist refresh credentials in Keychain and only then allow read-only synchronization. Owner's live Google account acceptance remains outstanding.
+- [x] 22.3 Bundle the supplied public OAuth Client ID without a client secret; keep refresh/access credentials out of the bundle. Owner confirmed live sign-in on 2026-10-15; production consent-screen audience remains a public-release prerequisite.
+- [x] 22.4 Connect first-run action to the PKCE loopback sign-in; persist refresh credentials in Keychain and only then allow read-only synchronization. Owner confirmed Google login, the final preferences step and calendar access on 2026-10-15.
 - [x] 22.5 Keep `gws` opt-in in Settings with a clear optional label, segmented connection selector and executable-path check; never auto-install it or silently fall back to it.
-- [x] 22.6 Implement the owner-selected calendar header #4, task header #3 and Google onboarding #3; build the app bundle. DMG Finder artwork remains unapproved and unchanged.
+- [x] 22.6 Implement the owner-selected calendar header #4, task header #3 and Google onboarding #3; build the app bundle. Owner approved DMG artwork on 2026-10-15; the portable embedded background and native alias resolution are implemented and checked.
 - [x] 22.7 Keep the unsigned distribution/release workflow accurate for an owner without Apple Developer Program enrollment; `AGENTS.md` and `docs/RELEASING.md` prohibit Gatekeeper bypass and false notarization claims.
 
 ## 23. Versioning, update strategy and notification icon (2026-10-15)
@@ -194,3 +194,10 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 25.1 Cover the real retained local scheduler's native request with a regression test; add localized reminder time, resource title and exact-time trigger metadata without restoring retired editors.
 - [x] 25.2 Rebuild, regenerate and verify preview assets, commit and push the correction to main. Invariants: 998; signed ZIP/feed and readonly DMG checks pass. Visual banner acceptance remains explicit in 23.4.
+
+## 26. Approved Finder artwork and human acceptance (2026-10-15)
+
+- [x] 26.1 Record owner confirmation of Google login, both onboarding steps and calendar access.
+- [x] 26.2 Embed the approved Retina blue-wave background and arrow; create Finder aliases on the actual image and verify native resolution again after compression/remount.
+- [x] 26.3 Complete final build/package verification and push the DMG artwork change to main. Actual readonly-mount alias resolution and background metadata checks pass; app rebuilt. Notification icon remains a separate open task.
+- [ ] 26.4 Resolve the still-old visible notification icon and obtain fresh human confirmation; system workspace/canonical/running-app icon checks show the new resource.

@@ -17,6 +17,9 @@ done
 VERIFY_MODE="$MODE"
 [[ "$MODE" != release ]] || VERIFY_MODE=signed
 "$ROOT/scripts/verify-release.sh" --app "$APP" --mode "$VERIFY_MODE"
+LAYOUT_PYTHON="$ROOT/.build/installer-layout-venv/bin/python"
+[[ -x "$LAYOUT_PYTHON" ]] || fail 'Run ./scripts/setup-installer-tools.sh once before packaging'
+"$LAYOUT_PYTHON" -c 'import ds_store, mac_alias' || fail 'Run ./scripts/setup-installer-tools.sh to prepare pinned layout tools'
 source "$ROOT/scripts/install-common.sh"
 gc_verify_bundle_tree "$APP"
 PLIST="$APP/Contents/Info.plist"
@@ -34,7 +37,11 @@ mkdir "$LOCK" 2>/dev/null || fail 'Another packaging process holds the output lo
 chmod 700 "$LOCK"
 STAGE=""; MOUNT=""
 cleanup() {
-  if [[ -n "$MOUNT" ]]; then /usr/bin/hdiutil detach "$MOUNT" >/dev/null || true; fi
+  if [[ -n "$MOUNT" ]] && ! /usr/bin/hdiutil detach "$MOUNT" >/dev/null; then
+    printf 'Keeping staging directory because its own image could not detach: %s\n' "$STAGE" >&2
+    rmdir "$LOCK" 2>/dev/null || true
+    return
+  fi
   if [[ -n "$STAGE" ]]; then rm -rf "$STAGE"; fi
   rmdir "$LOCK" 2>/dev/null || true
 }
@@ -48,7 +55,7 @@ mkdir -p "$STAGE/image/.installer"
 /usr/bin/ditto "$APP" "$STAGE/image/g-calendar.app"
 "$ROOT/scripts/verify-release.sh" --app "$STAGE/image/g-calendar.app" --mode "$VERIFY_MODE"
 ln -s /Applications "$STAGE/image/Applications"
-cp "$ROOT/resources/installer/finder-layout.bin" "$STAGE/image/.DS_Store"
+cp "$ROOT/resources/installer/background.tiff" "$STAGE/image/.installer/background.tiff"
 cp "$ROOT/resources/installer/README.html" "$STAGE/image/Как установить.html"
 cp "$ROOT/resources/installer/installation.css" "$STAGE/image/.installer/installation.css"
 if [[ "$MODE" == release ]]; then
@@ -59,13 +66,25 @@ fi
 mkdir "$STAGE/zip-check"
 /usr/bin/ditto -x -k "$STAGE/$PREFIX.zip" "$STAGE/zip-check"
 "$ROOT/scripts/verify-release.sh" --app "$STAGE/zip-check/g-calendar.app" --mode "$VERIFY_MODE"
-/usr/bin/hdiutil create -volname "g-calendar $VERSION" -fs HFS+ -format UDZO -srcfolder "$STAGE/image" "$STAGE/$PREFIX.dmg"
-/usr/bin/hdiutil verify "$STAGE/$PREFIX.dmg"
+source "$ROOT/scripts/swift-toolchain.sh"
+configure_swift_compiler "$STAGE/alias-verifier"
+"${G_CALENDAR_SWIFT[@]}" "$ROOT/resources/installer/verify-background-alias.swift" -o "$STAGE/verify-background-alias"
+/usr/bin/hdiutil create -volname "g-calendar $VERSION" -fs HFS+ -format UDRW -srcfolder "$STAGE/image" "$STAGE/layout.dmg"
 mkdir "$STAGE/mounted"
+MOUNT="$STAGE/mounted"
+/usr/bin/hdiutil attach -readwrite -nobrowse -mountpoint "$MOUNT" "$STAGE/layout.dmg" >/dev/null
+"$LAYOUT_PYTHON" "$ROOT/resources/installer/make-layout.py" --image-root "$MOUNT" --alias-output "$STAGE/background.alias"
+"$STAGE/verify-background-alias" "$STAGE/background.alias" "$MOUNT/.installer/background.tiff"
+/usr/bin/hdiutil detach "$MOUNT" >/dev/null
+MOUNT=""
+/usr/bin/hdiutil convert "$STAGE/layout.dmg" -format UDZO -o "$STAGE/$PREFIX.dmg"
+/usr/bin/hdiutil verify "$STAGE/$PREFIX.dmg"
 MOUNT="$STAGE/mounted"
 /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$STAGE/$PREFIX.dmg" >/dev/null
 [[ -L "$MOUNT/Applications" && "$(readlink "$MOUNT/Applications")" == /Applications ]] || fail 'Applications shortcut missing'
 [[ -f "$MOUNT/Как установить.html" && -f "$MOUNT/.installer/installation.css" && -f "$MOUNT/.DS_Store" ]] || fail 'Installer resources missing'
+"$LAYOUT_PYTHON" "$ROOT/resources/installer/make-layout.py" --image-root "$MOUNT" --verify --alias-output "$STAGE/background.alias"
+"$STAGE/verify-background-alias" "$STAGE/background.alias" "$MOUNT/.installer/background.tiff"
 "$ROOT/scripts/verify-release.sh" --app "$MOUNT/g-calendar.app" --mode "$VERIFY_MODE"
 /usr/bin/hdiutil detach "$MOUNT" >/dev/null
 MOUNT=""

@@ -156,3 +156,11 @@ Native image/геометрия и успешная сборка не доказ
 Приложение пересобрано через `./scripts/build-app.sh`. Новый preview создан из этой сборки в отдельном локальном output directory: ZIP round trip, readonly DMG mount, hdiutil verify, checksums, EdDSA-подписи XML/ZIP прошли. Повторный `scripts/test-updates.sh` подтвердил проверку подлинного/изменённого ZIP, безопасную распаковку и настоящий startup updater в изолированной ad-hoc копии. Регистрация актуального bundle обновлена, новых устаревших backup registrations нет.
 
 Обновлённый bundle через Launch Services отправил ровно одно synthetic уведомление: `scheduled=1 own_notification_delivered=true visible_banner=needs_human_verification`. Google, reminder metadata и системные разрешения не менялись. Внешний вид иконки и баннера не объявлен подтверждённым.
+
+## Owner onboarding acceptance and approved DMG artwork — 2026-10-15
+
+Владелец подтвердил: «Вход и оба шага работают», включая календарь, и принял DMG-концепт. Это человеческая приёмка Google-входа и второго шага, отдельно от автоматических fixtures. Иконку нового уведомления владелец пока видит старой: прежняя регистрационная очистка не доказывает исправление.
+
+Реальный DMG с утверждённым 2x-фоном успешно собран: запись layout на writable image, нативное разрешение background alias, сжатие, hdiutil verify и повторная проверка того же alias на readonly mount прошли. Ресурс непрозрачный, 1280×840 px / 144 DPI; layout не содержит пути checkout. Finder не автоматизировался и реальный UI не выдаётся за screenshot-проверку.
+
+После перезапуска только пользовательского интерфейса NotificationCenter одно новое synthetic уведомление доставлено, но владелец снова подтвердил старую иконку. Перезапуск UI не решил дефект; он не считается исправлением. Workspace, canonical application lookup и running-app icon при этом возвращают новый рисунок для текущего dist bundle. Следующий узкий эксперимент — отдельное имя ресурса для каждого изменения artwork и новый build number, без смены bundle ID или очистки базы уведомлений.
