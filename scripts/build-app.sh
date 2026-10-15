@@ -26,6 +26,7 @@ fi
 
 cp "$ROOT/resources/AppIcon.icns" "$STAGE/Contents/Resources/WorkspaceIcon.icns"
 cp -R "$ROOT/resources/AuthorSupport" "$STAGE/Contents/Resources/AuthorSupport"
+cp "$ROOT/resources/GoogleSignIn/g-logo.png" "$STAGE/Contents/Resources/GoogleSignInLogo.png"
 
 SOURCE_FILES=("$ROOT"/Sources/GCalendar/*.swift)
 OPTIMIZATION="-O"
