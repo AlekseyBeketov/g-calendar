@@ -132,11 +132,10 @@ enum WorkspaceToolbarNativeTests {
                                                              width: CGFloat(maxX - minX + 1) / scaleX, height: CGFloat(maxY - minY + 1) / scaleY)
                                     let leftGap = pixelBounds.minX - capsule.minX
                                     line += " capsule=\(capsule) rasterOutline=\(pixelBounds) leftGap=\(leftGap)"
-                                    expect(leftGap >= (isCalendar ? 30 : 7), "\(name): rendered search outline clears native capsule (gap=\(leftGap))")
+                                    expect(leftGap >= 7, "\(name): rendered search outline clears native capsule (gap=\(leftGap))")
                                     expect(capsule.maxX - pixelBounds.maxX >= 7 && pixelBounds.minY - capsule.minY >= 3 && capsule.maxY - pixelBounds.maxY >= 3, "\(name): raster outline has breathing space inside capsule")
                                     expect(abs(pixelBounds.height - 28) <= 1, "\(name): search outline height preserved")
-                                    if isCalendar { expect(abs(hostBounds.width - pixelBounds.width) <= 1, "\(name): Calendar has no added outer inset") }
-                                    else { expect(abs(hostBounds.width - pixelBounds.width - 16) <= 1, "\(name): Tasks outer inset is 8pt each side") }
+                                    expect(abs(hostBounds.width - pixelBounds.width - 16) <= 1, "\(name): shared outer inset is 8pt each side")
                                 }
                             }
                         }

@@ -37,8 +37,8 @@ struct WorkspaceToolbar: ToolbarContent {
             .overlay(RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(searchFocused ? AppTheme.accent : AppTheme.outline.opacity(0.4), lineWidth: searchFocused ? 2 : 1)
                 .allowsHitTesting(false).accessibilityHidden(true))
-            // Tasks puts search at the capsule edge; keep its own outline inside it.
-            .padding(.horizontal, isCalendar ? 0 : 8)
+            // Keep the search outline inside the native capsule in both workspaces.
+            .padding(.horizontal, 8)
         }
         ToolbarItem(placement: .primaryAction) {
             Button { refresh() } label: {
