@@ -5,7 +5,7 @@ struct ProcessInvocation: Equatable {
     let executableURL: URL
     let arguments: [String]
     let operation: GWSOperation
-    let timeout: TimeInterval
+    var timeout: TimeInterval
     let outputLimit: Int
     var expectedTask: GoogleTask? = nil
     var taskDestinationListID: String? = nil
@@ -431,6 +431,7 @@ struct GWSReadClient: ExactCalendarEventReading {
     let factory: GWSCommandFactory
     let runner: GWSProcessRunning
     var cancellation: GWSReadCancellation? = nil
+    var collectionTimeout: TimeInterval = 60
 
     func calendars() throws -> [CalendarInfo] {
         try collect(operation: .calendarList, makeInvocation: factory.readCalendars) { items in
@@ -559,9 +560,16 @@ struct GWSReadClient: ExactCalendarEventReading {
     private func collect<T>(operation: GWSOperation, makeInvocation: (String?) throws -> ProcessInvocation, decode: ([[String: Any]]) throws -> [T]) throws -> [T] {
         var result: [T] = [], nextToken: String?
         var seenTokens = Set<String>()
+        let deadline = ProcessInfo.processInfo.systemUptime + collectionTimeout
+        var pages = 0
         repeat {
             try cancellation?.check()
-            let invocation = try makeInvocation(nextToken)
+            guard pages < 1000 else { throw GWSFailure.invalidResponse("pagination_limit") }
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { throw GWSFailure.timedOut(operation.rawValue) }
+            var invocation = try makeInvocation(nextToken)
+            invocation.timeout = min(invocation.timeout, remaining)
+            pages += 1
             let processResult = try runRead(invocation)
             try cancellation?.check()
             guard processResult.exitCode == 0 else { throw GWSFailure.processFailed(operation.rawValue, processResult.exitCode, Self.safeCategory(processResult.stderr)) }

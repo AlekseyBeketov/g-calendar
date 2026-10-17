@@ -243,3 +243,17 @@ The visible sidebar SHALL have a thin native gray separator along the leading ed
 #### Scenario: Hide or resize the sidebar
 - **WHEN** a user hides, restores or resizes the sidebar
 - **THEN** the boundary follows visibility and detail geometry without adding a control or changing resizing behavior
+
+### Requirement: Local bounded diagnostics
+The application SHALL enable local diagnostic logging by default and SHALL offer an off switch, a clear action and an action to open the log directory in Settings. The nearby secondary text SHALL explain that logs are not sent for developer analytics and may be attached by the user to diagnose a problem. Logs SHALL contain operation categories, outcomes and duration only, never titles, resource IDs, request bodies or credentials.
+
+#### Scenario: Retention and cleanup
+- **WHEN** diagnostics runs or the application starts
+- **THEN** managed log files older than seven days are removed and rotation bounds disk use below 4 MiB
+- **AND** the writer queue is bounded and file work is performed away from the main thread
+
+#### Scenario: Disable and clear
+- **WHEN** the user disables logging
+- **THEN** subsequent operations do not append logs
+- **WHEN** the user clears logs, even while logging is disabled
+- **THEN** managed diagnostic files are removed without removing unrelated files

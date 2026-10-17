@@ -148,3 +148,15 @@ The application SHALL create a secondary calendar only after an explicit Save ac
 #### Scenario: Existing account needs permission
 - **WHEN** old credentials lack calendar.calendars
 - **THEN** the creation form explains reauthentication while ordinary calendar and task functions remain available
+
+### Requirement: Bounded pagination
+Each paginated collection SHALL have a total sixty-second deadline and a maximum of one thousand pages, including a chain of distinct page tokens. Every request SHALL use at most the remaining deadline. Hitting a bound SHALL preserve the prior complete snapshot and report a failure, never accept a truncated collection.
+
+#### Scenario: Endless unique page tokens
+- **WHEN** each page returns a new nextPageToken without finishing
+- **THEN** the read ends with an explicit pagination limit failure and does not issue page 1001
+
+#### Scenario: All-day create verification times out
+- **WHEN** an all-day event POST returns an ID and its exact GET times out
+- **THEN** the ID and draft remain in the recovery journal
+- **AND** a later successful exact GET completes the operation without repeating the POST

@@ -443,6 +443,8 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    DiagnosticsSettingsSection()
+
                     SettingsSection(title: "Внешний вид") {
                         Picker("Тема", selection: Binding(get: { model.appearance }, set: { model.setAppearance($0) })) {
                             ForEach(WorkspaceViewModel.Appearance.allCases) { Text($0.rawValue).tag($0) }

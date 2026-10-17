@@ -268,6 +268,9 @@ struct InvariantTests {
         run("independent-journals-preserve-pending-owner", testIndependentMutationJournals)
         run("native-synthetic-lifecycle-ledger-scope", testSyntheticLifecycle)
         run("pagination-and-model-mapping", testPaginationAndTypedMapping)
+        run("pagination-unique-tokens-cannot-run-forever", testUniquePaginationBound)
+        run("local-diagnostics-retention-cap-disable-clear-privacy", testAppDiagnostics)
+        run("all-day-save-timeout-and-exact-recovery", testAllDaySaveAndTimeoutRecovery)
         run("process-errors-malformed-json-timeout", testErrorsAndTimeout)
         run("gws-launcher-finds-node-with-gui-path", testGWSLauncherFindsNodeWithGUIPath)
         run("cache-preserved-after-failed-page", testCachePreservedAfterLaterPageFailure)
@@ -3056,5 +3059,25 @@ struct InvariantTests {
         let reversal = motion.value(at: 0.16)
         motion.retarget(by: -20, at: 0.16, lowerBound: 0, upperBound: 200)
         try check(abs(motion.value(at: 0.16) - reversal) < 0.000001 && motion.targetValue < reversal, "direction reversal responds immediately without old inertia")
+    }
+}
+
+
+extension InvariantTests {
+    static func testUniquePaginationBound() throws {
+        var count = 0
+        let runner = FakeProcessRunner { _ in
+            count += 1
+            guard count <= 1000 else { throw TestFailure(description: "pagination exceeded 1000 pages without terminating") }
+            let data = try JSONSerialization.data(withJSONObject: ["items": [], "nextPageToken": "page-\(count)"])
+            return ProcessResult(exitCode: 0, stdout: data, stderr: Data())
+        }
+        do {
+            _ = try GWSReadClient(factory: .googleREST(), runner: runner).calendars()
+            throw TestFailure(description: "unfinished collection was accepted")
+        } catch GWSFailure.invalidResponse(let field) {
+            try check(field == "pagination_limit", "unique pagination chain stops with explicit limit failure")
+        }
+        try check(count == 1000, "collection terminates without issuing page 1001")
     }
 }

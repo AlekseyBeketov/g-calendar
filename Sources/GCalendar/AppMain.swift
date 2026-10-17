@@ -120,7 +120,10 @@ final class WorkspaceViewModel: ObservableObject {
                 automaticNotificationCoordinator = AutomaticNotificationCoordinator(namespace: context?.identity ?? "gws", scheduler: automaticScheduler,
                     legacyArchive: { try AutomaticReminderMigration.archive(directory: appDirectory) })
             }
-            runner = context?.runner
+            AppDiagnostics.shared.setEnabled(defaults.object(forKey: AppDiagnostics.preferenceKey) as? Bool ?? true)
+            AppDiagnostics.shared.startResponsivenessMonitor()
+            AppDiagnostics.shared.record(.launch)
+            runner = context.map { DiagnosticProcessRunner(base: $0.runner, diagnostics: .shared) }
             demoAdapter = nil
             syncState = loaded.fetchedAt == .distantPast ? .idle : .stale
             statusMessage = context?.setupProblem ?? (loaded.fetchedAt == .distantPast ? "Нажмите «Синхронизировать», чтобы загрузить данные." : "Показан последний сохранённый снимок.")
@@ -736,6 +739,8 @@ final class WorkspaceViewModel: ObservableObject {
             return
         }
         mutationInFlight = true
+        AppDiagnostics.shared.record(.mutationStarted, operation: invocation.operation)
+        let mutationStartedAt = ProcessInfo.processInfo.systemUptime
         statusMessage = "Сохранение…"
         let path = gwsPath
         let context = transportContext
@@ -752,6 +757,13 @@ final class WorkspaceViewModel: ObservableObject {
                     }
                 }).perform(invocation, reader: reader))
             } catch { outcome = .failure(error) }
+            let diagnosticOutcome: AppDiagnostics.Outcome
+            switch outcome {
+            case .success: diagnosticOutcome = .success
+            case .failure(let error): diagnosticOutcome = AppDiagnostics.outcome(for: error)
+            }
+            AppDiagnostics.shared.record(.mutationFinished, operation: invocation.operation, outcome: diagnosticOutcome,
+                milliseconds: Int((ProcessInfo.processInfo.systemUptime - mutationStartedAt) * 1000))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.mutationInFlight = false

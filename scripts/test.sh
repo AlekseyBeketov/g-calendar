@@ -16,6 +16,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/LoginItemSettings.swift" \
   "$ROOT/Sources/GCalendar/Models.swift" \
   "$ROOT/Sources/GCalendar/EventDateAdjustment.swift" \
+  "$ROOT/Sources/GCalendar/AppDiagnostics.swift" \
   "$ROOT/Sources/GCalendar/SmoothScrollTiming.swift" \
   "$ROOT/Sources/GCalendar/TaskOrdering.swift" \
   "$ROOT/Sources/GCalendar/CalendarRangeCache.swift" \
@@ -43,6 +44,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Tests/InvariantTests.swift" \
   "$ROOT/Tests/CalendarPresentationTests.swift" \
   "$ROOT/Tests/GoogleRESTTests.swift" \
+  "$ROOT/Tests/AppDiagnosticsTests.swift" \
   "$ROOT/Tests/TaskOrderingTests.swift" \
   "$ROOT/Tests/AutomaticNotificationTests.swift" \
   "$ROOT/Tests/StartupPreferencesTests.swift" \
