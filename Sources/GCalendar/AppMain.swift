@@ -43,6 +43,7 @@ final class WorkspaceViewModel: ObservableObject {
     @Published private(set) var shortcutSettings: WorkspaceShortcutSettings
     @Published private(set) var taskPreferences = TaskWorkspacePreferences()
     @Published private(set) var completedDeletionInProgress = false
+    @Published private(set) var accountDisplayProfile: GoogleAccountDisplayProfile?
 
     let launchMode: AppLaunchMode
     let metadataStore: LocalMetadataStoring
@@ -195,6 +196,17 @@ final class WorkspaceViewModel: ObservableObject {
                     }
                 }.store(in: &automaticLifecycleObservers)
             Task { [weak self] in self?.refreshAutomaticNotifications(force: true) }
+            if let loader = context?.accountProfileLoader {
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    let profile = try? loader.load()
+                    DispatchQueue.main.async {
+                        guard let self, !self.transportRestartInFlight,
+                              !self.googleTransportSettings.requiresRestart,
+                              !self.googleTransportSettings.signingIn else { return }
+                        self.accountDisplayProfile = profile
+                    }
+                }
+            }
         }
     }
 
@@ -203,6 +215,7 @@ final class WorkspaceViewModel: ObservableObject {
         guard launchMode == .normal, !mutationInFlight, !mutationJournalBusy,
               !transportRestartInFlight, googleTransportSettings.requiresRestart else { return }
         transportRestartInFlight = true
+        accountDisplayProfile = nil
         activeReadCancellation?.cancel()
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -916,6 +929,11 @@ final class WorkspaceViewModel: ObservableObject {
     var canCreateCalendars: Bool {
         launchMode == .demo || transportContext?.kind == .gws ||
             transportContext?.profile?.credential.grantedScopes.contains(GoogleOAuthEndpoint.calendarManagementScope) == true
+    }
+
+    var needsGoogleProfileAuthorization: Bool {
+        launchMode == .normal && transportContext?.kind == .rest && transportContext?.recoveryOnly != true &&
+            transportContext?.profile.map { !GoogleOAuthEndpoint.hasProfileScope($0.credential.grantedScopes) } == true
     }
 
     func refreshTasksAfterSave(task: GoogleTask? = nil, taskListID: String? = nil, sourceTaskListID: String? = nil) {

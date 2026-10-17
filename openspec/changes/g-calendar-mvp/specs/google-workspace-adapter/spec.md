@@ -160,3 +160,21 @@ Each paginated collection SHALL have a total sixty-second deadline and a maximum
 - **WHEN** an all-day event POST returns an ID and its exact GET times out
 - **THEN** the ID and draft remain in the recovery journal
 - **AND** a later successful exact GET completes the operation without repeating the POST
+
+
+### Requirement: Optional Google account display profile
+Explicit Google sign-in MUST request `profile` alongside the existing `openid` and workspace scopes, without requesting email or contacts for this feature. Existing credentials without profile permission MUST retain calendar/task access and MUST NOT trigger another consent flow automatically. Both the `profile` alias and canonical `userinfo.profile` granted scope MUST be recognized. Settings MUST explain how existing users can explicitly grant profile access through the existing Google sign-in action.
+
+#### Scenario: Load an authorized account picture
+- **WHEN** the active direct-REST account has profile permission
+- **THEN** a background UserInfo request obtains optional name/picture and validates `sub` against the credential's immutable subject before displaying any profile fields
+- **AND** only an HTTPS Google image URL is fetched, without OAuth headers or cookies, redirects or persistent cache; the download has a bounded deadline/byte count and is decoded into a small thumbnail off the UI thread
+- **AND** profile data, URLs and image bytes are not written to app logs or disk
+
+#### Scenario: Keep workspace available without a picture
+- **WHEN** profile access, name or picture is missing, malformed, unavailable or mismatched to the active subject
+- **THEN** the workspace remains usable and displays the system avatar instead of accepting untrusted profile data or blocking synchronization
+
+#### Scenario: Change account while the photo is loading
+- **WHEN** an explicit account/transport change is applying
+- **THEN** the displayed profile is cleared and the previous background result is not installed into the changing account

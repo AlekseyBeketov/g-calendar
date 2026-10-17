@@ -47,6 +47,7 @@ struct WorkspaceTransportContext: @unchecked Sendable {
     let setupProblem: String?
     var recoveryOnly = false
     var profile: GoogleOAuthProfile? = nil
+    var accountProfileLoader: GoogleAccountProfileLoader? = nil
     var journalURL: URL { directory.appendingPathComponent("pending-verification.json") }
     var reminderEnabledKey: String { identity.map { "restLocalRemindersEnabled." + $0 } ?? "localRemindersEnabled" }
     func factory(configuredGWSPath: String) throws -> GWSCommandFactory {
@@ -112,7 +113,7 @@ struct WorkspaceTransportContext: @unchecked Sendable {
             return Self(kind: .rest, identity: nil, directory: applicationDirectory.appendingPathComponent("rest/setup", isDirectory: true), runner: UnavailableGoogleRESTRunner(), setupProblem: problem ?? GoogleRESTFailure.setupRequired.errorDescription)
         }
         let token = GoogleAccessTokenProvider(configuration: config, credential: credential, http: http)
-        return Self(kind: .rest, identity: identity, directory: applicationDirectory.appendingPathComponent("rest/" + identity, isDirectory: true), runner: GoogleRESTRunner(http: http, tokens: token), setupProblem: nil, profile: GoogleOAuthProfile(configuration: config, credential: credential))
+        return Self(kind: .rest, identity: identity, directory: applicationDirectory.appendingPathComponent("rest/" + identity, isDirectory: true), runner: GoogleRESTRunner(http: http, tokens: token), setupProblem: nil, profile: GoogleOAuthProfile(configuration: config, credential: credential), accountProfileLoader: GoogleAccountProfileLoader(credential: credential, tokens: token, http: http))
     }
 }
 

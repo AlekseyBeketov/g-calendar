@@ -162,11 +162,10 @@ struct WorkspaceSidebarView: View {
     private var accountFooter: some View {
         SidebarButton("account", action: openSettings) {
             HStack(spacing: 10) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 32)).foregroundStyle(AppTheme.textSecondary.opacity(0.6))
+                GoogleAccountAvatar(avatar: model.accountDisplayProfile?.avatar)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.launchMode == .demo ? "Демо-пространство" : "Аккаунт Google")
+                    Text(model.accountDisplayProfile?.name ?? (model.launchMode == .demo ? "Демо-пространство" : "Аккаунт Google"))
                         .font(.system(size: 13, weight: .medium)).lineLimit(1)
                     HStack(spacing: 5) {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
@@ -183,7 +182,7 @@ struct WorkspaceSidebarView: View {
             .contentShape(Rectangle())
         }
         .accessibilityIdentifier("sidebar-account-settings")
-        .accessibilityLabel("Настройки аккаунта. \(statusTitle)")
+        .accessibilityLabel("Настройки аккаунта. \(model.accountDisplayProfile?.name ?? "Google"). \(statusTitle)")
         .help(model.statusMessage)
     }
 
@@ -218,6 +217,22 @@ struct WorkspaceSidebarView: View {
         let hash = id.utf8.reduce(UInt64(2166136261)) { ($0 ^ UInt64($1)) &* 16777619 }
         let colors = [AppTheme.accent, AppTheme.overdue, AppTheme.warning, AppTheme.success, AppTheme.task]
         return colors[Int(hash % UInt64(colors.count))]
+    }
+}
+
+struct GoogleAccountAvatar: View {
+    let avatar: NSImage?
+    var body: some View {
+        Group {
+            if let avatar {
+                Image(nsImage: avatar).resizable().scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable().scaledToFit().foregroundStyle(AppTheme.textSecondary.opacity(0.6))
+            }
+        }
+        .frame(width: 32, height: 32).clipShape(Circle())
+        .accessibilityHidden(true)
     }
 }
 

@@ -705,6 +705,10 @@ private struct GoogleTransportSettingsSection: View {
                 }
             }
             Text(settings.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if model.needsGoogleProfileAuthorization {
+                Text("Чтобы показать имя и фото в боковом меню, нажмите «Войти через Google» и предоставьте доступ к профилю. Текущее подключение календарей и задач продолжит работать без него.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Text("Вход откроется в браузере Google. Пароль остаётся у Google, а разрешение можно отозвать в настройках аккаунта. Доступ к уведомлениям запрашивается отдельно.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }

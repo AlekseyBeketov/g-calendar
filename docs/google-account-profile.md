@@ -1,0 +1,15 @@
+# Google account name and photo
+
+The sidebar obtains the signed-in user's optional name/photo through Google OpenID Connect UserInfo. No People API, contacts permission or email permission is needed for this feature.
+
+An explicit Google sign-in adds the `profile` scope to the existing `openid`, Calendar and Tasks scopes. Existing credentials keep their original required base scopes: missing profile permission does not break Calendar/Tasks or trigger sign-in automatically. Google may return the granted scope as either `profile` or `https://www.googleapis.com/auth/userinfo.profile`; both are accepted. Settings explains the explicit upgrade through **Sign in with Google** (Russian UI: «Войти через Google»).
+
+At normal direct-REST startup, a background worker uses the existing shared access-token provider and requests `GET https://openidconnect.googleapis.com/v1/userinfo` with `Authorization: Bearer …`. The returned `sub` must match the credential's immutable Google subject before using `name` or `picture`. Presentation data never replaces authentication identity. Google does not guarantee optional profile claims, even with permission.
+
+The worker accepts photo URLs only over HTTPS on `googleusercontent.com` or its subdomains, with no embedded credentials, fragment or alternate port. It preserves Google's URL, including its size parameters. The separate public-image request contains no bearer token or cookies. The existing ephemeral HTTP client rejects redirects and has no persistent cache. Unexpected URLs or unavailable photos retain the system avatar.
+
+The entire load has a 20-second deadline; the image request is bounded by 8 seconds and the remaining deadline, with at most 1 MiB of response data. ImageIO checks dimensions (1–4096 px per axis), eagerly decodes a thumbnail of at most 64 px off the main thread, and the sidebar clips it into the existing 32 pt circle. The name and image live only in the current model's memory; no profile names, URLs or photos are added to app logs, cache files or credentials. One load is attempted per launch; restarting fetches changes to the profile. The profile is cleared when applying an account/transport change, and late results are rejected while sign-in or restart is in progress. Recovery-only contexts and gws retain the system avatar.
+
+Fixtures cover legacy/canonical scopes, missing fields, wrong subjects, unsafe URLs, corrupt/oversized images, absence of bearer headers on photo requests, background loading and small thumbnail dimensions. Native offscreen rendering covers the circular photo and fallback in Light/Dark. Tests do not sign into Google or fetch a real user's profile. Actual Google consent and the user's real avatar remain manual acceptance after explicit sign-in.
+
+Sources checked 2026-10-17: [Google OpenID Connect — profile information](https://developers.google.com/identity/openid-connect/openid-connect), [UserInfo reference](https://developers.google.com/identity/openid-connect/reference). Implementation: `GoogleAccountProfile.swift`, `GoogleOAuth.swift`, `WorkspaceTransport.swift`, `WorkspaceViewModel` and `WorkspaceSidebarView.swift`.

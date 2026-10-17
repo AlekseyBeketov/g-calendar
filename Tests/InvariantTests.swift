@@ -247,6 +247,7 @@ struct InvariantTests {
         run("google-calendar-create-verified-and-recoverable", testGoogleCalendarCreation)
         run("google-rest-allowlisted-http-retry-cancel-core", testGoogleRESTCore)
         run("google-oauth-pkce-callback-singleflight-context-isolation", testGoogleOAuthIsolation)
+        await runAsync("google-account-profile-scope-subject-avatar-fallback", testGoogleAccountProfile)
         await runAsync("google-first-run-defaults-to-rest-and-keeps-gws-opt-in", testGoogleRESTDefault)
         run("startup-preferences-consent-relaunch-and-demo-isolation", testStartupPreferences)
         run("google-urlsession-streaming-response-cap", testGoogleHTTPStreamingLimit)

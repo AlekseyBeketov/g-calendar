@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import ImageIO
 
 final class FakeGoogleHTTPClient: GoogleHTTPClient, @unchecked Sendable {
     private let lock = NSLock()
@@ -26,6 +28,66 @@ private struct UnavailableFixtureGoogleTokens: GoogleAccessTokenProviding {
 }
 
 extension InvariantTests {
+    static func testGoogleAccountProfile() async throws {
+        try await Task.detached { try testGoogleAccountProfileOffMain() }.value
+    }
+
+    private static func testGoogleAccountProfileOffMain() throws {
+        try check(GoogleOAuthEndpoint.requestedScopes.contains("profile") && !GoogleOAuthEndpoint.scopes.contains("profile"),
+                  "new login requests profile without breaking existing base credentials")
+        try check(GoogleOAuthEndpoint.hasProfileScope(["profile"]) && GoogleOAuthEndpoint.hasProfileScope(["https://www.googleapis.com/auth/userinfo.profile"]),
+                  "both short and canonical Google profile scopes are recognized")
+        try check(!GoogleOAuthEndpoint.requestedScopes.contains("email") && !GoogleOAuthEndpoint.requestedScopes.contains(where: { $0.contains("contacts") }),
+                  "photo needs neither email nor contacts permission")
+        let legacy = GoogleOAuthCredential(clientID: "synthetic.apps.googleusercontent.com", subject: "synthetic-sub", refreshToken: "synthetic")
+        var credential = legacy
+        credential.grantedScopes += ["https://www.googleapis.com/auth/userinfo.profile"]
+        let unused = FakeGoogleHTTPClient([])
+        try check(try GoogleAccountProfileLoader(credential: legacy, tokens: UnavailableFixtureGoogleTokens(), http: unused).load() == nil && unused.requests.isEmpty,
+                  "legacy credentials skip all cosmetic network requests and do not require reauthentication")
+        let bitmap = CGContext(data: nil, width: 128, height: 80, bitsPerComponent: 8, bytesPerRow: 0,
+                               space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        bitmap.setFillColor(red: 0.1, green: 0.4, blue: 0.9, alpha: 1)
+        bitmap.fill(CGRect(x: 0, y: 0, width: 128, height: 80))
+        let encoded = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, bitmap.makeImage()!, nil)
+        try check(CGImageDestinationFinalize(destination), "synthetic PNG fixture is encoded without AppKit named colors")
+        let png = encoded as Data
+        let info = GoogleHTTPResponse(statusCode: 200, headers: [:], body: Data(#"{"sub":"synthetic-sub","name":"  Synthetic User  ","picture":"https://lh3.googleusercontent.com/a/synthetic=s96-c"}"#.utf8))
+        let http = FakeGoogleHTTPClient([info, GoogleHTTPResponse(statusCode: 200, headers: ["content-type": "image/png"], body: png)])
+        let profile = try GoogleAccountProfileLoader(credential: credential, tokens: FakeGoogleTokens(), http: http).load()
+        try check(profile?.name == "Synthetic User" && profile?.avatar != nil, "same-account userinfo gives name and decoded avatar")
+        try check(profile!.avatar!.size.width <= 64 && profile!.avatar!.size.height <= 64, "avatar is eagerly reduced to a small memory-only thumbnail")
+        try check(http.requests.count == 2 && http.requests[0].url?.absoluteString == "https://openidconnect.googleapis.com/v1/userinfo" && http.requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-token",
+                  "UserInfo alone receives the access token in the Authorization header")
+        try check(http.requests[1].value(forHTTPHeaderField: "Authorization") == nil && http.requests[1].value(forHTTPHeaderField: "Cookie") == nil && http.requests[1].timeoutInterval <= 8,
+                  "public photo request has no bearer or cookies and a short timeout")
+        let wrong = FakeGoogleHTTPClient([GoogleHTTPResponse(statusCode: 200, headers: [:], body: Data(#"{"sub":"other-sub","name":"Wrong account","picture":"https://lh3.googleusercontent.com/a/other"}"#.utf8))])
+        do {
+            _ = try GoogleAccountProfileLoader(credential: credential, tokens: FakeGoogleTokens(), http: wrong).load()
+            throw TestFailure(description: "wrong-account profile was accepted")
+        } catch GoogleRESTFailure.authentication { assertions += 1 }
+        try check(wrong.requests.count == 1, "subject mismatch prevents even a photo fetch")
+        let absent = FakeGoogleHTTPClient([GoogleHTTPResponse(statusCode: 200, headers: [:], body: Data(#"{"sub":"synthetic-sub"}"#.utf8))])
+        let absentProfile = try GoogleAccountProfileLoader(credential: credential, tokens: FakeGoogleTokens(), http: absent).load()
+        try check(absentProfile?.name == nil && absentProfile?.avatar == nil && absent.requests.count == 1,
+                  "Google may omit every optional display claim without breaking authentication")
+        let brokenPhoto = FakeGoogleHTTPClient([info, GoogleHTTPResponse(statusCode: 403, headers: [:], body: Data())])
+        let brokenProfile = try GoogleAccountProfileLoader(credential: credential, tokens: FakeGoogleTokens(), http: brokenPhoto).load()
+        try check(brokenProfile?.name == "Synthetic User" && brokenProfile?.avatar == nil,
+                  "photo failures preserve name and system-avatar fallback")
+        for value in ["http://lh3.googleusercontent.com/a", "file:///tmp/photo", "https://example.com/a", "https://googleusercontent.com.evil.test/a", "https://lh3.googleusercontent.com@evil.test/a", "https://user:pass@lh3.googleusercontent.com/a", "https://lh3.googleusercontent.com:444/a", "https://lh3.googleusercontent.com/a#fragment"] {
+            try check(GoogleAccountProfileLoader.pictureURL(value) == nil, "unsafe or unexpected photo URL rejected")
+        }
+        try check(GoogleAccountProfileLoader.pictureURL("https://lh3.googleusercontent.com/a/photo=s96-c") != nil,
+                  "Google's original HTTPS photo URL is kept without rewriting size parameters")
+        try check(GoogleAccountProfileLoader.decodeAvatar(Data("not an image".utf8)) == nil && GoogleAccountProfileLoader.decodeAvatar(Data(repeating: 0, count: GoogleAccountProfileLoader.imageByteLimit + 1)) == nil,
+                  "corrupt and oversized images fall back without decoding")
+        try check(GoogleAccountProfileLoader.displayName("\n\t") == nil && GoogleAccountProfileLoader.displayName(String(repeating: "a", count: 257)) == nil,
+                  "empty and oversized names do not enter the footer")
+    }
+
     static func testGoogleRESTDefault() async throws {
         let defaultsName = "google-rest-default-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: defaultsName)!

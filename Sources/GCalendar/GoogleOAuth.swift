@@ -95,7 +95,11 @@ struct GooglePKCE: Equatable {
 
 struct GoogleOAuthEndpoint {
     static let calendarManagementScope = "https://www.googleapis.com/auth/calendar.calendars"
-    static var requestedScopes: [String] { scopes + [calendarManagementScope] }
+    static let profileScope = "profile"
+    static func hasProfileScope(_ granted: [String]) -> Bool {
+        granted.contains(profileScope) || granted.contains("https://www.googleapis.com/auth/userinfo.profile")
+    }
+    static var requestedScopes: [String] { scopes + [calendarManagementScope, profileScope] }
     static let scopes = ["https://www.googleapis.com/auth/tasks", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "openid"]
     static func form(_ values: [String: String]) -> Data {
         // Form encoding differs from URL query: literal + must stay percent-encoded.
@@ -135,12 +139,17 @@ struct GoogleOAuthEndpoint {
         return object
     }
     static func subject(http: GoogleHTTPClient, token: String, deadline: Date = Date().addingTimeInterval(20)) throws -> String {
+        try userInfo(http: http, token: token, deadline: deadline).subject
+    }
+    static func userInfo(http: GoogleHTTPClient, token: String, deadline: Date = Date().addingTimeInterval(20)) throws -> GoogleUserInfo {
         var request = URLRequest(url: URL(string: "https://openidconnect.googleapis.com/v1/userinfo")!, timeoutInterval: max(0.001, deadline.timeIntervalSinceNow))
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         guard deadline.timeIntervalSinceNow > 0 else { throw GWSFailure.timedOut("Google OAuth") }
         let response = try http.send(request, outputLimit: 65_536, cancellation: nil)
-        guard response.statusCode == 200, let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any], let subject = object["sub"] as? String, !subject.isEmpty, subject.utf8.count <= 256 else { throw GoogleRESTFailure.authentication }
-        return subject
+        guard response.statusCode == 200, response.body.count <= 65_536,
+              let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any],
+              let subject = object["sub"] as? String, !subject.isEmpty, subject.utf8.count <= 255 else { throw GoogleRESTFailure.authentication }
+        return GoogleUserInfo(subject: subject, name: object["name"] as? String, picture: object["picture"] as? String)
     }
 }
 

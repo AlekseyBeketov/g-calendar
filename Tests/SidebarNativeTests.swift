@@ -179,6 +179,39 @@ struct SidebarNativeTests {
         host.cacheDisplay(in: host.bounds, to: bitmap)
         try! bitmap.representation(using: .png, properties: [:])!.write(to: evidence.appendingPathComponent("tasks-long-list.png"))
         window.close()
+
+        // Render the production avatar view with a synthetic image and its fallback.
+        let photo = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        photo.setFillColor(red: 0.1, green: 0.4, blue: 0.9, alpha: 1)
+        photo.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let image = NSImage(cgImage: photo.makeImage()!, size: NSSize(width: 64, height: 64))
+        for dark in [false, true] {
+            for hasPhoto in [false, true] {
+                let avatarWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 48, height: 48),
+                                            styleMask: [.borderless], backing: .buffered, defer: false)
+                avatarWindow.isReleasedWhenClosed = false
+                avatarWindow.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                let avatarHost = NSHostingView(rootView: GoogleAccountAvatar(avatar: hasPhoto ? image : nil)
+                    .padding(8).background(AppTheme.canvas))
+                avatarWindow.contentView = avatarHost
+                avatarHost.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                let pixels = avatarHost.bitmapImageRepForCachingDisplay(in: avatarHost.bounds)!
+                avatarHost.cacheDisplay(in: avatarHost.bounds, to: pixels)
+                try! pixels.representation(using: .png, properties: [:])!.write(to: evidence.appendingPathComponent("avatar-\(hasPhoto ? "photo" : "fallback")-\(dark ? "dark" : "light").png"))
+                let scale = CGFloat(pixels.pixelsWide) / 48
+                let center = pixels.colorAt(x: Int(24 * scale), y: Int(24 * scale))!.usingColorSpace(.sRGB)!
+                let corner = pixels.colorAt(x: Int(8 * scale), y: Int(8 * scale))!.usingColorSpace(.sRGB)!
+                let outside = pixels.colorAt(x: Int(2 * scale), y: Int(2 * scale))!.usingColorSpace(.sRGB)!
+                expect(!avatarWindow.isVisible, "avatar fixture remains offscreen")
+                expect(avatarHost.bounds.size == NSSize(width: 48, height: 48), "photo and fallback retain the same 32pt footprint")
+                expect(abs(corner.redComponent - outside.redComponent) < 0.03 && abs(corner.blueComponent - outside.blueComponent) < 0.03,
+                       "avatar is clipped to a circle in both appearances")
+                if hasPhoto { expect(center.blueComponent > center.redComponent + 0.5, "actual photo pixels reach the avatar view") }
+                avatarWindow.close()
+            }
+        }
         print("SIDEBAR_UI_ASSERTIONS=\(assertions)")
         print("SIDEBAR_EVIDENCE=\(evidence.path)")
     }

@@ -30,6 +30,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
   "$ROOT/Sources/GCalendar/GoogleRESTTransport.swift" \
   "$ROOT/Sources/GCalendar/GoogleOAuth.swift" \
+  "$ROOT/Sources/GCalendar/GoogleAccountProfile.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceTransport.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceSnapshotReducer.swift" \
   "$ROOT/Sources/GCalendar/Cache.swift" \

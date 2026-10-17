@@ -219,3 +219,8 @@ Implement without computer-use. Each feature receives a separate verified commit
 ## 28. Selected sidebar: Quiet macOS (2026-10-17)
 
 - [x] 28.1 Implement the owner-selected first sidebar concept for Calendar and Tasks: fixed navigation, compact scrolling sources, shared selection markers, independent calendar visibility and pinned account/settings status; verify native rendering, actions, resizing and rebuild the app. Offscreen sidebar: 183 assertions; invariant suite: 1145; task layout regression: 106; current-source app bundle rebuilt.
+
+
+## 29. Google account photo (2026-10-17)
+
+- [x] 29.1 Request optional OpenID Connect profile permission at explicit sign-in, load the active subject's name/photo in the background, preserve old credentials and system-avatar fallback, verify scope/security/thumbnail/UI fixtures, rebuild and push a separate main commit. Invariants: 1169; offscreen sidebar/avatar: 197; current-source app build and strict OpenSpec validation passed.

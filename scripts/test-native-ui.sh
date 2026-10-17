@@ -20,6 +20,7 @@ configure_swift_compiler "$BUILD_DIR"
   "$ROOT/Sources/GCalendar/GWSClient.swift" \
   "$ROOT/Sources/GCalendar/GoogleRESTTransport.swift" \
   "$ROOT/Sources/GCalendar/GoogleOAuth.swift" \
+  "$ROOT/Sources/GCalendar/GoogleAccountProfile.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceTransport.swift" \
   "$ROOT/Sources/GCalendar/MutationRecovery.swift" \
   "$ROOT/Sources/GCalendar/WorkspaceSnapshotReducer.swift" \
