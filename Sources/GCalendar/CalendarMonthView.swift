@@ -138,10 +138,6 @@ struct CalendarMonthView: View {
     }
 
     private func formatted(_ date: Date, template: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate(template)
-        return formatter.string(from: date)
+        CalendarDisplayFormatting.string(date, template: template, timeZone: timeZone)
     }
 }

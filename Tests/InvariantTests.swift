@@ -255,6 +255,7 @@ struct InvariantTests {
         }
         run("calendar-week-start-persistence-region-ranges-prefetch", testCalendarWeekStart)
         run("calendar-presentation-month-ranges-navigation-projection", testCalendarPresentation)
+        run("calendar-projection-reuse-and-invalidation", testCalendarProjectionReuse)
         run("calendar-writable-sort-and-default-selection", testCalendarNavigation)
         run("optional-event-summary", testOptionalEventSummary)
         run("automatic-google-reminder-planner", testAutomaticNotificationPlanner)
@@ -281,6 +282,7 @@ struct InvariantTests {
         run("notification-status-user-facing-copy", testNotificationStatusCopy)
         run("sync-failure-recovery-category", testSyncFailureState)
         run("local-task-projection-performance-baseline", testTaskProjectionBaseline)
+        run("large-board-row-shift-availability-budget", testTaskShiftAvailabilityBudget)
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
         run("calendar-time-grid-all-day-overlap-identity", testCalendarTimeGridLayout)
         run("calendar-timed-card-policy", testCalendarTimedCardPolicy)

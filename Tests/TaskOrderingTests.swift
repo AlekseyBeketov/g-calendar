@@ -386,3 +386,24 @@ extension InvariantTests {
         try check(adapter.snapshot().tasks.contains { $0.id == task.id }, "demo completed-delete preflight must preserve reopened task")
     }
 }
+
+
+extension InvariantTests {
+    static func testTaskShiftAvailabilityBudget() throws {
+        let tasks = (0..<4096).map { index in
+            GoogleTask(id: "task-\(index)", taskListID: "board", title: "Synthetic", notes: nil, due: nil,
+                       completed: false, deleted: false, updated: nil, position: String(format: "%06d", index))
+        }
+        let start = DispatchTime.now().uptimeNanoseconds
+        var allowed = 0
+        let availability = TaskOrdering.ShiftAvailability(tasks: tasks)
+        for task in tasks.prefix(128) {
+            if availability.canShift(task, direction: -1) { allowed += 1 }
+            if availability.canShift(task, direction: 1) { allowed += 1 }
+        }
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        print("PERF task_row_shift items=4096 rows=128 elapsed_ms=\(elapsed)")
+        try check(allowed == 255, "row movement availability retains first/last sibling boundaries")
+        try check(elapsed < 100, "movement availability for visible rows must not sort the whole board per row")
+    }
+}

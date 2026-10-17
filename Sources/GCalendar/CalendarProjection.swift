@@ -49,3 +49,31 @@ struct CalendarWorkspaceProjection: Equatable {
                                           rangeCovered: rangeCovered, hasSearch: hasSearch)
     }
 }
+
+
+// Owned by the main-actor workspace model. Invalidate whenever its snapshot changes.
+final class CalendarProjectionCache {
+    private struct Key: Equatable {
+        let range: DateRange
+        let isDayView: Bool
+        let visibleCalendarIDs: Set<String>?
+        let selectedTaskListID: String?
+        let searchText: String
+    }
+    private var cached: (Key, CalendarWorkspaceProjection)?
+    private(set) var buildCount = 0
+
+    func invalidate() { cached = nil }
+
+    func value(range: DateRange, isDayView: Bool, events: [CalendarEvent], tasks: [GoogleTask],
+               visibleCalendarIDs: Set<String>?, selectedTaskListID: String?, searchText: String) -> CalendarWorkspaceProjection {
+        let key = Key(range: range, isDayView: isDayView, visibleCalendarIDs: visibleCalendarIDs,
+                      selectedTaskListID: selectedTaskListID, searchText: searchText)
+        if let cached, cached.0 == key { return cached.1 }
+        let projection = CalendarWorkspaceProjection(range: range, isDayView: isDayView, events: events, tasks: tasks,
+            visibleCalendarIDs: visibleCalendarIDs, selectedTaskListID: selectedTaskListID, searchText: searchText)
+        buildCount += 1
+        cached = (key, projection)
+        return projection
+    }
+}

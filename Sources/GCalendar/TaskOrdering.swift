@@ -25,6 +25,28 @@ enum TaskOrdering {
         })
     }
 
+    struct ShiftAvailability {
+        private struct Group: Hashable { let list: String; let parent: String? }
+        private var positions: [TaskSelectionIdentity: (index: Int, count: Int)] = [:]
+
+        init(tasks: [GoogleTask]) {
+            let groups = Dictionary(grouping: tasks.filter { !$0.completed && !$0.deleted }) {
+                Group(list: $0.taskListID, parent: $0.parent)
+            }
+            for group in groups.values {
+                let ordered = TaskOrdering.siblingOrder(group)
+                for (index, task) in ordered.enumerated() {
+                    positions[task.selectionIdentity] = (index, ordered.count)
+                }
+            }
+        }
+
+        func canShift(_ task: GoogleTask, direction: Int) -> Bool {
+            guard !task.completed, !task.deleted, let position = positions[task.selectionIdentity] else { return false }
+            return (0..<position.count).contains(position.index + direction)
+        }
+    }
+
     static func previousForMove(_ task: GoogleTask, before target: GoogleTask, in tasks: [GoogleTask]) -> GoogleTask? {
         guard task.id != target.id, task.taskListID == target.taskListID, task.parent == target.parent,
               !task.completed, !target.completed, !task.deleted, !target.deleted else { return nil }

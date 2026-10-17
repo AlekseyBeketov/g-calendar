@@ -83,3 +83,28 @@ extension InvariantTests {
         try check(hidden.days.allSatisfy { $0.events.isEmpty && $0.tasks.isEmpty } && hidden.undatedTasks.isEmpty, "month honors calendar visibility and task-list scope")
     }
 }
+
+
+extension InvariantTests {
+    static func testCalendarProjectionReuse() throws {
+        let range = try DateRange(start: Date(timeIntervalSince1970: 0), endExclusive: Date(timeIntervalSince1970: 42 * 86400))
+        let cache = CalendarProjectionCache()
+        func projection(_ search: String = "", calendars: Set<String>? = nil) -> CalendarWorkspaceProjection {
+            cache.value(range: range, isDayView: false, events: [], tasks: [], visibleCalendarIDs: calendars,
+                        selectedTaskListID: nil, searchText: search)
+        }
+        let original = projection()
+        for _ in 0..<100 { try check(projection() == original, "geometry updates reuse calendar content") }
+        try check(cache.buildCount == 1, "scroll/layout must not rebuild an unchanged month")
+        _ = projection("changed")
+        _ = projection("changed", calendars: ["calendar"])
+        try check(cache.buildCount == 3, "search and calendar visibility invalidate projection")
+        cache.invalidate()
+        _ = projection("changed", calendars: ["calendar"])
+        try check(cache.buildCount == 4, "snapshot replacement invalidates projection")
+        let date = Date(timeIntervalSince1970: 0)
+        let utc = CalendarDisplayFormatting.string(date, template: "HHmm", timeZone: TimeZone(secondsFromGMT: 0)!, locale: Locale(identifier: "en_US_POSIX"))
+        let shifted = CalendarDisplayFormatting.string(date, template: "HHmm", timeZone: TimeZone(secondsFromGMT: 10800)!, locale: Locale(identifier: "en_US_POSIX"))
+        try check(utc == "00:00" && shifted == "03:00", "formatter cache isolates timezone and preserves 24-hour labels")
+    }
+}

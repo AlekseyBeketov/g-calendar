@@ -11,7 +11,9 @@ final class WorkspaceViewModel: ObservableObject {
     typealias SyncState = WorkspaceSyncState
     enum Appearance: String, CaseIterable, Identifiable { case system = "Система", light = "Светлая", dark = "Тёмная"; var id: String { rawValue } }
 
-    @Published var snapshot: WorkspaceSnapshot
+    @Published var snapshot: WorkspaceSnapshot { didSet { taskShiftAvailability = nil; calendarProjectionCache.invalidate() } }
+    private var taskShiftAvailability: TaskOrdering.ShiftAvailability?
+    private let calendarProjectionCache = CalendarProjectionCache()
     @Published var section: Section = .calendar
     @Published var calendarMode: CalendarMode = .week { willSet { if newValue != calendarMode { DemoPerformanceProbe.shared.begin(.range) } } }
     @Published var taskFilter: TaskFilter = .all { willSet { if newValue != taskFilter { DemoPerformanceProbe.shared.begin(.filter) } } }
@@ -250,7 +252,7 @@ final class WorkspaceViewModel: ObservableObject {
                 && (!self.transportSettingsBlocked || self.googleReauthenticationAllowed)
         }
     }
-    var transportSettingsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || mutationJournal.isBlocked }
+    var transportSettingsBlocked: Bool { mutationInFlight || mutationJournalBusy || mutationRecoveryProblem != nil || pendingMutation != nil }
     var googleReauthenticationAllowed: Bool { launchMode == .normal && pendingMutation != nil && !mutationInFlight && !mutationJournalBusy && googleTransportSettings.canReauthenticate }
     private var mutationAccessBlocked: Bool { transportContext?.recoveryOnly == true || googleTransportSettings.requiresRestart || googleTransportSettings.signingIn || transportSettingsBlocked }
     var mutationsBlocked: Bool { mutationAccessBlocked || completedDeletionInProgress }
@@ -299,9 +301,8 @@ final class WorkspaceViewModel: ObservableObject {
 
     func canShiftTask(_ task: GoogleTask, direction: Int) -> Bool {
         guard !mutationsBlocked, taskSortMode(for: task.taskListID) == .manual, !task.completed else { return false }
-        let siblings = TaskOrdering.siblings(task, in: snapshot.tasks)
-        guard let index = siblings.firstIndex(where: { $0.id == task.id }) else { return false }
-        return siblings.indices.contains(index + direction)
+        if taskShiftAvailability == nil { taskShiftAvailability = TaskOrdering.ShiftAvailability(tasks: snapshot.tasks) }
+        return taskShiftAvailability?.canShift(task, direction: direction) ?? false
     }
 
     func shiftTask(_ task: GoogleTask, direction: Int) {
@@ -892,6 +893,12 @@ final class WorkspaceViewModel: ObservableObject {
             guard let pending = review.pending, pending.operation == .taskMove, let sourceID = pending.sourceTaskID else { return [] }
             return [sourceID]
         }
+    }
+
+    var calendarProjection: CalendarWorkspaceProjection {
+        calendarProjectionCache.value(range: currentRange(), isDayView: calendarMode == .day,
+            events: snapshot.events, tasks: snapshot.tasks, visibleCalendarIDs: visibleCalendarIDs,
+            selectedTaskListID: selectedTaskListID, searchText: searchText)
     }
 
     var canCreateCalendars: Bool {

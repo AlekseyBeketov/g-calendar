@@ -7,11 +7,7 @@ struct CalendarWorkspaceView: View {
     @AppStorage("calendarUndatedTasksCollapsed") private var undatedTasksCollapsed = true
 
     var body: some View {
-        let range = model.currentRange()
-        let projection = CalendarWorkspaceProjection(range: range, isDayView: model.calendarMode == .day,
-                                                     events: model.snapshot.events, tasks: model.snapshot.tasks,
-                                                     visibleCalendarIDs: model.visibleCalendarIDs, selectedTaskListID: model.selectedTaskListID,
-                                                     searchText: model.searchText)
+        let projection = model.calendarProjection
         let visibleDays = projection.days.map(\.day)
         let contentState = projection.contentState(rangeCovered: model.calendarRangeIsCovered, hasSearch: !model.searchText.isEmpty)
         VStack(spacing: 16) {

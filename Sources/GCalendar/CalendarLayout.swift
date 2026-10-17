@@ -153,11 +153,9 @@ enum CalendarEventAccessibilityText {
     static func timeDescription(for event: CalendarEvent, fallbackTimeZone: TimeZone) -> String {
         guard !event.isAllDay, let start = event.start.instant, let end = event.end.instant else { return "весь день" }
         let zone = event.start.timeZoneID.flatMap(TimeZone.init(identifier:)) ?? fallbackTimeZone
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = zone
-        formatter.dateFormat = "HH:mm"
-        return "\(formatter.string(from: start))–\(formatter.string(from: end))"
+        let startText = CalendarDisplayFormatting.string(start, template: "HHmm", timeZone: zone, locale: Locale(identifier: "en_US_POSIX"))
+        let endText = CalendarDisplayFormatting.string(end, template: "HHmm", timeZone: zone, locale: Locale(identifier: "en_US_POSIX"))
+        return "\(startText)–\(endText)"
     }
 }
 
@@ -312,4 +310,31 @@ struct CalendarEventIdentity: Codable, Hashable {
     let eventID: String
 
     var stableKey: String { "\(calendarID.utf8.count):\(calendarID)\(eventID.utf8.count):\(eventID)" }
+}
+
+
+// Small bounded formatter cache, shared by month cells and accessibility text.
+// Foundation formatting stays serialized; locale/timezone form part of every key.
+enum CalendarDisplayFormatting {
+    private static let lock = NSLock()
+    private static let formatters: NSCache<NSString, DateFormatter> = {
+        let cache = NSCache<NSString, DateFormatter>()
+        cache.countLimit = 32
+        return cache
+    }()
+
+    static func string(_ date: Date, template: String, timeZone: TimeZone, locale: Locale = .current) -> String {
+        lock.lock(); defer { lock.unlock() }
+        let key = (locale.identifier + "|" + timeZone.identifier + "|" + template) as NSString
+        let formatter: DateFormatter
+        if let cached = formatters.object(forKey: key) { formatter = cached }
+        else {
+            formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.setLocalizedDateFormatFromTemplate(template)
+            formatters.setObject(formatter, forKey: key)
+        }
+        return formatter.string(from: date)
+    }
 }
