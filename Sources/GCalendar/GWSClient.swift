@@ -61,6 +61,7 @@ enum GWSFailure: Error, Equatable, LocalizedError {
 enum GWSOperation: String, Equatable, Codable {
     case calendarList = "calendar.calendarList.list"
     case calendarGet = "calendar.calendarList.get"
+    case calendarInsert = "calendar.calendars.insert"
     case eventsList = "calendar.events.list"
     case eventGet = "calendar.events.get"
     case taskListsList = "tasks.tasklists.list"
@@ -164,6 +165,15 @@ struct GWSCommandFactory {
     func eventDelete(event: CalendarEvent, calendar: CalendarInfo, authorization: MutationAuthorization) throws -> ProcessInvocation {
         guard authorization == .confirmedDelete, calendar.isWritable, !event.recurring, event.calendarID == calendar.id else { throw GWSFailure.forbiddenOperation }
         return try mutation(.eventDelete, command: ["calendar", "events", "delete"], params: ["calendarId": calendar.id, "eventId": event.id])
+    }
+
+    func calendarInsert(title: String, timeZoneID: String, authorization: MutationAuthorization) throws -> ProcessInvocation {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard authorization == .userSave, !title.isEmpty, TimeZone(identifier: timeZoneID) != nil else {
+            throw GWSFailure.forbiddenOperation
+        }
+        return try mutation(.calendarInsert, command: ["calendar", "calendars", "insert"], params: [:],
+                            body: ["summary": title, "timeZone": timeZoneID])
     }
 
     func taskListInsert(title: String, authorization: MutationAuthorization) throws -> ProcessInvocation {

@@ -14,6 +14,7 @@ final class ViewLocalState: ObservableObject {
     @Published var showSettings = false
     @Published var searchFocused = false
     @Published var showTaskLists = false
+    @Published var showCalendars = false
     @Published var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @Published var showingEventEditor = false
     @Published var selectedEvent: CalendarEvent?

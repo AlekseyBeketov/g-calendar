@@ -894,6 +894,11 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
+    var canCreateCalendars: Bool {
+        launchMode == .demo || transportContext?.kind == .gws ||
+            transportContext?.profile?.credential.grantedScopes.contains(GoogleOAuthEndpoint.calendarManagementScope) == true
+    }
+
     func refreshTasksAfterSave(task: GoogleTask? = nil, taskListID: String? = nil, sourceTaskListID: String? = nil) {
         guard launchMode == .normal else { refresh(); return }
         guard let listID = task?.taskListID ?? taskListID else { requestNormalRefresh(scope: .tasks, force: true); return }
@@ -910,6 +915,7 @@ final class WorkspaceViewModel: ObservableObject {
         case .taskVerified:
             let lists = requiredVerifiedTaskListIDs.union(WorkspaceSnapshotReducer.affectedTaskListIDs(invocation: invocation, result: result))
             requestTargetedRefresh(taskListIDs: lists)
+        case .calendarVerified: requestNormalRefresh(scope: .calendarRange, force: true)
         case .taskListVerified: requestTaskListStructureRefresh()
         case .resourceDeleted:
             switch invocation.operation {

@@ -70,6 +70,11 @@ final class DemoWorkspaceAdapter {
 
         var updated = snapshot()
         switch invocation.operation {
+        case .calendarInsert:
+            let body = try Self.dictionaryArgument("--json", in: invocation)
+            let title = try Self.requiredTitle(in: body, key: "summary")
+            updated.calendars.append(CalendarInfo(id: "demo-calendar-" + UUID().uuidString, title: title,
+                accessRole: "owner", timeZoneID: body["timeZone"] as? String, colorHex: nil))
         case .eventInsert:
             let parameters = try Self.dictionaryArgument("--params", in: invocation)
             let body = try Self.dictionaryArgument("--json", in: invocation)
@@ -216,6 +221,7 @@ final class DemoWorkspaceAdapter {
 
     private static func commandPrefix(for operation: GWSOperation) -> [String]? {
         switch operation {
+        case .calendarInsert: return ["calendar", "calendars", "insert"]
         case .eventInsert: return ["calendar", "events", "insert"]
         case .eventPatch: return ["calendar", "events", "patch"]
         case .eventDelete: return ["calendar", "events", "delete"]

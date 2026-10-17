@@ -31,6 +31,9 @@ enum WorkspaceSnapshotReducer {
             updated = CalendarRangeCache.applying(event: event, identity: CalendarEventIdentity(calendarID: event.calendarID, eventID: event.id), to: updated)
             if let index = updated.events.firstIndex(where: { $0.calendarID == event.calendarID && $0.id == event.id }) { updated.events[index] = event }
             else { updated.events.append(event) }
+        case .calendarVerified(let calendar):
+            if let index = updated.calendars.firstIndex(where: { $0.id == calendar.id }) { updated.calendars[index] = calendar }
+            else { updated.calendars.append(calendar) }
         case .taskListVerified(let list):
             if let index = updated.taskLists.firstIndex(where: { $0.id == list.id }) { updated.taskLists[index] = list }
             else { updated.taskLists.append(list) }

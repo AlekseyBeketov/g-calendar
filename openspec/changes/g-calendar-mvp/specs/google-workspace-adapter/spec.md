@@ -136,3 +136,15 @@ Only the separately owner-authorized acceptance run may create or mutate live Go
 #### Scenario: Avoid duplicate test writes
 - **WHEN** the workflow starts or resumes a run
 - **THEN** it checks the private run ledger and exact test marker/ID before any subsequent write and never broad-cleans by title/prefix
+
+### Requirement: Explicit secondary calendar creation
+The application SHALL create a secondary calendar only after an explicit Save action, using calendars.insert with a trimmed summary and valid IANA time zone. Existing credentials retain their original event/task access; a new sign-in requests calendar.calendars for this feature. The returned ID SHALL be durably retained and verified by exact calendarList.get before installing the calendar locally. An uncertain create SHALL never be automatically repeated.
+
+#### Scenario: Create a calendar
+- **WHEN** a user with calendar management permission saves a valid title
+- **THEN** one POST creates the calendar and an exact GET verifies its owner role, title and timezone before success
+- **AND** cancellation or missing permission sends no write
+
+#### Scenario: Existing account needs permission
+- **WHEN** old credentials lack calendar.calendars
+- **THEN** the creation form explains reauthentication while ordinary calendar and task functions remain available

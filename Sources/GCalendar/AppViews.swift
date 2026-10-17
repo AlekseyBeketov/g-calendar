@@ -28,6 +28,7 @@ struct RootView: View {
         .tint(AppTheme.accent)
         .sheet(isPresented: $local.showSettings) { SettingsView() }
         .sheet(isPresented: $local.showTaskLists) { TaskListManagerView() }
+        .sheet(isPresented: $local.showCalendars) { CalendarCreatorView() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.refreshMutationRecoveryState()
             model.updateLocalDate()
@@ -50,7 +51,7 @@ struct RootView: View {
 
     private var workspace: some View {
         NavigationSplitView(columnVisibility: $local.columnVisibility) {
-            SidebarView(showTaskLists: $local.showTaskLists)
+            SidebarView(showTaskLists: $local.showTaskLists, showCalendars: $local.showCalendars)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 245, max: 310)
         } detail: {
             GeometryReader { viewport in
@@ -106,6 +107,7 @@ struct RootView: View {
 private struct SidebarView: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     @Binding var showTaskLists: Bool
+    @Binding var showCalendars: Bool
 
     var body: some View {
         List {
@@ -130,7 +132,7 @@ private struct SidebarView: View {
                 }
             }
             if model.section == .calendar {
-                Section("Календари") {
+                Section {
                     ForEach(model.sortedCalendars) { calendar in
                         HStack(spacing: 4) {
                             Button { model.selectedCalendarID = calendar.id } label: {
@@ -159,6 +161,15 @@ private struct SidebarView: View {
                             .controlSize(.small)
                             .accessibilityLabel("Показывать календарь \(calendar.title)")
                         }
+                    }
+                } header: {
+                    HStack {
+                        Text("Календари")
+                        Spacer()
+                        Button { showCalendars = true } label: {
+                            Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle())
+                        }.pointingHandCursor().buttonStyle(.plain)
+                        .accessibilityLabel("Создать календарь").help("Создать календарь Google")
                     }
                 }
             } else {

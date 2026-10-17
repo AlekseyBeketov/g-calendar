@@ -94,6 +94,8 @@ struct GooglePKCE: Equatable {
 }
 
 struct GoogleOAuthEndpoint {
+    static let calendarManagementScope = "https://www.googleapis.com/auth/calendar.calendars"
+    static var requestedScopes: [String] { scopes + [calendarManagementScope] }
     static let scopes = ["https://www.googleapis.com/auth/tasks", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "openid"]
     static func form(_ values: [String: String]) -> Data {
         // Form encoding differs from URL query: literal + must stay percent-encoded.
@@ -102,7 +104,7 @@ struct GoogleOAuthEndpoint {
     }
     static func authorizationURL(config: GoogleOAuthClientConfiguration, pkce: GooglePKCE, redirect: URL) -> URL {
         var url = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
-        let values = ["client_id": config.clientID, "redirect_uri": redirect.absoluteString, "response_type": "code", "scope": scopes.joined(separator: " "), "code_challenge": pkce.challenge, "code_challenge_method": "S256", "state": pkce.state, "access_type": "offline", "prompt": "consent"]
+        let values = ["client_id": config.clientID, "redirect_uri": redirect.absoluteString, "response_type": "code", "scope": requestedScopes.joined(separator: " "), "code_challenge": pkce.challenge, "code_challenge_method": "S256", "state": pkce.state, "access_type": "offline", "prompt": "consent"]
         url.queryItems = values.keys.sorted().map { URLQueryItem(name: $0, value: values[$0]) }
         return url.url!
     }

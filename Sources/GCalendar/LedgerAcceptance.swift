@@ -171,7 +171,7 @@ final class SyntheticLedgerAcceptanceRunner: GWSProcessRunning, @unchecked Senda
                                     parameters: ["tasklist": manifest.taskListID], allowedBodyKeys: [])
             try requireMarkedTaskList()
             return try base.run(invocation)
-        case .calendarList, .eventsList, .taskListsList, .tasksList,
+        case .calendarInsert, .calendarList, .eventsList, .taskListsList, .tasksList,
              .eventInsert, .taskListInsert, .taskInsert, .taskMove, .taskReorder:
             throw GWSFailure.forbiddenOperation
         }

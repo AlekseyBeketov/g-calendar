@@ -244,6 +244,7 @@ struct InvariantTests {
             catch { Darwin.exit(1) }
         }
         await runAsync("login-item-status-register-error-and-demo-isolation", testLoginItems)
+        run("google-calendar-create-verified-and-recoverable", testGoogleCalendarCreation)
         run("google-rest-allowlisted-http-retry-cancel-core", testGoogleRESTCore)
         run("google-oauth-pkce-callback-singleflight-context-isolation", testGoogleOAuthIsolation)
         await runAsync("google-first-run-defaults-to-rest-and-keeps-gws-opt-in", testGoogleRESTDefault)

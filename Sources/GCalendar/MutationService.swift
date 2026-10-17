@@ -18,6 +18,13 @@ struct GWSMutationService {
         let params = dictionaryArgument(named: "--params", in: invocation) ?? [:]
         let body = dictionaryArgument(named: "--json", in: invocation) ?? [:]
         switch invocation.operation {
+        case .calendarInsert:
+            guard let reader, let resourceID = resourceID(from: response) else { throw GWSFailure.mutationNotVerified }
+            let calendar = try reader.readCalendar(id: resourceID)
+            guard calendar.id == resourceID, calendar.accessRole == "owner",
+                  calendar.title == body["summary"] as? String,
+                  calendar.timeZoneID == body["timeZone"] as? String else { throw GWSFailure.mutationNotVerified }
+            return .calendarVerified(calendar)
         case .eventInsert:
             guard let reader, let calendarID = params["calendarId"] as? String,
                   let resourceID = resourceID(from: response) else { throw GWSFailure.mutationNotVerified }
@@ -168,6 +175,7 @@ struct GWSMutationService {
 }
 
 enum GWSMutationResult: Equatable {
+    case calendarVerified(CalendarInfo)
     case eventVerified(CalendarEvent)
     case taskListVerified(TaskList)
     case taskVerified(GoogleTask)
@@ -175,6 +183,6 @@ enum GWSMutationResult: Equatable {
     case requestAccepted
 
     var isReadBackVerified: Bool {
-        switch self { case .eventVerified, .taskListVerified, .taskVerified, .resourceDeleted: return true; case .requestAccepted: return false }
+        switch self { case .calendarVerified, .eventVerified, .taskListVerified, .taskVerified, .resourceDeleted: return true; case .requestAccepted: return false }
     }
 }

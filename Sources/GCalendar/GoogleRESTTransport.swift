@@ -68,6 +68,8 @@ struct GoogleRESTRequestBuilder {
             pathKeys.insert(key); return value
         }
         switch op {
+        case .calendarInsert:
+            path = ["calendars"]
         case .calendarList, .calendarGet:
             path = ["users", "me", "calendarList"]
             allowed = op == .calendarList ? ["pageToken", "maxResults"] : ["calendarId"]
@@ -90,7 +92,7 @@ struct GoogleRESTRequestBuilder {
             if op == .taskReorder { path += ["move"]; allowed.formUnion(["previous", "parent"]) }
         }
         guard Set(params.keys).isSubset(of: allowed) else { throw GWSFailure.forbiddenOperation }
-        if [.eventInsert, .taskListInsert, .taskInsert, .taskMove, .taskReorder].contains(op) { method = "POST" }
+        if [.calendarInsert, .eventInsert, .taskListInsert, .taskInsert, .taskMove, .taskReorder].contains(op) { method = "POST" }
         if [.eventPatch, .taskListPatch, .taskPatch].contains(op) { method = "PATCH" }
         if [.eventDelete, .taskListDelete, .taskDelete].contains(op) { method = "DELETE" }
         let expectsBody = method == "PATCH" || (method == "POST" && op != .taskMove && op != .taskReorder)
@@ -99,6 +101,7 @@ struct GoogleRESTRequestBuilder {
             let bodyKeys: Set<String>
             switch op {
             case .eventInsert, .eventPatch: bodyKeys = ["summary", "description", "location", "start", "end"]
+            case .calendarInsert: bodyKeys = ["summary", "timeZone"]
             case .taskListInsert, .taskListPatch: bodyKeys = ["title"]
             case .taskInsert, .taskPatch: bodyKeys = ["title", "notes", "due", "status"]
             default: throw GWSFailure.forbiddenOperation

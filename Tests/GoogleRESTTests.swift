@@ -312,3 +312,44 @@ extension InvariantTests {
         try check(result.3, "native callback wait ends promptly after cancellation")
     }
 }
+
+
+extension InvariantTests {
+    static func testGoogleCalendarCreation() throws {
+        var factory = GWSCommandFactory.googleREST()
+        factory.contextIdentity = "synthetic-calendar-profile"
+        let invocation = try factory.calendarInsert(title: "  Synthetic calendar  ", timeZoneID: "UTC", authorization: .userSave)
+        let request = try GoogleRESTRequestBuilder().build(invocation)
+        try check(request.httpMethod == "POST" && request.url?.path == "/calendar/v3/calendars", "calendar creation uses Calendars, not CalendarList")
+        let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: String]
+        try check(body == ["summary": "Synthetic calendar", "timeZone": "UTC"], "creation sends only trimmed title and timezone")
+        for authorization in [MutationAuthorization.cancelled, .confirmedDelete, .userCompletionToggle] {
+            do { _ = try factory.calendarInsert(title: "Synthetic", timeZoneID: "UTC", authorization: authorization)
+                throw TestFailure(description: "calendar creation bypassed Save")
+            } catch GWSFailure.forbiddenOperation { assertions += 1 }
+        }
+        let response = Data(#"{"id":"synthetic-calendar"}"#.utf8)
+        let calendarData = Data(#"{"id":"synthetic-calendar","summary":"Synthetic calendar","accessRole":"owner","timeZone":"UTC"}"#.utf8)
+        let runner = FakeProcessRunner { call in
+            if call.operation == .calendarInsert { return ProcessResult(exitCode: 0, stdout: response, stderr: Data()) }
+            guard call.operation == .calendarGet else { throw GWSFailure.forbiddenOperation }
+            return ProcessResult(exitCode: 0, stdout: calendarData, stderr: Data())
+        }
+        let journal = MutationJournal()
+        let reader = GWSReadClient(factory: factory, runner: runner)
+        let result = try RecoverableMutationService(runner: runner, journal: journal).perform(invocation, reader: reader)
+        let snapshot = try WorkspaceSnapshotReducer.applying(invocation: invocation, result: result, to: .empty)
+        try check(snapshot.calendars.count == 1 && snapshot.calendars[0].title == "Synthetic calendar", "verified created calendar appears locally")
+        try check(!journal.isBlocked && runner.invocations.map(\.operation) == [.calendarInsert, .calendarGet], "creation is written once and verified by exact ID")
+        let mismatch = FakeProcessRunner { _ in ProcessResult(exitCode: 0, stdout: Data(#"{"id":"synthetic-calendar","summary":"Wrong","accessRole":"owner","timeZone":"UTC"}"#.utf8), stderr: Data()) }
+        do { _ = try GWSMutationService(runner: mismatch).verifyAccepted(invocation, response: response, reader: GWSReadClient(factory: factory, runner: mismatch))
+            throw TestFailure(description: "mismatched calendar passed read-back")
+        } catch GWSFailure.mutationNotVerified { assertions += 1 }
+        let pendingID = try journal.begin(invocation)
+        try journal.capture(response, expectedID: pendingID)
+        let pending = journal.pending!
+        try check(pending.resourceID == "synthetic-calendar", "created calendar identity survives recovery journal")
+        try journal.clear(expectedID: pendingID)
+        try check(!GoogleOAuthEndpoint.scopes.contains(GoogleOAuthEndpoint.calendarManagementScope) && GoogleOAuthEndpoint.requestedScopes.contains(GoogleOAuthEndpoint.calendarManagementScope), "old credentials retain base features while new sign-in requests calendar management")
+    }
+}

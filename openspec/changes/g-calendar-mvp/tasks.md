@@ -205,3 +205,12 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 26.5 Builds 3/4: give icon artwork its own resource filename, renew only the current app registration, verify positive/negative bundle fixtures and request acceptance using a visibly build-labeled test banner. Visible icon acceptance is tracked in 26.4.
 
 - [x] 26.6 Reproduce corrupt legacy ICNS sizes, rebuild them with the native encoder and guard all ten representations against the approved raster master.
+
+## 27. Workspace follow-up (2026-10-17)
+
+- [x] 27.1 Create secondary Google calendars with explicit Save, scope upgrade and exact read-back; inspect edit/delete API limitations.
+- [ ] 27.2 Reduce large task list and month-calendar scroll work with reproducible synthetic checks.
+- [ ] 27.3 Preserve event duration when changed start invalidates end; clarify validation text.
+- [ ] 27.4 Fix save hangs and add bounded local seven-day diagnostics with settings and cleanup.
+- [ ] 27.5 Match calendar search inset to task search.
+- [ ] 27.6 Produce five sidebar image concepts and keep them in local plans pending owner selection.
