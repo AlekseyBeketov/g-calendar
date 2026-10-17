@@ -194,3 +194,20 @@ While the application process is running, the currently visible calendar range M
 #### Scenario: Return from sleep with stale calendar data
 - **WHEN** the app becomes active or wakes and the visible range is at least five minutes old
 - **THEN** it retains cached events while starting one background revalidation
+
+
+### Requirement: Quiet macOS sidebar
+The workspace MUST use the owner-selected Quiet macOS sidebar in both Calendar and Tasks. Navigation and the account/settings footer MUST stay fixed while source rows scroll independently. Selected navigation MUST have an accent icon and rounded highlight; the selected source MUST have a subtle full-row highlight and a thin leading accent marker. Calendar colours MUST preserve Google's values. Source titles MUST truncate within the panel with complete accessible labels and help. The sidebar MUST retain native split-view resizing/collapse and Light/Dark/System appearance, with usable controls at widths from 205 to 310 points.
+
+#### Scenario: Select and hide calendars independently
+- **WHEN** the user selects a calendar or changes its visibility checkbox
+- **THEN** selection and visibility remain independent, read-only calendars retain their lock, and the selection highlight covers the row without combining the two actions
+
+#### Scenario: Scroll a long list of sources
+- **WHEN** a user scrolls many calendars or task lists
+- **THEN** every source remains reachable while section navigation, the source-management action and the account/settings footer remain visible
+
+#### Scenario: Open settings from the account footer
+- **WHEN** the user activates the footer
+- **THEN** the existing settings sheet opens, with no new account switch or Google mutation
+- **AND** its status reflects synchronization, offline/error, saving or pending verification rather than claiming synchronized data prematurely

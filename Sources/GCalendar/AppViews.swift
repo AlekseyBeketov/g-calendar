@@ -51,7 +51,8 @@ struct RootView: View {
 
     private var workspace: some View {
         NavigationSplitView(columnVisibility: $local.columnVisibility) {
-            SidebarView(showTaskLists: $local.showTaskLists, showCalendars: $local.showCalendars)
+            WorkspaceSidebarView(showTaskLists: $local.showTaskLists, showCalendars: $local.showCalendars,
+                                 openSettings: { local.showSettings = true })
                 .navigationSplitViewColumnWidth(min: 205, ideal: 245, max: 310)
         } detail: {
             GeometryReader { viewport in
@@ -102,130 +103,6 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
     }
-}
-
-private struct SidebarView: View {
-    @EnvironmentObject private var model: WorkspaceViewModel
-    @Binding var showTaskLists: Bool
-    @Binding var showCalendars: Bool
-
-    var body: some View {
-        List {
-            Section("Пространство") {
-                ForEach(WorkspaceViewModel.Section.allCases, id: \.self) { section in
-                    Button {
-                        model.setSection(section)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: sectionSymbol(section))
-                            Text(section.rawValue)
-                        }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .frame(minHeight: 36)
-                            .contentShape(.interaction, Rectangle())
-                            .background(model.section == section ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                    }.pointingHandCursor()
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier(section == .tasks ? "workspace-section-tasks" : "workspace-section-calendar")
-                    .accessibilityAddTraits(model.section == section ? .isSelected : [])
-                }
-            }
-            if model.section == .calendar {
-                Section {
-                    ForEach(model.sortedCalendars) { calendar in
-                        HStack(spacing: 4) {
-                            Button { model.selectedCalendarID = calendar.id } label: {
-                                HStack(spacing: 8) {
-                                    Circle().fill(Color(hex: calendar.colorHex) ?? AppTheme.event).frame(width: 9, height: 9)
-                                    Text(calendar.title).lineLimit(1)
-                                    Spacer(minLength: 2)
-                                    if !calendar.isWritable { Image(systemName: "lock.fill").foregroundStyle(AppTheme.textSecondary).help("Google предоставляет только просмотр этого календаря. Изменение событий недоступно и в Google Calendar.") }
-                                }
-                                .padding(.horizontal, 8)
-                                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-                                .contentShape(.interaction, Rectangle())
-                                .background(model.selectedCalendarID == calendar.id ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                            }.pointingHandCursor()
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Выбрать календарь: \(calendar.title), \(calendar.isWritable ? "доступна запись" : "только просмотр")")
-                            .accessibilityAddTraits(model.selectedCalendarID == calendar.id ? .isSelected : [])
-                            .help("Выбрать календарь как контекст создания событий")
-
-                            Toggle("Показывать календарь \(calendar.title)", isOn: Binding(
-                                get: { model.isCalendarVisible(calendar.id) },
-                                set: { model.setCalendarVisible(calendar.id, isVisible: $0) }
-                            )).pointingHandCursor()
-                            .labelsHidden()
-                            .toggleStyle(.checkbox)
-                            .controlSize(.small)
-                            .accessibilityLabel("Показывать календарь \(calendar.title)")
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Календари")
-                        Spacer()
-                        Button { showCalendars = true } label: {
-                            Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle())
-                        }.pointingHandCursor().buttonStyle(.plain)
-                        .accessibilityLabel("Создать календарь").help("Создать календарь Google")
-                    }
-                }
-            } else {
-                Section {
-                    Button { model.selectedTaskListID = nil } label: {
-                        Label("Все доски", systemImage: "square.stack")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 8).frame(minHeight: 36)
-                            .contentShape(.interaction, Rectangle())
-                            .background(model.selectedTaskListID == nil ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                    }.pointingHandCursor().buttonStyle(.plain)
-                    .accessibilityIdentifier("sidebar-all-task-boards")
-                    .accessibilityAddTraits(model.selectedTaskListID == nil ? .isSelected : [])
-                    ForEach(model.snapshot.taskLists) { list in
-                        Button { model.selectedTaskListID = list.id } label: {
-                            Label(list.title, systemImage: "list.bullet")
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .frame(minHeight: 36)
-                                .contentShape(.interaction, Rectangle())
-                                .background(model.selectedTaskListID == list.id ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                        }.pointingHandCursor()
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("sidebar-task-list-option")
-                        .accessibilityAddTraits(model.selectedTaskListID == list.id ? .isSelected : [])
-                        .contextMenu {
-                            Button("Управлять списками…", systemImage: "slider.horizontal.3") { showTaskLists = true }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Списки задач").accessibilityIdentifier("sidebar-task-list-selector")
-                        Spacer()
-                        Button { showTaskLists = true } label: { Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle()) }.pointingHandCursor().buttonStyle(.plain).accessibilityLabel("Управлять списками задач").help("Создать и управлять списками")
-                    }
-                }
-
-            }
-        }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.surface)
-        .foregroundStyle(AppTheme.textPrimary)
-        .accessibilityIdentifier("workspace-sidebar")
-        .navigationTitle("g-calendar")
-
-    }
-
-    private func sectionSymbol(_ section: WorkspaceViewModel.Section) -> String {
-        switch section {
-        case .calendar: return "calendar"
-        case .tasks: return "checklist"
-        }
-    }
-
 }
 
 struct SyncStatusBar: View {

@@ -213,4 +213,9 @@ Implement without computer-use. Each feature receives a separate verified commit
 - [x] 27.3 Preserve event duration when changed start invalidates end; clarify validation text.
 - [x] 27.4 Fix save hangs and add bounded local seven-day diagnostics with settings and cleanup.
 - [x] 27.5 Match calendar search inset to task search.
-- [ ] 27.6 Produce five sidebar image concepts and keep them in local plans pending owner selection.
+- [x] 27.6 Produce five sidebar image concepts and keep them in local plans pending owner selection.
+
+
+## 28. Selected sidebar: Quiet macOS (2026-10-17)
+
+- [x] 28.1 Implement the owner-selected first sidebar concept for Calendar and Tasks: fixed navigation, compact scrolling sources, shared selection markers, independent calendar visibility and pinned account/settings status; verify native rendering, actions, resizing and rebuild the app. Offscreen sidebar: 183 assertions; invariant suite: 1145; task layout regression: 106; current-source app bundle rebuilt.
