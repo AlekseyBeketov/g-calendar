@@ -299,8 +299,8 @@ struct EventEditorView: View {
                 if canEdit {
                     EditorField(title: "Название") { TextField("Название события", text: $local.title).textFieldStyle(.roundedBorder).focused($titleFocused) }
                     Toggle("Весь день", isOn: $local.allDay).pointingHandCursor()
-                    DatePicker("Начало", selection: $local.start, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute])
-                    DatePicker(local.allDay ? "Последний день (включительно)" : "Окончание", selection: $local.end, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute])
+                    DatePicker("Начало", selection: startBinding, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute]).environment(\.timeZone, zone)
+                    DatePicker(local.allDay ? "Последний день (включительно)" : "Окончание", selection: $local.end, displayedComponents: local.allDay ? [.date] : [.date, .hourAndMinute]).environment(\.timeZone, zone)
                     Picker("Часовой пояс", selection: $local.timeZoneID) {
                         ForEach(timeZoneChoices, id: \.self) { id in Text(id).tag(id) }
                     }.pointingHandCursor()
@@ -347,6 +347,14 @@ struct EventEditorView: View {
         } message: { Text(model.launchMode == .demo ? "Будет удалено только тестовое событие в демо-режиме." : "Это действие будет отправлено в Google после подтверждения.") }
     }
 
+    private var startBinding: Binding<Date> {
+        Binding(get: { local.start }, set: { newStart in
+            local.end = EventDateAdjustment.endAfterChangingStart(from: local.start, to: newStart,
+                end: local.end, allDay: local.allDay, timeZone: zone)
+            local.start = newStart
+        })
+    }
+
     private var activeCalendar: CalendarInfo? {
         event == nil ? model.snapshot.calendars.first { $0.id == local.contextID } : calendar
     }
@@ -368,7 +376,7 @@ struct EventEditorView: View {
         guard let calendar = activeCalendar, calendar.isWritable else { local.errorMessage = "Для записи выберите календарь с правом редактирования."; return }
         guard local.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { local.errorMessage = "Введите название события."; return }
         guard !local.allDay || DateOnly(date: local.start, timeZone: zone) <= DateOnly(date: local.end, timeZone: zone) else { local.errorMessage = "Дата окончания должна быть не раньше даты начала."; return }
-        guard local.allDay || local.start < local.end else { local.errorMessage = "Окончание должно быть позже начала."; return }
+        guard local.allDay || local.start < local.end else { local.errorMessage = "Дата окончания должна быть позже даты начала"; return }
         do {
             let factory = try model.commandFactory()
             let body = try makeBody()

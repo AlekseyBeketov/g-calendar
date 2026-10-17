@@ -210,7 +210,7 @@ Implement without computer-use. Each feature receives a separate verified commit
 
 - [x] 27.1 Create secondary Google calendars with explicit Save, scope upgrade and exact read-back; inspect edit/delete API limitations.
 - [x] 27.2 Reduce large task list and month-calendar scroll work with reproducible synthetic checks.
-- [ ] 27.3 Preserve event duration when changed start invalidates end; clarify validation text.
+- [x] 27.3 Preserve event duration when changed start invalidates end; clarify validation text.
 - [ ] 27.4 Fix save hangs and add bounded local seven-day diagnostics with settings and cleanup.
 - [ ] 27.5 Match calendar search inset to task search.
 - [ ] 27.6 Produce five sidebar image concepts and keep them in local plans pending owner selection.

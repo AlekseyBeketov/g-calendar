@@ -108,3 +108,28 @@ extension InvariantTests {
         try check(utc == "00:00" && shifted == "03:00", "formatter cache isolates timezone and preserves 24-hour labels")
     }
 }
+
+
+extension InvariantTests {
+    static func testEventDateAdjustment() throws {
+        let zone = TimeZone(identifier: "Europe/Moscow")!
+        let start = ISO8601.parse("2026-10-17T10:00:00+03:00")!
+        let end = ISO8601.parse("2026-10-17T15:00:00+03:00")!
+        let next = ISO8601.parse("2026-10-17T16:00:00+03:00")!
+        let shifted = EventDateAdjustment.endAfterChangingStart(from: start, to: next, end: end, allDay: false, timeZone: zone)
+        try check(shifted == ISO8601.parse("2026-10-17T21:00:00+03:00")!, "10–15 moved to 16 ends at 21")
+        let nextDate = next.addingTimeInterval(86400)
+        try check(EventDateAdjustment.endAfterChangingStart(from: start, to: nextDate, end: end, allDay: false, timeZone: zone) == nextDate.addingTimeInterval(18000), "changing start date retains five elapsed hours")
+        try check(EventDateAdjustment.endAfterChangingStart(from: start, to: start.addingTimeInterval(3600), end: end, allDay: false, timeZone: zone) == end, "still-valid end is unchanged")
+        try check(EventDateAdjustment.endAfterChangingStart(from: start, to: end, end: end, allDay: false, timeZone: zone) == end.addingTimeInterval(18000), "equal timed endpoints shift rather than create zero duration")
+        let dst = TimeZone(identifier: "America/New_York")!
+        let old = DateOnly(rawValue: "2026-03-01")!.startOfDay(in: dst)!
+        let oldEnd = DateOnly(rawValue: "2026-03-03")!.startOfDay(in: dst)!
+        let moved = DateOnly(rawValue: "2026-03-07")!.startOfDay(in: dst)!
+        let result = EventDateAdjustment.endAfterChangingStart(from: old, to: moved, end: oldEnd, allDay: true, timeZone: dst)
+        try check(DateOnly(date: result, timeZone: dst).description == "2026-03-09", "all-day duration uses calendar days across DST")
+        try check(result.timeIntervalSince(moved) == 47 * 3600, "DST fixture distinguishes days from 24-hour arithmetic")
+        try check(EventDateAdjustment.endAfterChangingStart(from: old, to: moved, end: old, allDay: true, timeZone: dst) == moved, "single-day event remains single-day")
+        try check(EventDateAdjustment.endAfterChangingStart(from: old, to: oldEnd, end: oldEnd, allDay: true, timeZone: dst) == oldEnd, "inclusive same-day end remains valid")
+    }
+}

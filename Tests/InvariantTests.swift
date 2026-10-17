@@ -272,6 +272,7 @@ struct InvariantTests {
         run("gws-launcher-finds-node-with-gui-path", testGWSLauncherFindsNodeWithGUIPath)
         run("cache-preserved-after-failed-page", testCachePreservedAfterLaterPageFailure)
         run("date-only-all-day-exclusive-end-dst", testDateOnlyAllDayAndDST)
+        run("event-start-shifts-end-preserving-duration", testEventDateAdjustment)
         run("calendar-task-only-date-is-not-empty", testCalendarTaskOnlyDateIsNotEmpty)
         run("calendar-undated-tasks-once-and-search-scope", testCalendarUndatedTasks)
         run("task-date-filters-and-groups", testTaskFilters)
