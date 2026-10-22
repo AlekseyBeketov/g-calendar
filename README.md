@@ -4,6 +4,16 @@
 
 A native macOS app for Google Calendar and Google Tasks, with a Pixel Paper interface, Color Atlas metadata, a local cache, and system reminders. Requires **macOS 13+ on Apple Silicon (arm64)**. Intel and universal builds are not available. Local acceptance was performed on macOS 27.0.1, rather than every supported OS version. No public binary release has been published yet.
 
+## Demo
+
+A short tour of the calendar and task views.
+
+<video controls preload="metadata" width="960">
+  <source src="https://raw.githubusercontent.com/AlekseyBeketov/g-calendar/main/docs/demo.mp4" type="video/mp4">
+</video>
+
+[Open the demo video](docs/demo.mp4)
+
 ## Installation
 
 From a downloaded checkout, with Git and Apple Command Line Tools installed (`xcode-select --install` if needed):
