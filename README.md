@@ -8,9 +8,7 @@ A native macOS app for Google Calendar and Google Tasks, with a Pixel Paper inte
 
 A short tour of the calendar and task views.
 
-<video controls preload="metadata" width="960">
-  <source src="https://raw.githubusercontent.com/AlekseyBeketov/g-calendar/main/docs/demo.mp4" type="video/mp4">
-</video>
+[![Watch the g-calendar demo: calendar and tasks](docs/demo-poster.jpg)](docs/demo.mp4)
 
 [Open the demo video](docs/demo.mp4)
 
