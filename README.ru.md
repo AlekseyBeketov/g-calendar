@@ -8,9 +8,7 @@
 
 Короткий видеообзор календаря и задач.
 
-[![Смотреть демо g-calendar: календарь и задачи](docs/demo-poster.jpg)](docs/demo.mp4)
-
-[Открыть демо-видео](docs/demo.mp4)
+https://github.com/user-attachments/assets/45c8de37-30ab-49bc-b1a4-ef3adfb19244
 
 ## Установка
 
