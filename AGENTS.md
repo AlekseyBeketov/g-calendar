@@ -36,3 +36,16 @@
 - Graph: `.local-indexes/graphify/graphify-out/graph.json`; text index: `.local-indexes/tgrep`; verified snapshot: `.local-indexes/manifest.json`.
 - Run Graphify retrieval from `.local-indexes/`: `rtk proxy graphify query "symbol" --graph graphify/graphify-out/graph.json` (Graphify writes auxiliary caches in the current directory). From the repository root use `rtk proxy tgrep --index-path .local-indexes/tgrep "symbol" .`.
 - Swift AST relationships are navigation hints; verify overloads, dynamic dispatch and SwiftUI result-builder behavior against current source. Retrieval never rebuilds indexes automatically.
+
+## Engineering Boundaries
+
+- Treat external API, file, config, and tool payloads as untrusted. Validate unknown values once at the boundary that owns them, then pass typed values inward; do not repeat checks guaranteed by a schema, constructor, or internal type. A cast or type assertion alone is not runtime validation. Keep authorization, security checks, and mutable business invariants enforced where required.
+- Before adding speculative reliability or edge-case behavior, state the concrete failure mode, evidence or uncertainty about its likelihood, and complexity/maintenance cost, then get the user's approval. Do not invent probabilities. Track out-of-scope proposals as explicit pending decisions; no reply is not consent. Mandatory security controls are not optional.
+
+## SwiftUI / AppKit Conventions
+
+- Use concrete Swift structs, enums, and typed internal models; use `Codable` at serialization boundaries. Reserve `Any` and `[String: Any]` for justified Foundation/Google JSON boundaries, validate there, and convert to typed values before passing inward.
+- Prefer `let` and `guard` for straightforward happy paths; use `var` for genuinely mutable state, including SwiftUI view state.
+- Handle `throws` explicitly. Use `catch` only for meaningful recovery or error translation at a boundary; use `defer` for cleanup. Avoid `try?` unless the operation is intentionally best-effort and that intent is documented.
+- Extract helpers only for real reuse or a meaningful domain/system boundary; avoid one-off wrappers.
+- Extend the existing invariant tests to exercise production implementations with synthetic fixtures; use `./scripts/test.sh` and do not rely on live Google/provider calls for routine verification.
