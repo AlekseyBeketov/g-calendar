@@ -123,6 +123,7 @@ struct TaskWorkspaceView: View {
                     } else if model.selectedTaskListID == nil {
                         TaskBoardRows(boardID: nil, tasks: unifiedTasks, selectedIdentity: local.selectedTaskIdentity,
                                       keyboardFocused: local.taskKeyboardFocused, draggedTask: $interaction.draggedTask,
+                                      draggedBoard: $interaction.draggedBoard,
                                       onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 24).padding(.vertical, 8)
@@ -149,7 +150,8 @@ struct TaskWorkspaceView: View {
                                     TaskBoardAddButton(board: group.board) { beginNewTask(on: group.id) }
                                     if !local.collapsedGroups.contains("board:" + group.id) {
                                         TaskBoardRows(boardID: group.id, tasks: group.tasks, selectedIdentity: local.selectedTaskIdentity, keyboardFocused: local.taskKeyboardFocused,
-                                                      draggedTask: $interaction.draggedTask, onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
+                                                      draggedTask: $interaction.draggedTask, draggedBoard: $interaction.draggedBoard,
+                                                      onSelect: selectTask, onEditorDismiss: restoreTaskKeyboardFocus)
                                     }
                                 }.id(group.id)
                             }
@@ -352,14 +354,11 @@ private struct TaskBoardMenu: View {
     }
 }
 
-private struct TaskDragSession {
-    let token = UUID().uuidString
-    let task: GoogleTask
-}
-
 private struct TaskBoardDragSession {
     let token = UUID().uuidString
     let boardID: String
+
+    var payload: String { "g-calendar-board:\(token)" }
 }
 
 private final class TaskWorkspaceInteraction: ObservableObject {
@@ -371,6 +370,7 @@ private final class TaskWorkspaceInteraction: ObservableObject {
 }
 
 private struct TaskBoardView: View {
+    @EnvironmentObject private var model: WorkspaceViewModel
     let group: TaskBoardGroup
     let selectedIdentity: TaskSelectionIdentity?
     let keyboardFocused: Bool
@@ -379,27 +379,78 @@ private struct TaskBoardView: View {
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
     let onAddTask: () -> Void
+    @StateObject private var dropTarget = TaskDropTargetState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var taskDropTargeted: Binding<Bool> {
+        Binding(get: { dropTarget.isTargeted && canAcceptTaskDrop }, set: { dropTarget.isTargeted = $0 && canAcceptTaskDrop })
+    }
+
+    private var canAcceptTaskDrop: Bool {
+        guard let task = draggedTask?.task else { return false }
+        return currentTaskForMove(task) != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            TaskBoardHeader(board: group.board, taskCount: group.tasks.count, draggedBoard: $draggedBoard)
+            TaskBoardHeader(board: group.board, taskCount: group.tasks.count,
+                            draggedTask: $draggedTask, draggedBoard: $draggedBoard,
+                            canDropTask: { canAcceptTaskDrop }, onDropTask: handleTaskDrop)
             TaskBoardAddButton(board: group.board, action: onAddTask)
             ScrollViewReader { proxy in
                 ScrollView {
                     TaskBoardRows(boardID: group.id, tasks: group.tasks, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
-                                  draggedTask: $draggedTask, onSelect: onSelect, onEditorDismiss: onEditorDismiss)
-                }.scrollIndicators(.visible)
+                                  draggedTask: $draggedTask, draggedBoard: $draggedBoard,
+                                  taskDropTargeted: taskDropTargeted, onDropTask: handleTaskDrop,
+                                  allowsCrossBoardMoves: true,
+                                  onSelect: onSelect, onEditorDismiss: onEditorDismiss)
+                }
+                .scrollIndicators(.visible)
+                .onDrop(of: [TaskBoardDragDropTypes.task], isTargeted: taskDropTargeted, perform: handleTaskDrop)
                 .onChange(of: selectedIdentity) { identity in
                     if let identity, group.tasks.contains(where: { $0.selectionIdentity == identity }) {
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { proxy.scrollTo(identity) }
                     }
                 }
             }
-        }.padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppTheme.outline.opacity(0.45), lineWidth: 1).allowsHitTesting(false).accessibilityHidden(true))
+        }
+        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(dropTarget.isTargeted ? AppTheme.selection.opacity(0.12) : AppTheme.surface,
+                    in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(dropTarget.isTargeted ? AppTheme.accent : AppTheme.outline.opacity(0.45),
+                          lineWidth: dropTarget.isTargeted ? 2 : 1)
+            .allowsHitTesting(false).accessibilityHidden(true))
         .accessibilityElement(children: .contain)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: dropTarget.isTargeted)
+        .onDrop(of: [TaskBoardDragDropTypes.task], isTargeted: taskDropTargeted, perform: handleTaskDrop)
     }
+
+    private func currentTaskForMove(_ dragged: GoogleTask) -> GoogleTask? {
+        guard model.snapshot.taskLists.contains(where: { $0.id == group.id }),
+              let current = model.snapshot.tasks.first(where: {
+                  $0.selectionIdentity == dragged.selectionIdentity && !$0.deleted
+              }),
+              model.snapshot.taskLists.contains(where: { $0.id == current.taskListID }),
+              TaskBoardDragDropPolicy.canMove(current, to: group.id,
+                                              mutationsBlocked: model.mutationsBlocked) else { return nil }
+        return current
+    }
+
+    private func handleTaskDrop(_ providers: [NSItemProvider]) -> Bool {
+        TaskBoardDropHandler.acceptTaskDrop(providers: providers, session: draggedTask,
+                                            activeSession: { draggedTask },
+                                            resolveCurrentTask: { currentTaskForMove($0) },
+                                            onMove: { task in
+                                                draggedTask = nil
+                                                model.moveTaskToBoard(task, destinationTaskListID: group.id)
+                                            })
+    }
+}
+
+@MainActor
+private final class TaskDropTargetState: ObservableObject {
+    @Published var isTargeted = false
 }
 
 private struct TaskBoardAddButton: View {
@@ -422,8 +473,19 @@ private struct TaskBoardHeader: View {
     @EnvironmentObject private var model: WorkspaceViewModel
     let board: TaskList
     let taskCount: Int
+    @Binding var draggedTask: TaskDragSession?
     @Binding var draggedBoard: TaskBoardDragSession?
+    let canDropTask: () -> Bool
+    let onDropTask: ([NSItemProvider]) -> Bool
     @StateObject private var interaction = TaskWorkspaceInteraction()
+
+    private var dropTargeted: Binding<Bool> {
+        Binding(get: {
+            interaction.isDropTargeted && (draggedBoard.map { $0.boardID != board.id } ?? canDropTask())
+        }, set: {
+            interaction.isDropTargeted = $0 && (draggedBoard.map { $0.boardID != board.id } ?? canDropTask())
+        })
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -437,15 +499,20 @@ private struct TaskBoardHeader: View {
             .background(interaction.isDropTargeted ? AppTheme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 4))
             .pointingHandCursor().help("Перетащите заголовок, чтобы изменить порядок досок")
             .onDrag {
+                draggedTask = nil
                 let session = TaskBoardDragSession(boardID: board.id)
                 draggedBoard = session
-                return NSItemProvider(object: ("g-calendar-board:" + session.token) as NSString)
+                return TaskBoardDropHandler.boardItemProvider(for: session.payload)
             }
-            .onDrop(of: [UTType.plainText], isTargeted: $interaction.isDropTargeted) { providers in
-                guard let session = draggedBoard, session.boardID != board.id,
-                      let provider = providers.first, provider.canLoadObject(ofClass: NSString.self) else { return false }
+            .onDrop(of: [TaskBoardDragDropTypes.board, TaskBoardDragDropTypes.task], isTargeted: dropTargeted) { providers in
+                guard let provider = providers.first else { return false }
+                if provider.hasItemConformingToTypeIdentifier(TaskBoardDragDropTypes.task.identifier) {
+                    return onDropTask(providers)
+                }
+                guard provider.hasItemConformingToTypeIdentifier(TaskBoardDragDropTypes.board.identifier),
+                      let session = draggedBoard, session.boardID != board.id else { return false }
                 provider.loadObject(ofClass: NSString.self) { value, _ in
-                    guard let value = value as? String, value == "g-calendar-board:" + session.token else { return }
+                    guard let value = value as? String, value == session.payload else { return }
                     DispatchQueue.main.async {
                         guard draggedBoard?.token == session.token else { return }
                         draggedBoard = nil
@@ -466,6 +533,10 @@ private struct TaskBoardRows: View {
     let selectedIdentity: TaskSelectionIdentity?
     let keyboardFocused: Bool
     @Binding var draggedTask: TaskDragSession?
+    @Binding var draggedBoard: TaskBoardDragSession?
+    var taskDropTargeted: Binding<Bool> = .constant(false)
+    var onDropTask: ([NSItemProvider]) -> Bool = { _ in false }
+    var allowsCrossBoardMoves = false
     let onSelect: (GoogleTask) -> Void
     let onEditorDismiss: () -> Void
     var body: some View {
@@ -506,19 +577,27 @@ private struct TaskBoardRows: View {
         return model.snapshot.tasks.contains(where: { (boardID == nil || $0.taskListID == boardID) && !$0.deleted }) ? "Нет задач по этому фильтру" : "Пока пусто"
     }
     @ViewBuilder private func draggableRow(_ task: GoogleTask) -> some View {
+        let canReorder = sortMode == .manual && TaskBoardDragDropPolicy.canStartDragging(
+            task, sourceSortMode: model.taskSortMode(for: task.taskListID), mutationsBlocked: model.mutationsBlocked)
+        let canDrag = canReorder || (allowsCrossBoardMoves && TaskBoardDragDropPolicy.canStartMovingBetweenBoards(
+            task, mutationsBlocked: model.mutationsBlocked))
         let row = TaskRowView(task: task, selectedIdentity: selectedIdentity, keyboardFocused: keyboardFocused,
-                              onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: boardID == nil, allowsManualOrdering: sortMode == .manual).id(task.selectionIdentity)
-        if sortMode == .manual && model.taskSortMode(for: task.taskListID) == .manual && !task.completed && !model.mutationsBlocked {
-            row.onDrag {
-                let session = TaskDragSession(task: task)
-                draggedTask = session
-                return NSItemProvider(object: ("g-calendar-task:" + session.token) as NSString)
-            }.onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
-                guard let session = draggedTask, session.task.taskListID == task.taskListID,
-                      session.task.parent == task.parent, session.task.id != task.id,
-                      let provider = providers.first, provider.canLoadObject(ofClass: NSString.self) else { return false }
-                provider.loadObject(ofClass: NSString.self) { value, _ in
-                    guard let value = value as? String, value == "g-calendar-task:" + session.token else { return }
+                              onSelect: onSelect, onEditorDismiss: onEditorDismiss, showsListTag: boardID == nil,
+                              allowsManualOrdering: sortMode == .manual,
+                              onDrag: canDrag ? {
+                                  draggedBoard = nil
+                                  let session = TaskDragSession(task: task)
+                                  draggedTask = session
+                                  return TaskBoardDropHandler.itemProvider(for: session)
+                              } : nil).id(task.selectionIdentity)
+        let rowWithDrop = row.onDrop(of: [TaskBoardDragDropTypes.task], isTargeted: taskDropTargeted) { providers in
+            if let session = draggedTask, session.task.taskListID == task.taskListID,
+               session.task.parent == task.parent, session.task.id != task.id,
+               canReorder,
+               let provider = providers.first,
+               provider.hasItemConformingToTypeIdentifier(TaskBoardDragDropTypes.task.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: TaskBoardDragDropTypes.task.identifier) { data, _ in
+                    guard let data, (try? JSONDecoder().decode(String.self, from: data)) == session.payload else { return }
                     DispatchQueue.main.async {
                         guard draggedTask?.token == session.token else { return }
                         draggedTask = nil
@@ -527,7 +606,9 @@ private struct TaskBoardRows: View {
                 }
                 return true
             }
-        } else { row }
+            return onDropTask(providers)
+        }
+        rowWithDrop
     }
 }
 
@@ -540,6 +621,7 @@ private struct TaskRowView: View {
     let onEditorDismiss: () -> Void
     var showsListTag = true
     var allowsManualOrdering = true
+    var onDrag: (() -> NSItemProvider)? = nil
     @StateObject private var local = ViewLocalState()
 
     private var metadata: LocalTaskMetadata { model.metadataStore.metadata(for: task.id) }
@@ -565,6 +647,35 @@ private struct TaskRowView: View {
         return descriptions.joined(separator: "; ")
     }
 
+    private var taskTitleButton: some View {
+        Button { onSelect(task); local.showEditor = true } label: {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    taskTitleAndBoardTag
+                    Spacer(minLength: 0)
+                    taskDue
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    taskTitleAndBoardTag
+                    taskDue
+                }
+                    .padding(.vertical, 6)
+            }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(.interaction, Rectangle())
+        }
+        .pointingHandCursor().buttonStyle(.plain)
+        .accessibilityLabel("Открыть задачу: \(task.title), список \(listTitle), срок \(dueText), \(isOverdue ? "просрочена, " : "")\(task.completed ? "выполнена" : "не выполнена")")
+        .accessibilityValue(metadataAccessibilityValue)
+    }
+
+    @ViewBuilder private var taskTitleControl: some View {
+        if let onDrag {
+            taskTitleButton.onDrag(onDrag)
+        } else {
+            taskTitleButton
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 0) {
@@ -575,23 +686,7 @@ private struct TaskRowView: View {
                 }.pointingHandCursor().buttonStyle(.plain).disabled(model.mutationsBlocked)
                 .help(task.completed ? "Вернуть задачу в работу" : "Завершить задачу")
                 .accessibilityLabel(task.completed ? "Снять отметку выполнения: \(task.title)" : "Завершить задачу: \(task.title)")
-                Button { onSelect(task); local.showEditor = true } label: {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 16) {
-                            taskTitleAndBoardTag
-                            Spacer(minLength: 0)
-                            taskDue
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            taskTitleAndBoardTag
-                            taskDue
-                        }
-                            .padding(.vertical, 6)
-                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(.interaction, Rectangle())
-                }.pointingHandCursor().buttonStyle(.plain)
-                .accessibilityLabel("Открыть задачу: \(task.title), список \(listTitle), срок \(dueText), \(isOverdue ? "просрочена, " : "")\(task.completed ? "выполнена" : "не выполнена")")
-                .accessibilityValue(metadataAccessibilityValue)
+                taskTitleControl
                 Menu {
                     Button("Редактировать…", systemImage: "pencil") { onSelect(task); local.showEditor = true }
                     Button(metadata.favorite ? "Убрать из избранного" : "В избранное", systemImage: "star") { toggleFavorite() }

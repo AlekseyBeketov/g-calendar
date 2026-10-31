@@ -312,6 +312,7 @@ struct InvariantTests {
         run("navigation-during-day-revalidation-recovers-week-coverage", testNavigationDuringDayRevalidation)
         await runAsync("accepted-proof-invalidates-across-scheduler-await", testObsoleteReminderProof)
         run("task-board-order-persistence-and-reconciliation", testTaskBoardOrder)
+        run("task-board-drag-drop-policy", testTaskBoardDragDropPolicy)
         run("task-date-group-spacing-projection", testTaskDateGroups)
         run("responsive-scroll-interpolation", testScrollInterpolation)
         run("notification-trigger-retains-subminute-precision", testNotificationTriggerPrecision)

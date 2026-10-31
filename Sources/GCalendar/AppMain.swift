@@ -315,6 +315,19 @@ final class WorkspaceViewModel: ObservableObject {
         } catch { statusMessage = (error as? LocalizedError)?.errorDescription ?? "Не удалось изменить порядок задач." }
     }
 
+    func moveTaskToBoard(_ task: GoogleTask, destinationTaskListID: String) {
+        guard !mutationsBlocked,
+              snapshot.taskLists.contains(where: { $0.id == destinationTaskListID }),
+              let current = snapshot.tasks.first(where: { $0.selectionIdentity == task.selectionIdentity && !$0.deleted }),
+              TaskBoardDragDropPolicy.canMove(current, to: destinationTaskListID,
+                                              mutationsBlocked: mutationsBlocked) else { return }
+        do {
+            let invocation = try commandFactory().taskMove(task: current, destinationTaskListID: destinationTaskListID,
+                                                           authorization: .userSave)
+            performMutation(invocation)
+        } catch { statusMessage = (error as? LocalizedError)?.errorDescription ?? "Не удалось перенести задачу." }
+    }
+
     func canShiftTask(_ task: GoogleTask, direction: Int) -> Bool {
         guard !mutationsBlocked, taskSortMode(for: task.taskListID) == .manual, !task.completed else { return false }
         if taskShiftAvailability == nil { taskShiftAvailability = TaskOrdering.ShiftAvailability(tasks: snapshot.tasks) }

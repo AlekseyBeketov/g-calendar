@@ -19,6 +19,7 @@ if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; f
   "$ROOT/Sources/GCalendar/AppDiagnostics.swift" \
   "$ROOT/Sources/GCalendar/SmoothScrollTiming.swift" \
   "$ROOT/Sources/GCalendar/TaskOrdering.swift" \
+  "$ROOT/Sources/GCalendar/TaskBoardDragDropPolicy.swift" \
   "$ROOT/Sources/GCalendar/CalendarRangeCache.swift" \
   "$ROOT/Sources/GCalendar/CalendarLayout.swift" \
   "$ROOT/Sources/GCalendar/CalendarProjection.swift" \

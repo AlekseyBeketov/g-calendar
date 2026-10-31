@@ -50,6 +50,32 @@ extension InvariantTests {
         try check(legacy.boardOrder.isEmpty && legacy.sortMode(for: "a") == .date, "old sorting preferences migrate without losing selections")
     }
 
+    static func testTaskBoardDragDropPolicy() throws {
+        let task = orderedTask("move", board: "source")
+        try check(TaskBoardDragDropPolicy.canStartDragging(task, sourceSortMode: .manual, mutationsBlocked: false),
+                  "manual incomplete task can start a drag")
+        try check(!TaskBoardDragDropPolicy.canStartDragging(task, sourceSortMode: .date, mutationsBlocked: false)
+                  && !TaskBoardDragDropPolicy.canStartDragging(task, sourceSortMode: .title, mutationsBlocked: false),
+                  "sorted task cannot be reordered within its board")
+        try check(TaskBoardDragDropPolicy.canStartMovingBetweenBoards(task, mutationsBlocked: false),
+                  "board sorting does not block cross-board dragging")
+        try check(!TaskBoardDragDropPolicy.canStartDragging(task, sourceSortMode: .manual, mutationsBlocked: true),
+                  "blocked mutation state disables dragging")
+        try check(!TaskBoardDragDropPolicy.canStartDragging(orderedTask("done", completed: true), sourceSortMode: .manual, mutationsBlocked: false),
+                  "completed task cannot start a drag")
+        var deleted = task
+        deleted.deleted = true
+        try check(!TaskBoardDragDropPolicy.canStartDragging(deleted, sourceSortMode: .manual, mutationsBlocked: false),
+                  "deleted task cannot start a drag")
+        try check(TaskBoardDragDropPolicy.canMove(task, to: "destination", mutationsBlocked: false),
+                  "valid cross-board drop is accepted")
+        try check(!TaskBoardDragDropPolicy.canMove(task, to: "source", mutationsBlocked: false)
+                  && !TaskBoardDragDropPolicy.canMove(task, to: "", mutationsBlocked: false),
+                  "same-board and empty-board drops are rejected")
+        try check(!TaskBoardDragDropPolicy.canMove(task, to: "destination", mutationsBlocked: true),
+                  "blocked mutation state rejects cross-board drop")
+    }
+
     static func testTaskDateGroups() throws {
         let today = DateOnly(rawValue: "2026-10-12")!
         let tasks = [orderedTask("later", due: "2026-11-01"), orderedTask("old", due: "2026-10-11"),

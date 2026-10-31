@@ -211,3 +211,19 @@ The task workspace MUST show Create in the first action row, then a visible gear
 #### Scenario: Open an individual board
 - **WHEN** a user selects a specific board
 - **THEN** its workspace gear keeps scoped task settings while the board's own menu keeps its ellipsis
+
+### Requirement: Move tasks between boards by dragging
+In column presentation, a user SHALL be able to hold the primary (left) mouse button on a task title, drag it onto a different board, and release to request moving that task to the target board. Per-board sorting SHALL NOT prevent cross-board moves; it only controls task order within a board. A click or drag that ends on the source board SHALL not transfer the task to another board; existing same-board manual reordering remains available. Only a valid cross-board drop SHALL start the existing explicit task-move mutation and exact read-back flow; an uncertain or failed move SHALL preserve the source task and use the existing recovery and error feedback. The drop target SHALL be visibly indicated during the drag and remain keyboard/accessibility-safe. Disabled mutation state and same-board drops SHALL not issue a cross-board move.
+
+#### Scenario: Move a task to another board
+- **WHEN** the user drags a task title with the left mouse button from one board and releases it over a different board while the boards use any sorting mode
+- **THEN** the target board is highlighted before release, the existing verified task-move flow is requested once, and the task appears on the target board only after exact read-back confirms the move
+- **AND** task data not being edited by the move, including its title, notes, completion and due date, is preserved
+
+#### Scenario: Drag does not become an unintended move
+- **WHEN** the user clicks a title, releases a drag over its source board, or attempts to drag while mutations are disabled
+- **THEN** no cross-board move is issued and existing selection, sorting, keyboard navigation and card actions remain available
+
+#### Scenario: Cross-board move is uncertain or rejected
+- **WHEN** the move request fails, read-back disagrees, or its outcome is uncertain
+- **THEN** the app preserves the existing durable recovery semantics, does not automatically repeat the move, and does not present the task as verified on the target board
