@@ -6,7 +6,9 @@ mkdir -p "$BUILD_DIR"
 source "$ROOT/scripts/swift-toolchain.sh"
 configure_swift_compiler "$BUILD_DIR"
 SPARKLE_ROOT="$("$ROOT/scripts/fetch-sparkle.sh")"
-"${G_CALENDAR_SWIFT[@]}" -Onone -D G_CALENDAR_TEST -D G_CALENDAR_TASK_LAYOUT_TEST \
+TEST_OPTIMIZATION="-Onone"
+if [[ "${G_CALENDAR_TEST_OPTIMIZE:-0}" == "1" ]]; then TEST_OPTIMIZATION="-O"; fi
+"${G_CALENDAR_SWIFT[@]}" "$TEST_OPTIMIZATION" -D G_CALENDAR_TEST -D G_CALENDAR_TASK_LAYOUT_TEST \
   -parse-as-library -target arm64-apple-macosx13.0 \
   -framework SwiftUI -framework AppKit -framework UserNotifications -framework ServiceManagement \
   -F "$SPARKLE_ROOT" -framework Sparkle -Xlinker -rpath -Xlinker "$SPARKLE_ROOT" \

@@ -247,11 +247,7 @@ struct CalendarWorkspaceView: View {
     }
 
     private func formattedDate(_ date: Date, template: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.timeZone = model.selectedTimeZone
-        formatter.setLocalizedDateFormatFromTemplate(template)
-        return formatter.string(from: date)
+        CalendarDisplayFormatting.string(date, template: template, timeZone: model.selectedTimeZone)
     }
 
     private func toggleTask(_ task: GoogleTask) {

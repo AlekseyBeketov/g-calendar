@@ -11,8 +11,24 @@ final class WorkspaceViewModel: ObservableObject {
     typealias SyncState = WorkspaceSyncState
     enum Appearance: String, CaseIterable, Identifiable { case system = "Система", light = "Светлая", dark = "Тёмная"; var id: String { rawValue } }
 
-    @Published var snapshot: WorkspaceSnapshot { didSet { taskShiftAvailability = nil; calendarProjectionCache.invalidate() } }
+    @Published var snapshot: WorkspaceSnapshot {
+        didSet {
+            let tasksChanged = oldValue.tasks != snapshot.tasks
+            if tasksChanged { taskShiftAvailability = nil }
+            if tasksChanged || oldValue.taskLists != snapshot.taskLists { taskProjectionCache = nil }
+            if tasksChanged || oldValue.events != snapshot.events { calendarProjectionCache.invalidate() }
+        }
+    }
     private var taskShiftAvailability: TaskOrdering.ShiftAvailability?
+    private struct TaskProjectionKey: Equatable {
+        let selectedListID: String?
+        let filter: TaskFilter
+        let searchText: String
+        let today: DateOnly
+        let preferences: TaskWorkspacePreferences
+        let locale: Locale
+    }
+    private var taskProjectionCache: (TaskProjectionKey, TaskWorkspaceProjection)?
     private let calendarProjectionCache = CalendarProjectionCache()
     @Published var section: Section = .calendar
     @Published var calendarMode: CalendarMode = .week { willSet { if newValue != calendarMode { DemoPerformanceProbe.shared.begin(.range) } } }
@@ -276,6 +292,16 @@ final class WorkspaceViewModel: ObservableObject {
     func taskSortMode(for boardID: String) -> TaskSortMode { taskPreferences.sortMode(for: boardID) }
     var allTasksSortMode: TaskSortMode { taskPreferences.unifiedSortMode }
     var orderedTaskLists: [TaskList] { taskPreferences.orderedBoards(snapshot.taskLists) }
+
+    var taskProjection: TaskWorkspaceProjection {
+        let key = TaskProjectionKey(selectedListID: selectedTaskListID, filter: taskFilter, searchText: searchText,
+                                    today: localToday, preferences: taskPreferences, locale: .current)
+        if let cached = taskProjectionCache, cached.0 == key { return cached.1 }
+        let projection = TaskWorkspaceProjection(snapshot: snapshot, preferences: key.preferences, selectedListID: key.selectedListID,
+                                                 filter: key.filter, searchText: key.searchText, today: key.today)
+        taskProjectionCache = (key, projection)
+        return projection
+    }
 
     func moveTaskBoard(_ boardID: String, toward targetID: String) {
         guard taskPreferences.moveBoard(boardID, toward: targetID, in: snapshot.taskLists) else { return }

@@ -30,22 +30,28 @@ struct CalendarWorkspaceProjection: Equatable {
             guard let start = event.start.instant, let end = event.end.instant else { return nil }
             return (event, DateOnly(date: start, timeZone: range.timeZone), DateOnly(date: end.addingTimeInterval(-1), timeZone: range.timeZone))
         }
-        let filteredTasks = tasks.filter {
-            !$0.deleted && (selectedTaskListID == nil || $0.taskListID == selectedTaskListID)
-                && (searchText.isEmpty || $0.title.localizedCaseInsensitiveContains(searchText))
+        let displayedDates = Set(dayValues)
+        var tasksByDate: [DateOnly: [GoogleTask]] = [:]
+        var undated: [GoogleTask] = []
+        for task in tasks {
+            guard !task.deleted, selectedTaskListID == nil || task.taskListID == selectedTaskListID else { continue }
+            if let due = task.due, !displayedDates.contains(due) { continue }
+            guard searchText.isEmpty || task.title.localizedCaseInsensitiveContains(searchText) else { continue }
+            if let due = task.due { tasksByDate[due, default: []].append(task) }
+            else { undated.append(task) }
         }
-        let tasksByDate = Dictionary(grouping: filteredTasks.filter { $0.due != nil }, by: { $0.due! })
         let contents = zip(dates, dayValues).map { date, value in
             let events = spans.compactMap { event, start, last in value >= start && value <= last ? event : nil }
             return CalendarDayContent(day: date, events: events, tasks: tasksByDate[value] ?? [], allDayEventCount: events.filter(\.isAllDay).count)
         }
         days = contents
-        undatedTasks = filteredTasks.filter { $0.due == nil }.sorted { $0.id < $1.id }
+        undatedTasks = undated.sorted { $0.id < $1.id }
         sharedDateOnlyHeight = CalendarGridLayout.dateOnlyHeight(maximumItemCount: contents.map { $0.allDayEventCount + $0.tasks.count }.max() ?? 0)
     }
 
     func contentState(rangeCovered: Bool, hasSearch: Bool) -> CalendarContentState {
-        CalendarContentAvailability.state(events: days.flatMap(\.events), tasks: days.flatMap(\.tasks) + undatedTasks,
+        let isEmpty = undatedTasks.isEmpty && days.allSatisfy { $0.events.isEmpty && $0.tasks.isEmpty }
+        return CalendarContentAvailability.state(isEmpty: isEmpty,
                                           rangeCovered: rangeCovered, hasSearch: hasSearch)
     }
 }

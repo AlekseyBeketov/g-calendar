@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import CoreText
 
@@ -24,6 +25,7 @@ enum CalendarTimedCardNativeTests {
             if !value { FileHandle.standardError.write(Data("FAIL timed-card: \(name)\n".utf8)); exit(1) }
             assertions += 1
         }
+        testLargeDateOnlyArea(expect: expect)
         func render(_ view: AnyView, width: CGFloat, height: CGFloat, appearance: String, name: String) {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -97,6 +99,53 @@ enum CalendarTimedCardNativeTests {
         }
         print("PASS calendar-timed-card-native: \(assertions) assertions")
         return assertions
+    }
+
+    private static func testLargeDateOnlyArea(expect: (Bool, String) -> Void) {
+        let due = DateOnly(date: day, timeZone: zone)
+        let tasks = (0..<1_000).map { index in
+            GoogleTask(id: "task-\(index)", taskListID: "synthetic", title: "Synthetic task \(index)", notes: nil,
+                       due: due, completed: index.isMultiple(of: 2), deleted: false, updated: nil)
+        }
+        let content = CalendarTimeGridDay(day: day, events: [], tasks: tasks, calendars: [], timeZone: zone,
+                                          columnWidth: 320, onEdit: { _ in }, onToggleTask: { _ in })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 116),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let scrollTarget = PassthroughSubject<TaskSelectionIdentity, Never>()
+        let host = NSHostingView(rootView: ScrollViewReader { proxy in
+            content.dateOnlyArea.onReceive(scrollTarget) { proxy.scrollTo($0, anchor: .bottom) }
+        })
+        window.contentView = host
+        func settle() {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.04))
+            host.layoutSubtreeIfNeeded()
+        }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        settle()
+        let initial = descendants(host)
+        let actionCount = initial.filter { $0 is PointerCursorRegionView }.count
+        print("PERF calendar_date_only tasks=\(tasks.count) materialized_actions=\(actionCount)")
+        expect(actionCount > 0 && actionCount < tasks.count / 10, "date-only viewport materializes a bounded number of task controls")
+        guard let scroll = initial.compactMap({ $0 as? NSScrollView }).first else {
+            expect(false, "large date-only list has a native scroll viewport")
+            return
+        }
+        let clip = scroll.contentView
+        // SwiftUI estimates a lazy stack's height. Scroll to the final ID so it can
+        // materialize the destination before checking the native viewport.
+        scrollTarget.send(tasks[tasks.count - 1].selectionIdentity)
+        settle()
+        let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        settle()
+        let visibleActions = descendants(host).compactMap { $0 as? PointerCursorRegionView }.filter {
+            !$0.convert($0.bounds, to: clip).intersection(clip.bounds).isEmpty
+        }
+        expect(clip.bounds.minY > 20_000, "date-only viewport can reach the tail of the large list")
+        expect(!visibleActions.isEmpty, "task controls at the end intersect the viewport (clip \(clip.bounds))")
     }
 }
 

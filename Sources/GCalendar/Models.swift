@@ -5,6 +5,11 @@ struct DateOnly: Codable, Hashable, Comparable, CustomStringConvertible {
     let year: Int
     let month: Int
     let day: Int
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
 
     init(year: Int, month: Int, day: Int) {
         self.year = year
@@ -21,18 +26,10 @@ struct DateOnly: Codable, Hashable, Comparable, CustomStringConvertible {
               let year = Int(parts[0]),
               let month = Int(parts[1]),
               let day = Int(parts[2]) else { return nil }
-        var components = DateComponents()
-        components.calendar = Calendar(identifier: .gregorian)
-        components.timeZone = TimeZone(secondsFromGMT: 0)
-        components.year = year
-        components.month = month
-        components.day = day
-        guard components.calendar?.date(from: components) != nil,
-              (1...12).contains(month),
-              (1...31).contains(day) else { return nil }
-        let calendar = Calendar(identifier: .gregorian)
-        let date = calendar.date(from: components)!
-        let verified = calendar.dateComponents(in: TimeZone(secondsFromGMT: 0)!, from: date)
+        let calendar = Self.utcCalendar
+        guard (1...12).contains(month), (1...31).contains(day),
+              let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return nil }
+        let verified = calendar.dateComponents([.year, .month, .day], from: date)
         guard verified.year == year, verified.month == month, verified.day == day else { return nil }
         self.init(year: year, month: month, day: day)
     }
@@ -314,7 +311,11 @@ enum CalendarContentAvailability {
     }
 
     static func state(events: [CalendarEvent], tasks: [GoogleTask], rangeCovered: Bool, hasSearch: Bool) -> CalendarContentState {
-        guard isEmpty(events: events, tasks: tasks) else { return .hasContent }
+        state(isEmpty: isEmpty(events: events, tasks: tasks), rangeCovered: rangeCovered, hasSearch: hasSearch)
+    }
+
+    static func state(isEmpty: Bool, rangeCovered: Bool, hasSearch: Bool) -> CalendarContentState {
+        guard isEmpty else { return .hasContent }
         guard rangeCovered else { return .unknownRange }
         if hasSearch { return .noResults }
         return .emptyRange
@@ -338,19 +339,24 @@ struct DateRange: Equatable {
 }
 
 enum ISO8601 {
+    private static let lock = NSLock()
+    private static let fractional = makeFormatter(fractionalSeconds: true)
+    private static let standard = makeFormatter(fractionalSeconds: false)
+
     static func parse(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-        return standard.date(from: value)
+        lock.lock(); defer { lock.unlock() }
+        return fractional.date(from: value) ?? standard.date(from: value)
     }
 
-    static func format(_ date: Date) -> String {
+    static func format(_ date: Date, fractionalSeconds: Bool = true) -> String {
+        lock.lock(); defer { lock.unlock() }
+        return (fractionalSeconds ? fractional : standard).string(from: date)
+    }
+
+    private static func makeFormatter(fractionalSeconds: Bool) -> ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.formatOptions = fractionalSeconds ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
+        return formatter
     }
 }

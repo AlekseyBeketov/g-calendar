@@ -224,3 +224,10 @@ Implement without computer-use. Each feature receives a separate verified commit
 ## 29. Google account photo (2026-10-17)
 
 - [x] 29.1 Request optional OpenID Connect profile permission at explicit sign-in, load the active subject's name/photo in the background, preserve old credentials and system-avatar fallback, verify scope/security/thumbnail/UI fixtures, rebuild and push a separate main commit. Invariants: 1169; offscreen sidebar/avatar: 197; current-source app build and strict OpenSpec validation passed.
+
+## 30. Large task collections and calendar responsiveness (2026-11-24)
+
+- [x] 30.1 Evaluate fast-anything v0.8.7 at `1fdf12ef68defc80e2624c5c5bcd94be70c90641`. The repository-local package matches the reviewed files, installed with the owner's exception for SkillSpector's missing generated references. The upstream Python fixture passed 33/33 checks and the CLI restored the original source byte for byte after the benchmark. Swift is outside the CLI's supported languages.
+- [x] 30.2 Reuse ordered task presentation across unrelated updates, keep stable task identities and lay out date headings and cards in one lazy stack. Check scope, search, filters, dates, sort order and keyboard behavior against synthetic fixtures.
+- [x] 30.3 Render visible date-only calendar items lazily and reuse timestamp formatters at the Google boundary. Verify the calendar can show the final item by ID and that offsets, fractions, invalid timestamps and exact read-back semantics remain consistent.
+- [x] 30.4 Verify the optimized build with offscreen task scrolling, keyboard selection and the last task in both list and column layouts. Run 1,466 model assertions, 992 native assertions, 123 task workspace assertions, 13 drag/drop assertions and 197 sidebar assertions. Rebuild `dist/g-calendar.app`. [Measurements and commands](../../../docs/ASYNC_OPTIMIZATION.md#синтетические-замеры-2026-11-24)

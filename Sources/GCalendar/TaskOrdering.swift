@@ -182,7 +182,10 @@ struct TaskDateGroup: Identifiable, Equatable {
 
 extension TaskOrdering {
     static func dateGroups(_ tasks: [GoogleTask], today: DateOnly) -> [TaskDateGroup] {
-        let ordered = sorted(tasks.filter { !$0.deleted }, mode: .date)
+        dateGroups(fromSortedTasks: sorted(tasks.filter { !$0.deleted }, mode: .date), today: today)
+    }
+
+    static func dateGroups(fromSortedTasks ordered: [GoogleTask], today: DateOnly) -> [TaskDateGroup] {
         let active = ordered.filter { !$0.completed }
         var groups: [TaskDateGroup] = []
         let overdue = active.filter { $0.due.map { $0 < today } ?? false }
@@ -193,10 +196,11 @@ extension TaskOrdering {
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "d MMMM yyyy"
+        let tomorrow = today.adding(days: 1)
         for day in byDate.keys.sorted() {
             let title: String
             if day == today { title = "Сегодня" }
-            else if day == today.adding(days: 1) { title = "Завтра" }
+            else if day == tomorrow { title = "Завтра" }
             else { title = day.startOfDay(in: formatter.timeZone).map(formatter.string(from:)) ?? day.description }
             groups.append(TaskDateGroup(id: "date:" + day.description, title: title, tasks: byDate[day] ?? [], isToday: day == today))
         }

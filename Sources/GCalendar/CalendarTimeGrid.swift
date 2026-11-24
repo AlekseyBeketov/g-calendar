@@ -115,14 +115,6 @@ struct CalendarTimeGridDay: View {
         CalendarTimeGridLayout.allDayEvents(events, on: day, timeZone: timeZone)
     }
 
-    private var timedEvents: [CalendarEvent] {
-        events.filter { !$0.isAllDay }
-    }
-
-    private var placements: [CalendarTimedPlacement] {
-        CalendarTimeGridLayout.timedPlacements(timedEvents, on: day, timeZone: timeZone, minimumEventHeight: typography.policy.minimumHeight)
-    }
-
     private var dayInterval: CalendarDayInterval? {
         CalendarTimeGridLayout.dayInterval(containing: day, timeZone: timeZone)
     }
@@ -156,19 +148,21 @@ struct CalendarTimeGridDay: View {
     }
 
     var dateOnlyArea: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 5) {
+        let allDayEvents = allDayEvents
+        let calendars = calendarByID
+        return ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 5) {
                 if !allDayEvents.isEmpty {
                     Label("Весь день", systemImage: "sun.max.fill")
                         .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.textSecondary)
                     ForEach(allDayEvents, id: \.identity) { event in
-                        eventButton(event, compact: true)
+                        eventButton(event, calendar: calendars[event.calendarID])
                     }
                 }
                 if !tasks.isEmpty {
                     Label("Задачи · срок без времени", systemImage: "checklist")
                         .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.task)
-                    ForEach(tasks) { task in
+                    ForEach(tasks, id: \.selectionIdentity) { task in
                         Button { onToggleTask(task) } label: {
                             HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
@@ -193,26 +187,20 @@ struct CalendarTimeGridDay: View {
         .background(AppTheme.canvas.opacity(0.72))
     }
 
-    private func eventButton(_ event: CalendarEvent, compact: Bool) -> some View {
-        let calendar = calendarByID[event.calendarID]
+    private func eventButton(_ event: CalendarEvent, calendar: CalendarInfo?) -> some View {
         let writable = calendar?.isWritable == true && !event.recurring
         return Button { onEdit(event) } label: {
             HStack(alignment: .top, spacing: 6) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color(hex: calendar?.colorHex) ?? AppTheme.event)
                     .frame(width: 3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title).font(.caption.weight(.medium)).foregroundStyle(AppTheme.textPrimary).lineLimit(compact ? 2 : 1)
-                    if !compact, let calendar {
-                        Text(calendar.title).font(.caption2).foregroundStyle(AppTheme.textPrimary).lineLimit(1)
-                    }
-                }
+                Text(event.title).font(.caption.weight(.medium)).foregroundStyle(AppTheme.textPrimary).lineLimit(2)
                 Spacer(minLength: 0)
                 if !writable { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(AppTheme.textSecondary) }
             }
             .padding(.horizontal, 5)
-            .padding(.vertical, compact ? 3 : 2)
-            .frame(maxWidth: .infinity, minHeight: compact ? 26 : 18, alignment: .leading)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
             .background((Color(hex: calendar?.colorHex) ?? AppTheme.event).opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }.pointingHandCursor()
@@ -222,13 +210,19 @@ struct CalendarTimeGridDay: View {
     }
 
     private var timeGrid: some View {
-        Group {
+        let typography = typography
+        return Group {
             if let dayInterval {
+                let timedEvents = events.filter { !$0.isAllDay }
                 let eventsByIdentity = Dictionary(timedEvents.map { ($0.identity, $0) }, uniquingKeysWith: { first, _ in first })
+                let calendars = calendarByID
+                let placements = CalendarTimeGridLayout.timedPlacements(timedEvents, on: day, timeZone: timeZone,
+                                                                        minimumEventHeight: typography.policy.minimumHeight)
+                let hourMarks = CalendarTimeGridLayout.hourMarks(for: dayInterval, timeZone: timeZone)
                 let height = CGFloat(dayInterval.durationMinutes) * pointsPerMinute
                 GeometryReader { geometry in
                     ZStack(alignment: .topLeading) {
-                        ForEach(CalendarTimeGridLayout.hourMarks(for: dayInterval, timeZone: timeZone)) { mark in
+                        ForEach(hourMarks) { mark in
                             Rectangle()
                                 .fill(AppTheme.outline.opacity(0.30))
                                 .frame(height: 1)
@@ -238,7 +232,7 @@ struct CalendarTimeGridDay: View {
                             if let event = eventsByIdentity[placement.identity] {
                                 let availableWidth = max(0, geometry.size.width - 4)
                                 let laneWidth = availableWidth / CGFloat(max(placement.laneCount, 1))
-                                let calendar = calendarByID[event.calendarID]
+                                let calendar = calendars[event.calendarID]
                                 CalendarTimedEventCard(event: event, calendar: calendar, timeZone: timeZone,
                                     placement: placement, width: max(8, laneWidth - 2),
                                     height: CGFloat(CalendarTimedCardLayout.displayHeight(durationMinutes: placement.durationMinutes, minimumHeight: typography.policy.minimumHeight)),
@@ -260,11 +254,7 @@ struct CalendarTimeGridDay: View {
 
 
     private func formattedDay(_ date: Date, template: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate(template)
-        return formatter.string(from: date)
+        CalendarDisplayFormatting.string(date, template: template, timeZone: timeZone)
     }
 
 }
@@ -324,7 +314,7 @@ struct CalendarUndatedTaskRegion: View {
             if !isCollapsed {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), alignment: .leading)], alignment: .leading, spacing: 6) {
-                        ForEach(tasks) { task in
+                        ForEach(tasks, id: \.selectionIdentity) { task in
                             Button { onToggleTask(task) } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")

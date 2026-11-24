@@ -71,7 +71,7 @@ struct CalendarMonthView: View {
             ForEach(visibleEvents, id: \.identity) { event in
                 eventButton(event)
             }
-            ForEach(visibleTasks) { task in
+            ForEach(visibleTasks, id: \.selectionIdentity) { task in
                 Button { onToggleTask(task) } label: {
                     HStack(spacing: 4) {
                         Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
@@ -115,6 +115,7 @@ struct CalendarMonthView: View {
 
     private func eventButton(_ event: CalendarEvent) -> some View {
         let calendar = calendars.first { $0.id == event.calendarID }
+        let time = CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: timeZone)
         return Button { onEdit(event) } label: {
             HStack(spacing: 4) {
                 RoundedRectangle(cornerRadius: 2).fill(Color(hex: calendar?.colorHex) ?? AppTheme.event)
@@ -133,8 +134,8 @@ struct CalendarMonthView: View {
             .contentShape(Rectangle())
         }.pointingHandCursor()
         .buttonStyle(.plain)
-        .accessibilityLabel("\(event.title), \(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: timeZone))")
-        .help("\(event.title) · \(CalendarEventAccessibilityText.timeDescription(for: event, fallbackTimeZone: timeZone))")
+        .accessibilityLabel("\(event.title), \(time)")
+        .help("\(event.title) · \(time)")
     }
 
     private func formatted(_ date: Date, template: String) -> String {

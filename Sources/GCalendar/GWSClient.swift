@@ -150,13 +150,10 @@ struct GWSCommandFactory {
     // submitted draft before journaling; exact read-back remains strict.
     private func eventBodyAtSecondPrecision(_ body: [String: Any]) throws -> [String: Any] {
         var result = body
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
         for key in ["start", "end"] {
             guard var value = body[key] as? [String: Any], let timestamp = value["dateTime"] as? String else { continue }
             guard let instant = ISO8601.parse(timestamp) else { throw GWSFailure.invalidInput("event_time") }
-            value["dateTime"] = formatter.string(from: instant)
+            value["dateTime"] = ISO8601.format(instant, fractionalSeconds: false)
             result[key] = value
         }
         return result

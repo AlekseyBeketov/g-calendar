@@ -287,6 +287,8 @@ struct InvariantTests {
         run("notification-status-user-facing-copy", testNotificationStatusCopy)
         run("sync-failure-recovery-category", testSyncFailureState)
         run("local-task-projection-performance-baseline", testTaskProjectionBaseline)
+        run("task-workspace-projection-parity", testTaskWorkspaceProjectionParity)
+        run("google-date-decoding-parity-and-throughput", testGoogleTimeDecodingPerformance)
         run("large-board-row-shift-availability-budget", testTaskShiftAvailabilityBudget)
         await runAsync("demo-runtime-isolated-from-cache-process-and-notifications", testDemoRuntimeIsolation)
         run("calendar-time-grid-all-day-overlap-identity", testCalendarTimeGridLayout)
@@ -959,6 +961,81 @@ struct InvariantTests {
             return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         }.sorted()
         return (samples[4], samples[8])
+    }
+
+    static func testTaskWorkspaceProjectionParity() throws {
+        let today = DateOnly(rawValue: "2026-06-15")!
+        let lists = [TaskList(id: "a", title: "First", updated: nil), TaskList(id: "b", title: "Second", updated: nil)]
+        let tasks = lists.flatMap { list in
+            (0..<48).map { index in
+                GoogleTask(id: "task-\(index)", taskListID: list.id, title: index.isMultiple(of: 2) ? "Needle \(index)" : "Other \(index)", notes: nil,
+                           due: index.isMultiple(of: 7) ? nil : today.adding(days: index % 12 - 2), completed: index.isMultiple(of: 5),
+                           deleted: index.isMultiple(of: 13), updated: nil,
+                           position: String(format: "%02d", 48 - index), parent: index % 4 == 1 ? "task-\(index - 1)" : nil)
+            }
+        }
+        var snapshot = WorkspaceSnapshot.empty
+        snapshot.taskLists = lists
+        snapshot.tasks = tasks
+
+        func verify(_ rows: TaskBoardRowsContent, tasks: [GoogleTask]) throws {
+            let shown = rows.items.compactMap { item -> GoogleTask? in
+                if case .task(let task) = item { return task }
+                return nil
+            }
+            try check(shown == tasks && rows.identities == tasks.map(\.selectionIdentity), "display and keyboard retain the original task order")
+            try check(Set(rows.items.map(\.id)).count == rows.items.count, "headings and task identities are distinct even with repeated IDs across lists")
+            if rows.sortMode == .date {
+                let headings = rows.items.compactMap { item -> String? in
+                    if case .dateHeading(let group, _) = item { return group.id }
+                    return nil
+                }
+                try check(headings == TaskOrdering.dateGroups(tasks, today: today).map(\.id), "date headings preserve grouping and order")
+            } else {
+                try check(rows.items.contains { $0.id == .completedHeading } == tasks.contains(where: \.completed), "manual and title sorts keep the completed divider")
+            }
+        }
+        for todayScope in [nil, "a"] as [String?] {
+            for filter in TaskWorkspaceFilter.allCases {
+                for mode in TaskSortMode.allCases {
+                    var preferences = TaskWorkspacePreferences(sortModes: ["a": mode, "b": .manual], boardOrder: ["b", "a"])
+                    preferences.allTasksSortMode = mode
+                    let projection = TaskWorkspaceProjection(snapshot: snapshot, preferences: preferences, selectedListID: todayScope,
+                                                             filter: filter, searchText: "needle", today: today)
+                    let visible = TaskWorkspaceLayout.filteredTasks(tasks, filter: filter, selectedTaskListID: todayScope, searchText: "needle", today: today)
+                    let boards = TaskWorkspaceLayout.boardGroups(visible, lists: preferences.orderedBoards(lists).filter { todayScope == nil || $0.id == todayScope })
+                    try check(projection.boardGroups.map(\.id) == boards.map(\.id), "scope and board preferences preserve board order")
+                    let ordered = boards.flatMap { board in TaskOrdering.sorted(board.tasks, mode: preferences.sortMode(for: board.id)) }
+                    try check(projection.columnTasks == ordered && projection.columnIdentities == ordered.map(\.selectionIdentity), "columns retain per-board sort and keyboard order")
+                    for (actual, reference) in zip(projection.boardGroups, boards) {
+                        try verify(projection.rows(for: actual), tasks: TaskOrdering.sorted(reference.tasks, mode: preferences.sortMode(for: reference.id)))
+                    }
+                    try verify(projection.unifiedRows, tasks: TaskOrdering.sorted(ordered, mode: mode))
+                }
+            }
+        }
+    }
+
+    static func testGoogleTimeDecodingPerformance() throws {
+        let samples = ["2026-11-24T12:34:56Z", "2026-11-24T15:34:56.123+03:00", "2024-02-29T04:35:58.9-04:00", "not-a-date"]
+        func uncached(_ value: String) -> Date? {
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fractional.date(from: value) { return date }
+            let standard = ISO8601DateFormatter()
+            standard.formatOptions = [.withInternetDateTime]
+            return standard.date(from: value)
+        }
+        try check(samples.map(ISO8601.parse) == samples.map(uncached), "API timestamp parsing retains offsets, fractions, and invalid input handling")
+        try check(DateOnly(rawValue: "2000-02-29") != nil && DateOnly(rawValue: "1900-02-29") == nil && DateOnly(rawValue: "2026-04-31") == nil,
+                  "date-only parsing preserves Gregorian validation")
+        let timestamps = (0..<1_024).map { samples[$0 % samples.count] }
+        var before: [Date?] = []
+        var after: [Date?] = []
+        let uncachedTime = measuredSamples { before = timestamps.map(uncached) }
+        let cachedTime = measuredSamples { after = timestamps.map(ISO8601.parse) }
+        try check(before == after, "cached and uncached timestamp parsing produce identical results")
+        print(String(format: "PERF google_timestamp_parse items=%d uncached_p50_ms=%.3f cached_p50_ms=%.3f", timestamps.count, uncachedTime.0, cachedTime.0))
     }
 
     static func testDemoRuntimeIsolation() async throws {

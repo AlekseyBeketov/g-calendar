@@ -202,14 +202,14 @@ enum CalendarTimeGridLayout {
         let formatter = DateFormatter()
         formatter.timeZone = timeZone
         formatter.dateFormat = "HH:mm"
+        let labels = dates.map(formatter.string(from:))
         var counts: [String: Int] = [:]
-        for date in dates { counts[formatter.string(from: date), default: 0] += 1 }
+        for label in labels { counts[label, default: 0] += 1 }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         return dates.enumerated().map { index, date in
-            let base = formatter.string(from: date)
-            let abbreviation = timeZone.abbreviation(for: date) ?? ""
-            let label = counts[base, default: 0] > 1 ? "\(base) \(abbreviation)" : base
+            let base = labels[index]
+            let label = counts[base, default: 0] > 1 ? "\(base) \(timeZone.abbreviation(for: date) ?? "")" : base
             return CalendarHourMark(id: index,
                                     localHour: calendar.component(.hour, from: date),
                                     offsetMinutes: date.timeIntervalSince(interval.start) / 60,
