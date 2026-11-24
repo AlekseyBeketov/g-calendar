@@ -1,6 +1,6 @@
 # Упаковка и выпуск macOS
 
-Текущая сборка — **0.2.0 (build 4), arm64, macOS 13+**. Apple Developer Program не используется. Поддерживаются локальные ad-hoc пакеты и явный режим **unsigned-preview** с подписанной EdDSA лентой и ZIP для Sparkle. EdDSA подтверждает подлинность обновления, но не заменяет Apple notarization или первую проверку Gatekeeper. Публичный Release автоматически не создаётся.
+Текущая сборка — **0.2.1 (build 5), arm64, macOS 13+**. Apple Developer Program не используется. Поддерживаются локальные ad-hoc пакеты и явный режим **unsigned-preview** с подписанной EdDSA лентой и ZIP для Sparkle. EdDSA подтверждает подлинность обновления, но не заменяет Apple notarization или первую проверку Gatekeeper. Публичный Release автоматически не создаётся.
 
 ## Выпустить обновление через GitHub Releases
 

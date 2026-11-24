@@ -2,6 +2,12 @@
 
 User-facing changes are recorded here. Git tags use `vMAJOR.MINOR.PATCH`; each distributed build also has a strictly increasing build number.
 
+## 0.2.1 — 2026-11-25
+
+- Improve scrolling through large task lists and board columns.
+- Load large date-only task lists in the calendar incrementally.
+- Reduce repeated task preparation and speed up parsing Google timestamps.
+
 ## 0.2.0 — Unreleased
 
 - Connect Google directly from a dedicated sign-in screen; Google Workspace CLI is optional.
